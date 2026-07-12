@@ -893,6 +893,89 @@ body.show-start {
   border-color: rgba(255, 105, 140, 0.34);
 }
 
+.mission-command-list {
+  display: grid;
+  gap: 7px;
+  max-height: 230px;
+  overflow: auto;
+  padding-right: 3px;
+}
+
+.mission-command-empty,
+.mission-command-summary,
+.mission-command-item {
+  border: 1px solid rgba(105, 218, 255, 0.18);
+  background: rgba(0, 21, 42, 0.48);
+}
+
+.mission-command-empty {
+  color: rgba(191, 235, 255, 0.72);
+  font-size: 12px;
+  line-height: 1.35;
+  padding: 8px 10px;
+}
+
+.mission-command-summary {
+  display: grid;
+  gap: 3px;
+  padding: 8px 10px;
+}
+
+.mission-command-summary strong {
+  color: #effcff;
+  font-size: 12px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.mission-command-summary span {
+  color: #8fdfff;
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.mission-command-item {
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+  padding: 8px;
+}
+
+.mission-command-index {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border: 1px solid rgba(107, 223, 255, 0.58);
+  background: rgba(18, 83, 124, 0.52);
+  color: #f1fbff;
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.mission-command-item strong {
+  display: block;
+  color: #f3fbff;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+}
+
+.mission-command-item p {
+  margin: 2px 0 3px;
+  color: #b9ecff;
+  font-size: 12px;
+  line-height: 1.32;
+}
+
+.mission-command-item em {
+  color: #73d6ff;
+  font-size: 10px;
+  font-style: normal;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
 .replay-tabs-head {
   display: flex;
   align-items: center;

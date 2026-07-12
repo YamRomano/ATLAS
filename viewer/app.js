@@ -73,6 +73,7 @@ const selectTargetButton = document.getElementById("select-target");
 const clearTargetButton = document.getElementById("clear-target");
 const startMissionButton = document.getElementById("start-mission");
 const targetStatus = document.getElementById("target-status");
+const missionCommandList = document.getElementById("mission-command-list");
 const safetyBarrierPanel = document.getElementById("safety-barrier-panel");
 const addBarrierButton = document.getElementById("add-barrier");
 const adjustWallsButton = document.getElementById("adjust-walls");
@@ -119,6 +120,8 @@ let pathPlaybackActive = false;
 let pathPlaybackStartWallMs = 0;
 let pathPlaybackStartTimeSec = 0;
 let pathPlaybackEndTimeSec = 0;
+const MISSION_AUTONOMY_SPEED_LIMIT_MPS = 0.25;
+const MISSION_RELOCALIZE_HOVER_SECONDS = 1.5;
 const previewSceneCache = new Map();
 const previewZoomByMap = new Map();
 let view = {
@@ -1434,6 +1437,7 @@ function resetLocalizationGate(options = {}) {
     missionTarget = null;
     missionSelecting = false;
     selectTargetButton?.classList.remove("active");
+    renderMissionCommands([]);
   }
   updateFlightControlState();
   updateMissionStatus();
@@ -1769,10 +1773,12 @@ function addBarrierFromPickedPoint(picked) {
 
 function planMissionPreview() {
   if (!missionTarget?.rxyz) {
+    renderMissionCommands([]);
     updateMissionStatus("Pick an existing COLMAP point before planning.");
     return;
   }
-  const speed = Number(missionSpeedSelect?.value || 0.4);
+  const requestedSpeed = Number(missionSpeedSelect?.value || 0.4);
+  const speed = missionCommandSpeed(requestedSpeed);
   const profile = missionLandingProfile(missionTarget.rxyz);
   const currentPoseReady = Boolean(closestPose()?.rcenter);
   let routePlan = null;
@@ -1784,6 +1790,7 @@ function planMissionPreview() {
     distance = routePlan.distance;
     if (routePlan.blocked) {
       plannedMission = null;
+      renderMissionCommands([]);
       updateMissionStatus(`Mission blocked by safety wall. ${routePlan.reason || safety.reason}`);
       updateFlightControlState();
       return;
@@ -1797,19 +1804,23 @@ function planMissionPreview() {
     route_segments: routePlan?.segments || null,
     detoured: Boolean(routePlan?.detoured),
     speed,
+    requested_speed: requestedSpeed,
     distance,
     safety,
     pending_current_pose: !currentPoseReady,
     created_at: Date.now(),
   };
+  plannedMission.commands = buildMissionCommandPlan(plannedMission);
+  renderMissionCommands(plannedMission.commands);
   const distText = distance == null ? "distance pending until first live R,t" : `${distance.toFixed(2)} map units`;
   const clearanceText = safety.nearest
     ? ` Nearest wall clearance: ${safety.nearest.distance.toFixed(2)} map units.`
     : "";
   const actionText = profile?.targetLooksGround ? "horizontal approach above the point, then land" : "horizontal approach, then descend";
   const detourText = routePlan?.detoured ? " with a safety-wall detour" : "";
+  const speedText = requestedSpeed > speed + 1e-6 ? `${speed.toFixed(2)} m/s indoor cap` : `${speed.toFixed(2)} m/s`;
   const gateText = firstLocalizationConfirmed ? "Confirm before any autonomous command." : "Start live localization and confirm first R,t before execution.";
-  updateMissionStatus(`Preflight path saved${detourText}: ${actionText} at ${speed.toFixed(1)} m/s (${distText}).${clearanceText} ${gateText}`);
+  updateMissionStatus(`Preflight path saved${detourText}: ${actionText} at ${speedText} (${distText}).${clearanceText} ${gateText}`);
   updateFlightControlState();
 }
 
@@ -1873,6 +1884,7 @@ async function stopLiveAtlas() {
   liveAtlasPreviewActive = false;
   firstLocalizationConfirmed = false;
   plannedMission = null;
+  renderMissionCommands([]);
   updateFlightControlState();
   await pollStatus();
 }
@@ -2886,6 +2898,114 @@ function planWallAwareRoute(target = missionTarget?.rxyz, cur = closestPose()) {
   };
 }
 
+function missionCommandSpeed(speed = missionSpeedSelect?.value) {
+  const raw = Number(speed || 0.2);
+  return Math.max(0.05, Math.min(MISSION_AUTONOMY_SPEED_LIMIT_MPS, Number.isFinite(raw) ? raw : 0.2));
+}
+
+function routeHeadingDeg(a, b) {
+  if (!a || !b) return 0;
+  return Math.atan2(b[2] - a[2], b[0] - a[0]) * 180 / Math.PI;
+}
+
+function formatCommandPoint(point) {
+  if (!point) return "-";
+  return point.map(v => Number(v).toFixed(2)).join(", ");
+}
+
+function buildMissionCommandPlan(mission = plannedMission) {
+  if (!mission?.route?.length || mission.route.length < 2) return [];
+  const speed = missionCommandSpeed(mission.speed);
+  const requestedSpeed = Number(mission.requested_speed || mission.speed || speed);
+  const speedCapped = Number.isFinite(requestedSpeed) && requestedSpeed > speed + 1e-6;
+  const profile = mission.profile || missionLandingProfile(mission.target)?.mode;
+  const commands = [
+    {
+      type: "gate",
+      title: "User gate",
+      detail: "Use only after takeoff, first TSolve R,t is visible, and localization is confirmed.",
+      safety: "manual-confirm",
+    },
+  ];
+
+  for (let i = 1; i < mission.route.length; i++) {
+    const a = mission.route[i - 1];
+    const b = mission.route[i];
+    const d = norm(sub(b, a));
+    if (d <= 1e-5) continue;
+    const heading = routeHeadingDeg(a, b);
+    const isFinalVertical = Math.abs(a[0] - b[0]) < 1e-5
+      && Math.abs(a[2] - b[2]) < 1e-5
+      && Math.abs(a[1] - b[1]) > 1e-5;
+    if (isFinalVertical) {
+      commands.push({
+        type: profile === "horizontal-approach-then-land" ? "land" : "descend",
+        title: profile === "horizontal-approach-then-land" ? "Land" : "Vertical descend",
+        detail: profile === "horizontal-approach-then-land"
+          ? `Land above destination ${formatCommandPoint(b)}.`
+          : `Descend slowly to selected height at ${formatCommandPoint(b)}.`,
+        duration_s: Math.max(2.0, d / Math.max(0.05, speed * 0.5)),
+        safety: "vertical-only",
+      });
+      continue;
+    }
+
+    commands.push({
+      type: "yaw",
+      title: `Yaw to segment ${i}`,
+      detail: `Face ${heading.toFixed(1)} degrees toward waypoint ${i}.`,
+      duration_s: 1.0,
+      safety: "slow-yaw",
+    });
+    commands.push({
+      type: "cruise",
+      title: `Slow cruise ${i}`,
+      detail: `Move ${d.toFixed(2)} map units to ${formatCommandPoint(b)} at ${speed.toFixed(2)} m/s.`,
+      distance: d,
+      duration_s: d / speed,
+      safety: speedCapped ? `speed capped from ${requestedSpeed.toFixed(2)} m/s` : "indoor-speed",
+    });
+    commands.push({
+      type: "hover",
+      title: "Hover and re-localize",
+      detail: "Stop, hold position, wait for TSolve R,t, and only then continue.",
+      duration_s: MISSION_RELOCALIZE_HOVER_SECONDS,
+      safety: "pose-check",
+    });
+  }
+  return commands;
+}
+
+function renderMissionCommands(commands = plannedMission?.commands || []) {
+  if (!missionCommandList) return;
+  if (!commands?.length) {
+    missionCommandList.innerHTML = '<div class="mission-command-empty">Plan a path to preview guarded slow movement commands.</div>';
+    return;
+  }
+  const totalSeconds = commands.reduce((sum, command) => sum + (Number(command.duration_s) || 0), 0);
+  const rows = commands.map((command, index) => {
+    const duration = Number(command.duration_s);
+    const durationText = Number.isFinite(duration) && duration > 0 ? `${duration.toFixed(1)}s` : "gate";
+    return `
+      <article class="mission-command-item">
+        <span class="mission-command-index">${index + 1}</span>
+        <div>
+          <strong>${escapeHtml(command.title)}</strong>
+          <p>${escapeHtml(command.detail)}</p>
+          <em>${escapeHtml(command.safety || "guarded")} · ${escapeHtml(durationText)}</em>
+        </div>
+      </article>
+    `;
+  }).join("");
+  missionCommandList.innerHTML = `
+    <div class="mission-command-summary">
+      <strong>Slow command preview</strong>
+      <span>${commands.length} guarded steps · ~${totalSeconds.toFixed(1)}s · lateral movement locked until virtual-stick follower is verified</span>
+    </div>
+    ${rows}
+  `;
+}
+
 function missionLandingProfile(target = missionTarget?.rxyz, cur = closestPose()) {
   if (!target) return null;
   const approach = missionApproachPoint(target, cur);
@@ -2972,6 +3092,7 @@ function updateMissionTargetFromPointer(clientX, clientY) {
   if (!next) return false;
   missionTarget = { rxyz: next, rgb: missionTarget.rgb || null };
   plannedMission = null;
+  renderMissionCommands([]);
   updateMissionStatus();
   return true;
 }
@@ -3375,6 +3496,7 @@ function replaceBarrierInCurrentMap(barrierId, updater) {
   const libEntry = (mapLibraryData.maps || []).find(m => m.id === currentMapEntry?.id);
   if (libEntry) libEntry.safety_barriers = next;
   plannedMission = null;
+  renderMissionCommands([]);
   invalidateStaticLayer();
   return next;
 }
@@ -4890,6 +5012,7 @@ canvas.addEventListener("click", e => {
   }
   missionTarget = { rxyz: picked.rxyz, rgb: picked.rgb || null };
   plannedMission = null;
+  renderMissionCommands([]);
   missionSelecting = false;
   selectTargetButton?.classList.remove("active");
   updateMissionStatus();
@@ -4941,6 +5064,7 @@ selectTargetButton?.addEventListener("click", () => {
 clearTargetButton?.addEventListener("click", () => {
   missionTarget = null;
   plannedMission = null;
+  renderMissionCommands([]);
   missionSelecting = false;
   selectTargetButton?.classList.remove("active");
   updateMissionStatus();
@@ -4965,13 +5089,15 @@ startMissionButton?.addEventListener("click", () => {
     : missionBarrierCheck(missionTarget.rxyz);
   if (safety.blocked) {
     plannedMission = null;
+    renderMissionCommands([]);
     updateMissionStatus(`Mission blocked by safety wall. ${safety.reason}`);
     updateFlightControlState();
     return;
   }
-  const profile = missionLandingProfile(missionTarget.rxyz);
-  const landingText = profile?.targetLooksGround ? "land at the ground target" : "descend to the selected point";
-  updateMissionStatus(`Mission confirmed as preview only: yaw toward segment, cruise to approach point, hover, then ${landingText}. Autonomous TSolve-to-RC path following remains locked until verified; takeoff/land are live.`);
+  plannedMission.commands = buildMissionCommandPlan(plannedMission);
+  renderMissionCommands(plannedMission.commands);
+  const commandCount = plannedMission.commands?.length || 0;
+  updateMissionStatus(`Mission command plan confirmed: ${commandCount} slow guarded steps are visible below. Takeoff, land, and hover are live; lateral autonomous movement remains locked until the TSolve-to-RC follower is calibrated indoors.`);
 });
 addBarrierButton?.addEventListener("click", () => {
   if (barrierUnsaved) {
@@ -4983,6 +5109,7 @@ addBarrierButton?.addEventListener("click", () => {
   barrierDraft = null;
   missionSelecting = false;
   plannedMission = null;
+  renderMissionCommands([]);
   selectTargetButton?.classList.remove("active");
   addBarrierButton.classList.add("active");
   if (cancelBarrierButton) cancelBarrierButton.disabled = false;
@@ -5041,6 +5168,7 @@ clearBarriersButton?.addEventListener("click", () => {
   if (!mapSafetyBarriers().length) return;
   if (!window.confirm("Clear all manual safety walls for this 3D map?")) return;
   plannedMission = null;
+  renderMissionCommands([]);
   saveSafetyBarriers([]);
 });
 djiTakeoffButton?.addEventListener("click", async () => {
