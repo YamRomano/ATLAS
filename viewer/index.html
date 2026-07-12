@@ -1,0 +1,242 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ATLAS Demo</title>
+  <link rel="stylesheet" href="style.css?v=89" />
+</head>
+<body class="show-start">
+  <header class="atlas-topbar" aria-label="ATLAS navigation">
+    <img class="atlas-corner-app-icon" src="public/branding/atlas-topbar-app-icon.png" alt="" />
+    <button id="nav-back" class="nav-back" type="button" disabled>Back</button>
+    <button id="atlas-home" class="atlas-home" type="button" aria-label="Return to ATLAS start page">
+      <img class="atlas-top-wordmark" src="public/branding/atlas-wordmark-clean.png" alt="ATLAS" />
+      <span class="atlas-top-caption">Autonomous Tracking and Localization using Aerial Sensing</span>
+    </button>
+    <span id="atlas-screen-label"></span>
+    <img class="atlas-corner-symbol" src="public/branding/atlas-space-symbol.png" alt="" />
+  </header>
+
+  <section id="start-page" class="start-page">
+    <div class="start-shell">
+      <div class="start-copy">
+        <p class="eyebrow">Aerial localization console</p>
+      </div>
+
+      <section class="library-panel" aria-labelledby="library-title">
+        <div class="library-head">
+          <div>
+            <h2 id="library-title">3D Map Library</h2>
+            <p>Select an existing patrol map, add drone replay video, or create a new COLMAP map.</p>
+          </div>
+          <button id="collapse-library" class="panel-collapse" type="button" aria-expanded="true">Minimize</button>
+        </div>
+
+        <div id="map-library" class="map-library">
+          <div id="map-card-list" class="map-card-list" aria-live="polite"></div>
+          <article class="map-card upload-card">
+            <div class="map-preview create-map-preview">
+              <div class="upload-symbol">+</div>
+              <span>new 3D map</span>
+            </div>
+            <div class="map-card-body">
+              <h3>Create Dense 3D Map</h3>
+              <p>Build the sparse localization map and a dense COLMAP viewer cloud from uploaded video or the live PC camera.</p>
+              <button id="create-map" class="primary-action">Create Map</button>
+              <span id="upload-status">Ready for map input</span>
+            </div>
+          </article>
+        </div>
+
+        <section id="live-mapping-panel" class="live-mapping-panel hidden" aria-label="live camera mapping">
+          <div class="live-mapping-head">
+            <div>
+              <h3>Live Camera Mapping</h3>
+              <p id="live-map-caption">Waiting for camera frames.</p>
+            </div>
+            <button id="stop-mapping" class="danger-action">Stop Mapping</button>
+          </div>
+          <div class="live-mapping-grid">
+            <div class="live-camera-card">
+              <img id="live-camera-feed" alt="live mapping camera feed" />
+              <span>camera view</span>
+            </div>
+            <div class="live-render-card">
+              <canvas id="live-build-preview" aria-label="live 3D reconstruction preview"></canvas>
+              <span>live 3D build preview</span>
+            </div>
+          </div>
+        </section>
+      </section>
+    </div>
+    <section class="pipeline-status" aria-live="polite">
+      <div class="console-summary">
+        <div class="console-title-row">
+          <h3>Backend Console</h3>
+          <button id="collapse-console" class="panel-collapse" type="button" aria-expanded="true">Minimize</button>
+        </div>
+        <div class="console-lines">
+          <p id="map-status">Map: idle</p>
+          <p id="drone-status">Drone replay: idle</p>
+        </div>
+      </div>
+      <pre id="job-log">Create a map, enhance a map, or upload a drone video from a map card.</pre>
+      <div class="dji-live-card hidden">
+        <div class="dji-live-head">
+          <h3>Live DJI Stream</h3>
+          <span id="dji-live-state">waiting</span>
+        </div>
+        <img id="dji-live-feed" alt="DJI live camera frame" />
+        <p id="dji-live-meta">Start the DJI bridge to preview real drone frames here.</p>
+      </div>
+    </section>
+  </section>
+
+  <div id="map-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="map-modal-title">
+    <div class="modal-card">
+      <h2 id="map-modal-title">Create Dense 3D Map</h2>
+      <p>ATLAS builds a sparse COLMAP map for localization and attempts dense fusion for the 3D viewer.</p>
+      <div class="modal-actions">
+        <label class="modal-action">
+          Upload Video
+          <input id="map-video-upload" type="file" accept="video/*" multiple />
+        </label>
+        <button id="live-map">Create Live</button>
+      </div>
+      <button id="close-map-modal" class="secondary-action">Cancel</button>
+    </div>
+  </div>
+
+  <div id="video-library-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="video-library-title">
+    <div class="modal-card video-library-card">
+      <div class="modal-title-row">
+        <div>
+          <h2 id="video-library-title">Video Map Library</h2>
+          <p id="video-library-subtitle">Mapping videos used to build this 3D map.</p>
+        </div>
+        <button id="close-video-library-modal" class="modal-close" type="button" aria-label="Close video map library">×</button>
+      </div>
+      <div id="video-library-list" class="video-library-list"></div>
+    </div>
+  </div>
+
+  <main id="demo-app" class="app" aria-hidden="true">
+    <section class="map-pane">
+      <canvas id="map"></canvas>
+      <canvas id="drone3d" aria-hidden="true"></canvas>
+      <details id="live-localization-control" class="live-localization-control live-control-tab" open>
+        <summary>
+          <span>Live Localization Control</span>
+          <b id="live-control-summary">2 FPS</b>
+        </summary>
+        <div class="live-atlas-panel">
+          <div class="live-control-copy">
+            <strong>Live ATLAS</strong>
+            <span>Android DJI stream to TSolve R,t. Future flight commands will live here.</span>
+          </div>
+          <label>
+            Phone IP
+            <input id="live-atlas-phone-ip" type="text" value="192.168.50.235" inputmode="decimal" aria-label="Android phone IP" />
+          </label>
+          <label>
+            Frame Rate
+            <select id="live-atlas-fps" aria-label="Live stream frame rate">
+              <option value="0.5">0.5 FPS</option>
+              <option value="1">1 FPS</option>
+              <option value="2" selected>2 FPS</option>
+              <option value="3">3 FPS</option>
+              <option value="5">5 FPS</option>
+            </select>
+          </label>
+          <button id="start-live-atlas" type="button">Start Live ATLAS</button>
+          <button id="stop-live-atlas" class="danger-action" type="button">Stop Live Localization</button>
+        </div>
+      </details>
+      <div class="axis-controls map-axis-dock" aria-label="axis zoom controls">
+        <span>Axis zoom</span>
+        <button data-axis="x" data-dir="-1">X-</button>
+        <button data-axis="x" data-dir="1">X+</button>
+        <button data-axis="y" data-dir="-1">Y-</button>
+        <button data-axis="y" data-dir="1">Y+</button>
+        <button data-axis="z" data-dir="-1">Z-</button>
+        <button data-axis="z" data-dir="1">Z+</button>
+        <button id="axis-reset">Reset</button>
+      </div>
+      <div class="controls map-control-dock">
+        <button id="start">Play Live Replay</button>
+        <button id="back-library">Map Library</button>
+        <button id="reset">Reset View</button>
+        <button id="view-iso">3D</button>
+        <button id="view-top">Top</button>
+        <button id="view-side">Side</button>
+        <button id="view-drone">Drone View</button>
+        <button id="flip-z">Flip Z</button>
+        <button id="toggle-points">Hide Points</button>
+        <button id="toggle-cameras">Hide Cameras</button>
+      </div>
+    </section>
+    <aside class="side">
+      <div class="video-shell">
+        <video id="video" controls muted playsinline src="public/media/drone_query.mp4"></video>
+        <img id="live-frame-view" class="live-frame-view hidden" alt="live DJI frame used for TSolve localization" />
+        <div id="live-frame-status" class="live-frame-status hidden">Waiting for live DJI frame</div>
+      </div>
+      <div class="side-section dji-live-card side-dji-live hidden">
+        <div class="dji-live-head">
+          <h3>Live DJI Stream</h3>
+          <span id="dji-live-state-side">waiting</span>
+        </div>
+        <img id="dji-live-feed-side" alt="DJI live camera frame" />
+        <p id="dji-live-meta-side">Raw Android MSDK stream. TSolve poses appear below after localization starts.</p>
+      </div>
+      <div class="side-section map-summary-panel">
+        <div class="brand">TSolve Drone Replay</div>
+        <div id="stats">loading...</div>
+      </div>
+      <div id="replay-tabs" class="side-section replay-tabs" aria-label="uploaded drone path tabs">
+        <div class="replay-tabs-head">
+          <span>Drone paths</span>
+          <label class="replay-add">
+            + Add Video
+            <input id="demo-drone-upload" type="file" accept="video/*" />
+          </label>
+        </div>
+        <div id="replay-tab-list" class="replay-tab-list"></div>
+      </div>
+      <div class="side-section mission-panel">
+        <div class="mission-head">
+          <span>Mission Target</span>
+          <button id="select-target">Pick on Map</button>
+        </div>
+        <div id="target-status" class="mission-status">No destination selected.</div>
+        <div class="mission-actions">
+          <button id="clear-target">Clear</button>
+          <button id="start-mission">Start Guided Patrol</button>
+        </div>
+      </div>
+      <div class="panel">
+        <h1>Live Pose</h1>
+        <dl>
+          <dt>Frame time</dt><dd id="pose-time">-</dd>
+          <dt>TSolve total</dt><dd id="pose-total">-</dd>
+          <dt>Action stage</dt><dd id="pose-action">-</dd>
+          <dt>Root stage</dt><dd id="pose-root">-</dd>
+          <dt>Position</dt><dd id="pose-center">-</dd>
+          <dt>TSolve t</dt><dd id="pose-t" class="mono-output">-</dd>
+          <dt>TSolve R</dt><dd id="pose-r" class="matrix-output">-</dd>
+        </dl>
+      </div>
+      <div class="legend">
+        <span><i class="dot footprint"></i> room wireframe</span>
+        <span><i class="dot point"></i> colored COLMAP/LiDAR points</span>
+        <span><i class="dot mapcam"></i> map cameras</span>
+        <span><i class="dot path"></i> height-coded TSolve route</span>
+        <span><i class="dot drone"></i> current DJI drone</span>
+      </div>
+    </aside>
+  </main>
+  <script src="app.js?v=128"></script>
+  <script type="module" src="drone_glb_overlay.js?v=18"></script>
+</body>
+</html>

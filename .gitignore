@@ -1,0 +1,28 @@
+.DS_Store
+__pycache__/
+*.py[cod]
+*.log
+
+# Local/generated ATLAS runtime data
+data/
+results/
+viewer/public/maps/
+viewer/public/live_dji_sessions/
+viewer/public/live_dji/latest.jpg
+viewer/public/live_dji/status.json
+viewer/public/media/
+
+# Local tool installations and environments
+tools/colmap-env/
+tools/micromamba/
+.venv/
+venv/
+
+# COLMAP / SfM generated artifacts
+database.db
+*.bin
+*.ply
+*.mp4
+*.MP4
+*.mov
+*.MOV
