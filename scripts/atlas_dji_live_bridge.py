@@ -22,8 +22,10 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import re
 import signal
 import sys
+import threading
 import time
 import types
 from pathlib import Path
@@ -35,6 +37,10 @@ import cv2
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_OPENDJI_ROOT = Path("/Users/yamromano/Desktop/DJI-MSDK-to-PC-main")
 IMAGE_EXTS = {".jpg", ".jpeg"}
+TAKEOFF_VERTICAL_SPEED = 0.03
+TAKEOFF_STEP_SECONDS = 0.50
+TAKEOFF_MAX_ASSIST_SECONDS = 16.0
+PRE_LAND_STABILIZE_SECONDS = 1.50
 
 
 class StopFlag:
@@ -57,6 +63,165 @@ def atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_text(json.dumps(payload, indent=2, default=str), encoding="utf-8")
     tmp.replace(path)
+
+
+def read_altitude(drone: Any, OpenDJI: Any) -> str | None:
+    try:
+        return drone.getValue(OpenDJI.MODULE_FLIGHTCONTROLLER, "AircraftLocation3D")
+    except Exception:
+        return None
+
+
+def parse_altitude_m(raw: Any) -> float | None:
+    if raw is None:
+        return None
+    if isinstance(raw, dict):
+        value = raw.get("altitude")
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return None
+    text = str(raw).strip()
+    try:
+        value = json.loads(text)
+        if isinstance(value, dict) and "altitude" in value:
+            return float(value["altitude"])
+    except Exception:
+        pass
+    match = re.search(r'"altitude"\s*:\s*([-+]?\d+(?:\.\d+)?)', text)
+    if match:
+        return float(match.group(1))
+    return None
+
+
+def climb_to_requested_height(
+    drone: Any,
+    OpenDJI: Any,
+    altitude_before: Any,
+    target_height_m: Any,
+) -> dict[str, Any]:
+    if target_height_m is None:
+        return {"enabled": False, "reason": "no requested height"}
+    target_height_m = max(0.1, min(2.0, float(target_height_m)))
+    ground_alt = parse_altitude_m(altitude_before)
+    if ground_alt is None:
+        return {
+            "enabled": False,
+            "reason": "altitude telemetry unavailable before takeoff",
+        }
+
+    target_abs = ground_alt + target_height_m
+    time.sleep(3.0)
+    current_raw = read_altitude(drone, OpenDJI)
+    current_alt = parse_altitude_m(current_raw)
+    if current_alt is None:
+        return {
+            "enabled": False,
+            "reason": "altitude telemetry unavailable after takeoff",
+            "target_height_m": target_height_m,
+            "ground_altitude_m": ground_alt,
+            "target_altitude_m": target_abs,
+        }
+    if current_alt >= target_abs - 0.15:
+        return {
+            "enabled": True,
+            "reached": True,
+            "reason": "takeoff altitude already reached requested guard height",
+            "target_height_m": target_height_m,
+            "ground_altitude_m": ground_alt,
+            "target_altitude_m": target_abs,
+            "final_altitude_m": current_alt,
+            "move_steps": 0,
+        }
+
+    steps = 0
+    control_enabled = False
+    last_alt = current_alt
+    started = time.time()
+    try:
+        drone.enableControl(True)
+        control_enabled = True
+        while time.time() - started < TAKEOFF_MAX_ASSIST_SECONDS:
+            current_raw = read_altitude(drone, OpenDJI)
+            current_alt = parse_altitude_m(current_raw)
+            if current_alt is not None:
+                last_alt = current_alt
+                if current_alt >= target_abs - 0.15:
+                    break
+            drone.move(0.0, TAKEOFF_VERTICAL_SPEED, 0.0, 0.0, False)
+            steps += 1
+            time.sleep(TAKEOFF_STEP_SECONDS)
+    finally:
+        try:
+            drone.move(0.0, 0.0, 0.0, 0.0, True)
+        except Exception:
+            pass
+        if control_enabled:
+            try:
+                drone.disableControl(True)
+            except Exception:
+                pass
+
+    return {
+        "enabled": True,
+        "reached": last_alt >= target_abs - 0.15,
+        "target_height_m": target_height_m,
+        "ground_altitude_m": ground_alt,
+        "target_altitude_m": target_abs,
+        "final_altitude_m": last_alt,
+        "move_steps": steps,
+        "elapsed_seconds": time.time() - started,
+    }
+
+
+def execute_control_command(drone: Any, OpenDJI: Any, command: dict[str, Any]) -> dict[str, Any]:
+    name = str(command.get("command", "")).strip().lower()
+    height_m = command.get("height_m")
+    started = time.time()
+    altitude_before = read_altitude(drone, OpenDJI)
+    if name == "takeoff":
+        result = drone.takeoff(True)
+        height_guard = climb_to_requested_height(drone, OpenDJI, altitude_before, height_m)
+    elif name == "land":
+        time.sleep(PRE_LAND_STABILIZE_SECONDS)
+        result = drone.land(True)
+        height_guard = {
+            "enabled": False,
+            "reason": "native DJI landing command; OpenDJI does not expose landing-speed control",
+            "pre_land_stabilize_seconds": PRE_LAND_STABILIZE_SECONDS,
+        }
+    elif name == "enable":
+        result = drone.enableControl(True)
+        height_guard = {"enabled": False, "reason": "not a takeoff command"}
+    elif name == "disable":
+        result = drone.disableControl(True)
+        height_guard = {"enabled": False, "reason": "not a takeoff command"}
+    elif name == "hover":
+        result = drone.move(0, 0, 0, 0, True)
+        height_guard = {"enabled": False, "reason": "not a takeoff command"}
+    else:
+        raise ValueError(f"Unsupported live DJI command: {name}")
+    altitude_after = read_altitude(drone, OpenDJI)
+    note = ""
+    if name == "takeoff" and height_m is not None:
+        note = (
+            "Takeoff command sent. The requested height is enforced with a "
+            "conservative telemetry-based upward-only guard when altitude "
+            "telemetry is available."
+        )
+    return {
+        "ok": True,
+        "id": command.get("id"),
+        "command": name,
+        "height_m": height_m,
+        "result": result,
+        "altitude_before": altitude_before,
+        "altitude_after": altitude_after,
+        "height_guard": height_guard,
+        "note": note,
+        "elapsed_seconds": time.time() - started,
+        "updated_at": time.time(),
+    }
 
 
 def resize_keep_aspect(frame, max_size: int):  # noqa: ANN001
@@ -157,6 +322,8 @@ def main() -> None:
     latest_path = args.public_root / "latest.jpg"
     public_status_path = args.public_root / "status.json"
     session_status_path = session_root / "status.json"
+    control_command_path = args.public_root / "control_command.json"
+    control_status_path = args.public_root / "control_status.json"
     frames_csv = query_dir / "frames.csv"
     metadata_path = session_root / "metadata.json"
 
@@ -179,8 +346,10 @@ def main() -> None:
         "query_frames": str(query_dir),
         "public_latest": str(latest_path),
         "started_at": time.time(),
-        "control_enabled": False,
-        "note": "This bridge receives frames only. It does not send movement commands.",
+        "control_enabled": True,
+        "control_command_path": str(control_command_path),
+        "control_status_path": str(control_status_path),
+        "note": "This bridge receives frames and accepts explicit takeoff/land/hover commands.",
     }
     atomic_write_json(metadata_path, metadata)
 
@@ -202,6 +371,12 @@ def main() -> None:
     first_frame_time: float | None = None
     last_shape: tuple[int, int] | None = None
     last_progress_print = 0.0
+    last_control_id: str | None = None
+    if control_command_path.exists():
+        try:
+            last_control_id = str(json.loads(control_command_path.read_text(encoding="utf-8")).get("id") or "") or None
+        except Exception:
+            last_control_id = None
 
     print("ATLAS DJI live bridge")
     print(f"  phone IP:      {args.phone_ip}")
@@ -209,7 +384,7 @@ def main() -> None:
     print(f"  session root:  {session_root}")
     print(f"  query frames:  {query_dir}")
     print(f"  public status: {public_status_path}")
-    print("  control:       disabled")
+    print(f"  control:       {control_command_path}")
     print("Press Ctrl-C to stop.\n")
 
     try:
@@ -223,8 +398,80 @@ def main() -> None:
             )
             atomic_write_json(public_status_path, status)
             atomic_write_json(session_status_path, status)
+            control_lock = threading.Lock()
+            control_busy = False
+
+            def control_worker(command_payload: dict[str, Any]) -> None:
+                nonlocal control_busy
+                try:
+                    control_result = execute_control_command(drone, OpenDJI, command_payload)
+                    atomic_write_json(control_status_path, control_result)
+                    with control_lock:
+                        status["last_control"] = control_result
+                        status["updated_at"] = time.time()
+                        atomic_write_json(public_status_path, status)
+                        atomic_write_json(session_status_path, status)
+                    print(f"control={control_result['command']} result={control_result.get('result')}")
+                except Exception as exc:
+                    control_result = {
+                        "ok": False,
+                        "id": command_payload.get("id"),
+                        "command": command_payload.get("command"),
+                        "error": str(exc),
+                        "updated_at": time.time(),
+                    }
+                    atomic_write_json(control_status_path, control_result)
+                    with control_lock:
+                        status["last_control"] = control_result
+                        status["updated_at"] = time.time()
+                        atomic_write_json(public_status_path, status)
+                        atomic_write_json(session_status_path, status)
+                finally:
+                    with control_lock:
+                        control_busy = False
 
             while not stop.stop:
+                if control_command_path.exists():
+                    try:
+                        command_payload = json.loads(control_command_path.read_text(encoding="utf-8"))
+                        command_id = str(command_payload.get("id") or "")
+                        if command_id and command_id != last_control_id:
+                            last_control_id = command_id
+                            with control_lock:
+                                is_busy = control_busy
+                                if not control_busy:
+                                    control_busy = True
+                            if is_busy:
+                                control_result = {
+                                    "ok": False,
+                                    "id": command_id,
+                                    "command": command_payload.get("command"),
+                                    "error": "another DJI command is already running",
+                                    "updated_at": time.time(),
+                                }
+                                atomic_write_json(control_status_path, control_result)
+                                with control_lock:
+                                    status["last_control"] = control_result
+                                    status["updated_at"] = time.time()
+                                    atomic_write_json(public_status_path, status)
+                                    atomic_write_json(session_status_path, status)
+                            else:
+                                threading.Thread(
+                                    target=control_worker,
+                                    args=(command_payload,),
+                                    daemon=True,
+                                ).start()
+                    except Exception as exc:
+                        control_result = {
+                            "ok": False,
+                            "id": command_payload.get("id") if "command_payload" in locals() else None,
+                            "error": str(exc),
+                            "updated_at": time.time(),
+                        }
+                        atomic_write_json(control_status_path, control_result)
+                        status["last_control"] = control_result
+                        atomic_write_json(public_status_path, status)
+                        atomic_write_json(session_status_path, status)
                 now = time.perf_counter()
                 frame = drone.getFrame()
                 if frame is None:

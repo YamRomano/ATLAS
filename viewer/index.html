@@ -133,7 +133,7 @@
         <div class="live-atlas-panel">
           <div class="live-control-copy">
             <strong>Live ATLAS</strong>
-            <span>Android DJI stream to TSolve R,t. Future flight commands will live here.</span>
+            <span>Guarded DJI stream, takeoff/land, localization confirmation, and mission setup.</span>
           </div>
           <label>
             Phone IP
@@ -149,8 +149,70 @@
               <option value="5">5 FPS</option>
             </select>
           </label>
-          <button id="start-live-atlas" type="button">Start Live ATLAS</button>
-          <button id="stop-live-atlas" class="danger-action" type="button">Stop Live Localization</button>
+          <div class="live-atlas-actions">
+            <button id="start-live-atlas" type="button">Start Localization</button>
+            <button id="stop-live-atlas" class="danger-action" type="button">Stop Live</button>
+          </div>
+          <section class="flight-control-block">
+            <div class="flight-control-title">
+              <strong>Flight Guard</strong>
+              <span id="dji-command-status">Drone control idle.</span>
+            </div>
+            <label>
+              Takeoff Height
+              <input id="takeoff-height-m" type="number" min="0.1" max="2" step="0.1" value="1.0" aria-label="Takeoff height in meters" />
+            </label>
+            <div class="flight-actions">
+              <button id="dji-takeoff" type="button" disabled>Take Off</button>
+              <button id="dji-land" class="danger-action" type="button" disabled>Land</button>
+            </div>
+          </section>
+          <section class="localization-gate-block">
+            <div class="flight-control-title">
+              <strong>Localization Gate</strong>
+              <span id="localization-gate-status">Waiting for first TSolve R,t.</span>
+            </div>
+            <button id="confirm-localization" type="button" disabled>Confirm First Localization</button>
+          </section>
+          <section id="drone-control-panel" class="mission-panel drone-control-panel is-locked">
+            <div class="mission-head">
+              <span>Mission Target</span>
+              <button id="select-target" type="button">Pick COLMAP Point</button>
+            </div>
+            <label class="mission-speed">
+              Speed
+              <select id="mission-speed" aria-label="Mission speed">
+                <option value="0.2">0.2 m/s</option>
+                <option value="0.4" selected>0.4 m/s</option>
+                <option value="0.7">0.7 m/s</option>
+                <option value="1.0">1.0 m/s</option>
+              </select>
+            </label>
+            <div id="target-status" class="mission-status">Pick a destination before live localization, then confirm the first R,t before execution.</div>
+            <div class="mission-actions">
+              <button id="clear-target" type="button" disabled>Clear</button>
+              <button id="plan-mission" type="button" disabled>Plan Path</button>
+              <button id="start-mission" type="button" disabled>Confirm Mission</button>
+            </div>
+          </section>
+          <section id="safety-barrier-panel" class="safety-barrier-panel">
+            <div class="mission-head">
+              <span>Safety Barriers</span>
+              <button id="add-barrier" type="button">Add Wall</button>
+            </div>
+            <label class="barrier-clearance">
+              Stop before wall
+              <input id="barrier-clearance-m" type="number" min="0.15" max="2" step="0.05" value="0.45" aria-label="Safety clearance from wall in map units" />
+            </label>
+            <div id="barrier-status" class="mission-status">Add manual walls so mission targets stay away from obstacles.</div>
+            <div id="barrier-list" class="barrier-list" aria-live="polite"></div>
+            <div class="mission-actions">
+              <button id="adjust-walls" type="button">Adjust Walls</button>
+              <button id="save-wall-adjustments" type="button" disabled>Save Walls</button>
+              <button id="cancel-barrier" type="button" disabled>Cancel</button>
+              <button id="clear-barriers" class="danger-action" type="button">Clear Walls</button>
+            </div>
+          </section>
         </div>
       </details>
       <div class="axis-controls map-axis-dock" aria-label="axis zoom controls">
@@ -203,17 +265,6 @@
           </label>
         </div>
         <div id="replay-tab-list" class="replay-tab-list"></div>
-      </div>
-      <div class="side-section mission-panel">
-        <div class="mission-head">
-          <span>Mission Target</span>
-          <button id="select-target">Pick on Map</button>
-        </div>
-        <div id="target-status" class="mission-status">No destination selected.</div>
-        <div class="mission-actions">
-          <button id="clear-target">Clear</button>
-          <button id="start-mission">Start Guided Patrol</button>
-        </div>
       </div>
       <div class="panel">
         <h1>Live Pose</h1>

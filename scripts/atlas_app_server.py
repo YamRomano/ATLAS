@@ -5,6 +5,7 @@ import cgi
 import argparse
 import csv
 import json
+import math
 import mimetypes
 import os
 import select
@@ -553,6 +554,91 @@ def rename_replay_in_map(map_id: str, replay_id: str, title: str) -> dict:
     return entry
 
 
+def _vec3(value) -> list[float] | None:
+    if not isinstance(value, (list, tuple)) or len(value) < 3:
+        return None
+    out: list[float] = []
+    for raw in value[:3]:
+        try:
+            number = float(raw)
+        except (TypeError, ValueError):
+            return None
+        if not math.isfinite(number):
+            return None
+        out.append(number)
+    return out
+
+
+def sanitize_safety_barriers(raw_barriers) -> list[dict]:
+    barriers: list[dict] = []
+    if not isinstance(raw_barriers, list):
+        return barriers
+    now = time.strftime("%Y-%m-%d %H:%M:%S")
+    for index, raw in enumerate(raw_barriers[:200]):
+        if not isinstance(raw, dict):
+            continue
+        corners = []
+        if isinstance(raw.get("corners"), list):
+            corners = [p for p in (_vec3(v) for v in raw.get("corners", [])[:4]) if p]
+        a = _vec3(raw.get("a") or raw.get("start") or (corners[0] if corners else None))
+        b = _vec3(raw.get("b") or raw.get("end") or (corners[1] if len(corners) > 1 else None))
+        if not a or not b:
+            continue
+        if math.hypot(b[0] - a[0], b[2] - a[2]) < 1e-4:
+            continue
+        try:
+            clearance = float(raw.get("clearance_m", 0.45))
+        except (TypeError, ValueError):
+            clearance = 0.45
+        try:
+            height = float(raw.get("height_m", 1.8))
+        except (TypeError, ValueError):
+            height = 1.8
+        clearance = max(0.05, min(5.0, clearance if math.isfinite(clearance) else 0.45))
+        height = max(0.25, min(8.0, height if math.isfinite(height) else 1.8))
+        if len(corners) < 4:
+            floor_y = min(a[1], b[1])
+            corners = [
+                [a[0], floor_y, a[2]],
+                [b[0], floor_y, b[2]],
+                [b[0], floor_y + height, b[2]],
+                [a[0], floor_y + height, a[2]],
+            ]
+        ys = [p[1] for p in corners[:4]]
+        height = max(0.25, min(8.0, max(ys) - min(ys) or height))
+        label = " ".join(str(raw.get("label") or f"Wall {len(barriers) + 1}").split())[:64]
+        barrier_id = " ".join(str(raw.get("id") or f"barrier_{index}").split())[:80]
+        barriers.append(
+            {
+                "id": barrier_id or f"barrier_{index}",
+                "label": label or f"Wall {len(barriers) + 1}",
+                "a": a,
+                "b": b,
+                "corners": corners[:4],
+                "height_m": height,
+                "clearance_m": clearance,
+                "created_at": str(raw.get("created_at") or now),
+                "updated_at": now,
+            }
+        )
+    return barriers
+
+
+def set_map_safety_barriers(map_id: str, barriers) -> dict:
+    lib = load_library()
+    entry = None
+    for candidate in lib.get("maps", []):
+        if candidate["id"] == map_id:
+            entry = candidate
+            break
+    if entry is None:
+        raise RuntimeError(f"Unknown map id: {map_id}")
+    entry["safety_barriers"] = sanitize_safety_barriers(barriers)
+    entry["updated_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
+    save_library(lib)
+    return entry
+
+
 def delete_map_entry(map_id: str) -> None:
     lib = load_library()
     entry = next((m for m in lib.get("maps", []) if m["id"] == map_id), None)
@@ -809,6 +895,73 @@ def current_live_stream() -> dict | None:
     with STATE_LOCK:
         stream = STATE["drone"].get("live_stream")
         return json.loads(json.dumps(stream)) if isinstance(stream, dict) else None
+
+
+def send_dji_flight_command(payload: dict) -> dict:
+    command = str(payload.get("command", "")).strip().lower()
+    if command not in {"takeoff", "land", "enable", "disable", "hover"}:
+        raise ValueError(f"Unsupported DJI flight command: {command}")
+    phone_ip = str(payload.get("phone_ip", "")).strip()
+    height_m = payload.get("height_m")
+    if height_m is not None:
+        height_m = max(0.1, min(2.0, float(height_m)))
+
+    stream = current_live_stream() or recover_live_stream_from_disk() or {}
+    live_status_path = PUBLIC / "live_dji" / "status.json"
+    use_live_bridge = bool(stream.get("live_atlas") and live_status_path.exists())
+    command_id = uuid.uuid4().hex
+    command_payload = {
+        "id": command_id,
+        "command": command,
+        "phone_ip": phone_ip or stream.get("phone_ip"),
+        "height_m": height_m,
+        "created_at": time.time(),
+    }
+    if use_live_bridge:
+        command_path = PUBLIC / "live_dji" / "control_command.json"
+        atomic_write_json(command_path, command_payload)
+        append_log("drone", f"Queued DJI {command} command through live bridge.")
+        return {
+            "ok": True,
+            "queued": True,
+            "via": "live_bridge",
+            "command": command,
+            "height_m": height_m,
+            "command_id": command_id,
+            "message": f"DJI {command} command queued on the live bridge.",
+        }
+
+    if not phone_ip:
+        raise ValueError("Missing phone_ip. Start Live ATLAS or enter the Android phone IP.")
+    cfg = load_config()
+    py = Path(cfg["python"])
+    cmd = [
+        str(py),
+        str(ROOT / "scripts" / "atlas_dji_command.py"),
+        "--phone-ip",
+        phone_ip,
+        "--command",
+        command,
+    ]
+    if height_m is not None:
+        cmd += ["--height-m", f"{height_m:.3f}"]
+    proc = subprocess.run(cmd, capture_output=True, text=True, timeout=45)
+    if proc.returncode != 0:
+        raise RuntimeError((proc.stderr or proc.stdout or f"DJI command failed: {command}").strip())
+    try:
+        result = json.loads(proc.stdout)
+    except json.JSONDecodeError:
+        result = {"ok": True, "stdout": proc.stdout.strip()}
+    append_log("drone", f"Sent DJI {command} command directly.")
+    return {
+        "ok": True,
+        "queued": False,
+        "via": "direct_opendji",
+        "command": command,
+        "height_m": height_m,
+        "result": result,
+        "message": f"DJI {command} command sent.",
+    }
 
 
 def recover_live_stream_from_disk() -> dict | None:
@@ -1101,6 +1254,7 @@ def finalize_partial_replay(
     out_asset_dir: Path,
     partial_pose_path: Path,
     source_video: str,
+    query_frame_base_url: str | None = None,
 ) -> int:
     payload = json.loads(partial_pose_path.read_text(encoding="utf-8")) if partial_pose_path.exists() else {"poses": []}
     poses = payload.get("poses") if isinstance(payload.get("poses"), list) else []
@@ -1113,6 +1267,9 @@ def finalize_partial_replay(
         "updated_at": time.time(),
         "poses": poses,
     }
+    if query_frame_base_url:
+        final_payload["query_frame_base_url"] = query_frame_base_url
+        final_payload["frame_source"] = query_frame_base_url
     final_pose_path = out_asset_dir / "poses.json"
     atomic_write_json(final_pose_path, final_payload)
     replay = {
@@ -1123,6 +1280,8 @@ def finalize_partial_replay(
         "source_video": source_video,
         "counts": {"poses": len(poses)},
     }
+    if query_frame_base_url:
+        replay["query_frame_base_url"] = query_frame_base_url
     update_live_stream(
         pose_count=len(poses),
         expected_count=int(payload.get("expected_count") or 0),
@@ -1917,6 +2076,7 @@ def dji_live_atlas_job(
             out_asset_dir=out_asset_dir,
             partial_pose_path=partial_pose_path,
             source_video="DJI MSDK live stream",
+            query_frame_base_url=public_rel(query_frames),
         )
         set_job("drone", "done", f"Live ATLAS stopped and saved: {replay_title} ({pose_count} poses).")
     except Exception as exc:
@@ -1937,6 +2097,7 @@ def dji_live_atlas_job(
                         out_asset_dir=out_asset_dir,
                         partial_pose_path=partial_pose_path,
                         source_video="DJI MSDK live stream",
+                        query_frame_base_url=stream.get("query_frame_base_url"),
                     )
                     set_job("drone", "done", f"Live ATLAS stopped and saved: {replay_title} ({pose_count} poses).")
                 else:
@@ -2342,6 +2503,18 @@ class AtlasHandler(SimpleHTTPRequestHandler):
             self.send_json({"ok": True, "state": snapshot_state()})
             return
 
+        if url.path == "/api/drone/flight-command":
+            length = int(self.headers.get("Content-Length", "0"))
+            body = self.rfile.read(length).decode("utf-8") if length else "{}"
+            try:
+                payload = json.loads(body or "{}")
+                result = send_dji_flight_command(payload)
+            except Exception as exc:
+                self.send_json({"ok": False, "error": str(exc)}, 400)
+                return
+            self.send_json({"ok": True, **result, "state": snapshot_state()})
+            return
+
         if url.path == "/api/drone/live-atlas":
             if job_is_active("drone"):
                 self.send_json({"ok": False, "error": "Drone live localization is already running. Stop it before starting another live ATLAS session."}, 409)
@@ -2411,6 +2584,21 @@ class AtlasHandler(SimpleHTTPRequestHandler):
                 entry = set_map_display_z_sign(
                     str(payload.get("map_id", "")),
                     payload.get("display_z_sign", 1),
+                )
+            except Exception as exc:
+                self.send_json({"ok": False, "error": str(exc)}, 400)
+                return
+            self.send_json({"ok": True, "map": entry, "state": snapshot_state()})
+            return
+
+        if url.path == "/api/map/barriers":
+            length = int(self.headers.get("Content-Length", "0"))
+            body = self.rfile.read(length).decode("utf-8") if length else "{}"
+            payload = json.loads(body or "{}")
+            try:
+                entry = set_map_safety_barriers(
+                    str(payload.get("map_id", "")),
+                    payload.get("barriers", []),
                 )
             except Exception as exc:
                 self.send_json({"ok": False, "error": str(exc)}, 400)
