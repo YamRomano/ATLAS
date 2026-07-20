@@ -33,6 +33,8 @@ VIEWER = ROOT / "viewer"
 PUBLIC = VIEWER / "public"
 MAPS_DIR = PUBLIC / "maps"
 MAP_MANIFEST = MAPS_DIR / "manifest.json"
+ENEMY_DIR = PUBLIC / "enemy_drones"
+ENEMY_MANIFEST = ENEMY_DIR / "manifest.json"
 CONFIG = ROOT / "config.json"
 DEFAULT_PORT = 8765
 
@@ -54,6 +56,12 @@ STATE = {
         "updated_at": None,
         "live_stream": None,
     },
+    "enemy": {
+        "status": "idle",
+        "message": "Enemy detector idle.",
+        "log": [],
+        "updated_at": None,
+    },
     "current_map_frames": None,
     "selected_map_id": "default_demo",
 }
@@ -62,7 +70,7 @@ DRONE_STOP_EVENT = threading.Event()
 ACTIVE_JOB_STATES = {"queued", "running", "stopping"}
 COLMAP_QUERY_POSE_CACHE: dict[str, tuple[float, dict[str, dict]]] = {}
 ACTIVE_PROCS_LOCK = threading.Lock()
-ACTIVE_PROCS: dict[str, set[subprocess.Popen]] = {"map": set(), "drone": set()}
+ACTIVE_PROCS: dict[str, set[subprocess.Popen]] = {"map": set(), "drone": set(), "enemy": set()}
 
 
 def register_active_proc(kind: str, proc: subprocess.Popen) -> None:
@@ -156,7 +164,14 @@ def terminate_orphan_live_drone_procs() -> int:
         except ProcessLookupError:
             continue
         except OSError as exc:
-            append_log("drone", f"Could not stop orphan live process {pid}: {exc}")
+            try:
+                os.kill(pid, signal.SIGTERM)
+                killed += 1
+                append_log("drone", f"Stopped orphan live process {pid}: {command[:180]}")
+            except ProcessLookupError:
+                continue
+            except OSError as fallback_exc:
+                append_log("drone", f"Could not stop orphan live process {pid}: {exc}; fallback failed: {fallback_exc}")
     return killed
 
 
@@ -209,10 +224,52 @@ def public_rel(path: Path) -> str:
     return str(path.relative_to(VIEWER)).replace(os.sep, "/")
 
 
+def now_label() -> str:
+    return time.strftime("%Y-%m-%d %H:%M:%S")
+
+
+def slugify_label(value: str, fallback: str = "enemy_drone") -> str:
+    cleaned = []
+    last_was_sep = False
+    for ch in str(value or "").lower():
+        if ch.isalnum():
+            cleaned.append(ch)
+            last_was_sep = False
+        elif not last_was_sep:
+            cleaned.append("_")
+            last_was_sep = True
+    slug = "".join(cleaned).strip("_")
+    return slug or fallback
+
+
+def pose_stream_counts(poses: list[dict] | object) -> dict:
+    if not isinstance(poses, list):
+        poses = []
+    accepted = 0
+    held = 0
+    failed = 0
+    for pose in poses:
+        if not isinstance(pose, dict):
+            continue
+        if pose.get("held_pose"):
+            held += 1
+        elif bool(pose.get("success")) and pose.get("center"):
+            accepted += 1
+        else:
+            failed += 1
+    return {
+        "poses": accepted,
+        "accepted": accepted,
+        "frames": len(poses),
+        "held": held,
+        "failed": failed,
+    }
+
+
 def read_counts(asset_dir: Path) -> dict:
     scene_path = asset_dir / "scene.json"
     pose_path = asset_dir / "poses.json"
-    counts = {"points": 0, "dense_points": 0, "cameras": 0, "poses": 0}
+    counts = {"points": 0, "dense_points": 0, "cameras": 0, "poses": 0, "frames": 0, "held": 0}
     if scene_path.exists():
         scene = json.loads(scene_path.read_text(encoding="utf-8"))
         counts["points"] = len(scene.get("points3D", []))
@@ -220,7 +277,7 @@ def read_counts(asset_dir: Path) -> dict:
         counts["cameras"] = len(scene.get("map_cameras", []))
     if pose_path.exists():
         poses = json.loads(pose_path.read_text(encoding="utf-8"))
-        counts["poses"] = len(poses.get("poses", []))
+        counts.update(pose_stream_counts(poses.get("poses", [])))
     return counts
 
 
@@ -296,6 +353,795 @@ def load_library() -> dict:
 def save_library(lib: dict) -> None:
     MAPS_DIR.mkdir(parents=True, exist_ok=True)
     MAP_MANIFEST.write_text(json.dumps(lib, indent=2), encoding="utf-8")
+
+
+def default_enemy_library() -> dict:
+    return {
+        "version": 1,
+        "updated_at": now_label(),
+        "selected_model": None,
+        "model_status": "not_trained",
+        "enemies": [],
+    }
+
+
+def normalize_enemy_profile(profile: dict) -> dict:
+    now = now_label()
+    name = " ".join(str(profile.get("name") or "Enemy Drone").split())[:80] or "Enemy Drone"
+    enemy_id = str(profile.get("id") or f"enemy_{time.strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}")
+    class_name = slugify_label(str(profile.get("class_name") or name), "enemy_drone")
+    videos = []
+    for raw in profile.get("videos") or []:
+        if not isinstance(raw, dict):
+            continue
+        videos.append(
+            {
+                "id": str(raw.get("id") or f"clip_{uuid.uuid4().hex[:8]}"),
+                "filename": str(raw.get("filename") or "calibration_video.mp4"),
+                "url": str(raw.get("url") or ""),
+                "size_bytes": int(raw.get("size_bytes") or 0),
+                "uploaded_at": str(raw.get("uploaded_at") or now),
+            }
+        )
+    frames = []
+    for raw in profile.get("frames") or []:
+        if not isinstance(raw, dict):
+            continue
+        status = str(raw.get("status") or "unlabeled")
+        if status not in {"unlabeled", "labeled", "review", "skipped"}:
+            status = "unlabeled"
+        box = raw.get("box") if isinstance(raw.get("box"), dict) else None
+        if box:
+            box = {
+                "x_center": float(box.get("x_center") or 0.0),
+                "y_center": float(box.get("y_center") or 0.0),
+                "width": float(box.get("width") or 0.0),
+                "height": float(box.get("height") or 0.0),
+            }
+        frames.append(
+            {
+                "id": str(raw.get("id") or f"frame_{uuid.uuid4().hex[:10]}"),
+                "filename": str(raw.get("filename") or "frame.jpg"),
+                "url": str(raw.get("url") or ""),
+                "label_url": str(raw.get("label_url") or ""),
+                "source_video_id": str(raw.get("source_video_id") or ""),
+                "source_filename": str(raw.get("source_filename") or ""),
+                "time_sec": float(raw.get("time_sec") or 0.0),
+                "width": int(raw.get("width") or 0),
+                "height": int(raw.get("height") or 0),
+                "status": status,
+                "box": box,
+            }
+        )
+    training_status = str(profile.get("training_status") or ("needs_labels" if videos else "needs_videos"))
+    labeled_count = sum(1 for f in frames if f.get("status") == "labeled")
+    return {
+        "id": enemy_id,
+        "name": name,
+        "class_name": class_name,
+        "created_at": str(profile.get("created_at") or now),
+        "updated_at": str(profile.get("updated_at") or now),
+        "videos": videos,
+        "frames": frames,
+        "video_count": len(videos),
+        "frame_count": len(frames),
+        "labeled_frame_count": labeled_count,
+        "review_frame_count": sum(1 for f in frames if f.get("status") == "review"),
+        "skipped_frame_count": sum(1 for f in frames if f.get("status") == "skipped"),
+        "training_status": training_status,
+        "model_status": str(profile.get("model_status") or "not_trained"),
+        "dataset_manifest": str(profile.get("dataset_manifest") or ""),
+        "notes": str(profile.get("notes") or ""),
+    }
+
+
+def load_enemy_library() -> dict:
+    if not ENEMY_MANIFEST.exists():
+        return default_enemy_library()
+    try:
+        lib = json.loads(ENEMY_MANIFEST.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        lib = default_enemy_library()
+    enemies = [normalize_enemy_profile(e) for e in lib.get("enemies", []) if isinstance(e, dict)]
+    enemies.sort(key=lambda e: (e.get("created_at") or "", e.get("name") or ""))
+    lib["version"] = int(lib.get("version") or 1)
+    lib["updated_at"] = str(lib.get("updated_at") or now_label())
+    lib["selected_model"] = lib.get("selected_model")
+    lib["model_status"] = str(lib.get("model_status") or "not_trained")
+    lib["enemies"] = enemies
+    lib["total_videos"] = sum(len(e.get("videos", [])) for e in enemies)
+    lib["total_frames"] = sum(len(e.get("frames", [])) for e in enemies)
+    lib["total_labeled_frames"] = sum(e.get("labeled_frame_count", 0) for e in enemies)
+    lib["class_count"] = len(enemies)
+    return lib
+
+
+def save_enemy_library(lib: dict) -> None:
+    ENEMY_DIR.mkdir(parents=True, exist_ok=True)
+    lib["updated_at"] = now_label()
+    ENEMY_MANIFEST.write_text(json.dumps(lib, indent=2), encoding="utf-8")
+
+
+def get_enemy_profile(enemy_id: str) -> tuple[dict, dict]:
+    lib = load_enemy_library()
+    for profile in lib.get("enemies", []):
+        if profile.get("id") == enemy_id:
+            return lib, profile
+    raise RuntimeError(f"Unknown enemy drone profile: {enemy_id}")
+
+
+def upsert_enemy_profile(profile: dict) -> dict:
+    lib = load_enemy_library()
+    profile = normalize_enemy_profile(profile)
+    enemies = [e for e in lib.get("enemies", []) if e.get("id") != profile["id"]]
+    enemies.append(profile)
+    lib["enemies"] = enemies
+    lib["model_status"] = "needs_training"
+    save_enemy_library(lib)
+    return profile
+
+
+def upload_enemy_videos(enemy_id: str | None, name: str, fields: list[cgi.FieldStorage]) -> dict:
+    if not fields:
+        raise RuntimeError("Upload at least one enemy-drone calibration video.")
+    now = now_label()
+    if enemy_id:
+        lib, profile = get_enemy_profile(enemy_id)
+        profile["name"] = " ".join(str(name or profile.get("name") or "Enemy Drone").split())[:80] or "Enemy Drone"
+        profile["class_name"] = slugify_label(str(profile.get("class_name") or profile["name"]), "enemy_drone")
+    else:
+        profile = normalize_enemy_profile(
+            {
+                "name": name or "Enemy Drone",
+                "created_at": now,
+                "updated_at": now,
+                "videos": [],
+            }
+        )
+
+    profile_dir = ENEMY_DIR / profile["id"]
+    saved = save_uploaded_videos(fields, profile_dir / "videos", "enemy_calib")
+    videos = list(profile.get("videos") or [])
+    for path, original_name in saved:
+        videos.append(
+            {
+                "id": f"clip_{uuid.uuid4().hex[:8]}",
+                "filename": original_name,
+                "url": public_rel(path),
+                "size_bytes": path.stat().st_size if path.exists() else 0,
+                "uploaded_at": now,
+            }
+        )
+    profile["videos"] = videos
+    profile["updated_at"] = now
+    profile["training_status"] = "needs_labels"
+    profile["model_status"] = "not_trained"
+    return upsert_enemy_profile(profile)
+
+
+def enemy_class_index(lib: dict, enemy_id: str) -> int:
+    for idx, profile in enumerate(lib.get("enemies", [])):
+        if profile.get("id") == enemy_id:
+            return idx
+    raise RuntimeError(f"Unknown enemy drone profile: {enemy_id}")
+
+
+def enemy_public_path(url: str) -> Path:
+    rel = str(url or "").strip().lstrip("/")
+    if not rel:
+        raise RuntimeError("Missing enemy media path.")
+    path = (VIEWER / rel).resolve()
+    if not path.is_relative_to(VIEWER.resolve()):
+        raise RuntimeError("Enemy media path escaped viewer root.")
+    return path
+
+
+def extract_enemy_frames(
+    enemy_id: str,
+    fps: float = 2.0,
+    max_frames_per_video: int = 180,
+    max_size: int = 960,
+    force: bool = False,
+) -> dict:
+    lib, profile = get_enemy_profile(enemy_id)
+    videos = list(profile.get("videos") or [])
+    if not videos:
+        raise RuntimeError("Upload calibration videos before extracting frames.")
+    fps = max(0.2, min(float(fps or 2.0), 10.0))
+    max_frames_per_video = max(1, min(int(max_frames_per_video or 180), 2000))
+    max_size = max(320, min(int(max_size or 960), 2400))
+
+    try:
+        import cv2  # type: ignore
+    except Exception as exc:
+        raise RuntimeError(f"OpenCV is required to extract training frames: {exc}") from exc
+
+    profile_dir = ENEMY_DIR / profile["id"]
+    frames_dir = profile_dir / "frames"
+    labels_dir = profile_dir / "labels"
+    frames_dir.mkdir(parents=True, exist_ok=True)
+    labels_dir.mkdir(parents=True, exist_ok=True)
+
+    frames = list(profile.get("frames") or [])
+    if force:
+        for old in frames_dir.glob("*.jpg"):
+            old.unlink()
+        for old in labels_dir.glob("*.txt"):
+            old.unlink()
+        frames = []
+    extracted_sources = {f.get("source_video_id") for f in frames}
+    added = 0
+    now = now_label()
+
+    for video in videos:
+        source_video_id = str(video.get("id") or "")
+        if not force and source_video_id in extracted_sources:
+            continue
+        video_path = enemy_public_path(str(video.get("url") or ""))
+        if not video_path.exists():
+            continue
+        cap = cv2.VideoCapture(str(video_path))
+        if not cap.isOpened():
+            continue
+        source_fps = float(cap.get(cv2.CAP_PROP_FPS) or 30.0)
+        step = max(1, int(round(source_fps / fps)))
+        frame_idx = 0
+        kept = 0
+        while kept < max_frames_per_video:
+            ok, frame = cap.read()
+            if not ok:
+                break
+            if frame_idx % step != 0:
+                frame_idx += 1
+                continue
+            h, w = frame.shape[:2]
+            scale = min(1.0, max_size / max(w, h))
+            if scale < 1.0:
+                frame = cv2.resize(frame, (int(round(w * scale)), int(round(h * scale))), interpolation=cv2.INTER_AREA)
+                h, w = frame.shape[:2]
+            frame_id = f"{source_video_id}_{frame_idx:06d}"
+            filename = f"{frame_id}.jpg"
+            out_path = frames_dir / filename
+            cv2.imwrite(str(out_path), frame, [int(cv2.IMWRITE_JPEG_QUALITY), 92])
+            label_path = labels_dir / f"{frame_id}.txt"
+            frames.append(
+                {
+                    "id": frame_id,
+                    "filename": filename,
+                    "url": public_rel(out_path),
+                    "label_url": public_rel(label_path),
+                    "source_video_id": source_video_id,
+                    "source_filename": str(video.get("filename") or ""),
+                    "time_sec": frame_idx / source_fps if source_fps > 0 else 0.0,
+                    "width": int(w),
+                    "height": int(h),
+                    "status": "unlabeled",
+                    "box": None,
+                }
+            )
+            kept += 1
+            added += 1
+            frame_idx += 1
+        cap.release()
+
+    profile["frames"] = frames
+    profile["updated_at"] = now
+    profile["training_status"] = "needs_labels"
+    profile["model_status"] = "not_trained"
+    save_enemy_library(lib)
+    return {
+        "added": added,
+        "enemy": normalize_enemy_profile(profile),
+        "library": load_enemy_library(),
+    }
+
+
+def normalize_enemy_box(box: dict | None) -> dict:
+    if not isinstance(box, dict):
+        raise RuntimeError("A bounding box is required.")
+    x = float(box.get("x_center"))
+    y = float(box.get("y_center"))
+    w = float(box.get("width"))
+    h = float(box.get("height"))
+    if not (0.0 <= x <= 1.0 and 0.0 <= y <= 1.0 and 0.0 < w <= 1.0 and 0.0 < h <= 1.0):
+        raise RuntimeError("YOLO box must be normalized to [0,1] and have positive width/height.")
+    return {"x_center": x, "y_center": y, "width": w, "height": h}
+
+
+def write_enemy_frame_label(lib: dict, profile: dict, frame: dict, box: dict | None, status: str) -> None:
+    status = str(status or "labeled")
+    if status not in {"labeled", "review", "skipped", "unlabeled"}:
+        raise RuntimeError("Frame label status must be labeled, review, skipped, or unlabeled.")
+    label_path = enemy_public_path(frame.get("label_url") or "")
+    label_path.parent.mkdir(parents=True, exist_ok=True)
+
+    if status in {"labeled", "review"}:
+        normalized = normalize_enemy_box(box)
+        frame["box"] = normalized
+        frame["status"] = status
+        if status == "labeled":
+            class_id = enemy_class_index(lib, profile["id"])
+            label_path.write_text(
+                (
+                    f"{class_id} {normalized['x_center']:.8f} {normalized['y_center']:.8f} "
+                    f"{normalized['width']:.8f} {normalized['height']:.8f}\n"
+                ),
+                encoding="utf-8",
+            )
+        elif label_path.exists():
+            label_path.unlink()
+        return
+
+    if label_path.exists():
+        label_path.unlink()
+    frame["box"] = None
+    frame["status"] = status
+
+
+def update_enemy_training_state(profile: dict) -> None:
+    frames = list(profile.get("frames") or [])
+    labeled = sum(1 for f in frames if f.get("status") == "labeled")
+    profile["training_status"] = "labels_ready" if labeled else "needs_labels"
+    profile["model_status"] = "not_trained"
+    profile["updated_at"] = now_label()
+
+
+def save_enemy_frame_label(enemy_id: str, frame_id: str, box: dict | None, status: str) -> dict:
+    lib, profile = get_enemy_profile(enemy_id)
+    frames = list(profile.get("frames") or [])
+    frame = next((f for f in frames if f.get("id") == frame_id), None)
+    if not frame:
+        raise RuntimeError(f"Unknown enemy frame: {frame_id}")
+    write_enemy_frame_label(lib, profile, frame, box, status)
+
+    profile["frames"] = frames
+    update_enemy_training_state(profile)
+    lib["model_status"] = "needs_training"
+    save_enemy_library(lib)
+    return {"enemy": normalize_enemy_profile(profile), "library": load_enemy_library()}
+
+
+def enemy_box_to_pixels(frame: dict, box: dict) -> tuple[int, int, int, int]:
+    width = max(1, int(frame.get("width") or 1))
+    height = max(1, int(frame.get("height") or 1))
+    x1 = int(round((float(box["x_center"]) - float(box["width"]) / 2.0) * width))
+    y1 = int(round((float(box["y_center"]) - float(box["height"]) / 2.0) * height))
+    x2 = int(round((float(box["x_center"]) + float(box["width"]) / 2.0) * width))
+    y2 = int(round((float(box["y_center"]) + float(box["height"]) / 2.0) * height))
+    x1 = max(0, min(width - 1, x1))
+    y1 = max(0, min(height - 1, y1))
+    x2 = max(x1 + 2, min(width, x2))
+    y2 = max(y1 + 2, min(height, y2))
+    return x1, y1, x2, y2
+
+
+def enemy_pixels_to_box(frame: dict, x1: int, y1: int, x2: int, y2: int) -> dict:
+    width = max(1, int(frame.get("width") or 1))
+    height = max(1, int(frame.get("height") or 1))
+    x1 = max(0, min(width - 1, int(x1)))
+    y1 = max(0, min(height - 1, int(y1)))
+    x2 = max(x1 + 2, min(width, int(x2)))
+    y2 = max(y1 + 2, min(height, int(y2)))
+    return {
+        "x_center": ((x1 + x2) / 2.0) / width,
+        "y_center": ((y1 + y2) / 2.0) / height,
+        "width": (x2 - x1) / width,
+        "height": (y2 - y1) / height,
+    }
+
+
+def track_enemy_labels(
+    enemy_id: str,
+    frame_id: str,
+    box: dict,
+    direction: str = "both",
+    accept_threshold: float = 0.72,
+    review_threshold: float = 0.50,
+    search_scale: float = 3.0,
+    max_frames: int = 160,
+    overwrite: bool = False,
+) -> dict:
+    try:
+        import cv2  # type: ignore
+    except Exception as exc:
+        raise RuntimeError(f"OpenCV is required for auto-tracking enemy labels: {exc}") from exc
+
+    lib, profile = get_enemy_profile(enemy_id)
+    frames = list(profile.get("frames") or [])
+    start_frame = next((f for f in frames if f.get("id") == frame_id), None)
+    if not start_frame:
+        raise RuntimeError(f"Unknown enemy frame: {frame_id}")
+    source_video_id = str(start_frame.get("source_video_id") or "")
+    source_frames = [
+        f for f in frames
+        if str(f.get("source_video_id") or "") == source_video_id
+    ]
+    source_frames.sort(key=lambda f: (float(f.get("time_sec") or 0.0), str(f.get("id") or "")))
+    start_index = next((i for i, f in enumerate(source_frames) if f.get("id") == frame_id), -1)
+    if start_index < 0:
+        raise RuntimeError("Could not locate the starting frame inside its source video.")
+
+    start_box = normalize_enemy_box(box)
+    start_image = cv2.imread(str(enemy_public_path(start_frame.get("url") or "")), cv2.IMREAD_GRAYSCALE)
+    if start_image is None:
+        raise RuntimeError("Could not read the starting calibration frame.")
+    sx1, sy1, sx2, sy2 = enemy_box_to_pixels(start_frame, start_box)
+    template = start_image[sy1:sy2, sx1:sx2]
+    if template.size == 0 or template.shape[0] < 8 or template.shape[1] < 8:
+        raise RuntimeError("The starting box is too small for reliable auto-tracking.")
+
+    direction = str(direction or "both").lower()
+    accept_threshold = max(0.05, min(0.99, float(accept_threshold)))
+    review_threshold = max(0.0, min(accept_threshold, float(review_threshold)))
+    search_scale = max(1.2, min(8.0, float(search_scale)))
+    max_frames = max(1, min(2000, int(max_frames)))
+
+    write_enemy_frame_label(lib, profile, start_frame, start_box, "labeled")
+    counts = {"labeled": 1, "review": 0, "stopped": 0, "processed": 1}
+    track_reports = []
+
+    def run_one_way(indices: list[int]) -> None:
+        nonlocal template
+        previous_box = dict(start_box)
+        processed = 0
+        current_template = template.copy()
+        for idx in indices:
+            if processed >= max_frames:
+                break
+            frame = source_frames[idx]
+            if not overwrite and frame.get("id") != frame_id and frame.get("status") in {"labeled", "skipped"}:
+                break
+            image = cv2.imread(str(enemy_public_path(frame.get("url") or "")), cv2.IMREAD_GRAYSCALE)
+            if image is None:
+                break
+            height, width = image.shape[:2]
+            t_h, t_w = current_template.shape[:2]
+            center_x = float(previous_box["x_center"]) * width
+            center_y = float(previous_box["y_center"]) * height
+            prev_w = max(t_w, int(round(float(previous_box["width"]) * width)))
+            prev_h = max(t_h, int(round(float(previous_box["height"]) * height)))
+            search_w = max(t_w + 6, int(round(prev_w * search_scale)))
+            search_h = max(t_h + 6, int(round(prev_h * search_scale)))
+            x0 = max(0, int(round(center_x - search_w / 2.0)))
+            y0 = max(0, int(round(center_y - search_h / 2.0)))
+            x1 = min(width, x0 + search_w)
+            y1 = min(height, y0 + search_h)
+            if x1 - x0 < t_w or y1 - y0 < t_h:
+                break
+            search = image[y0:y1, x0:x1]
+            result = cv2.matchTemplate(search, current_template, cv2.TM_CCOEFF_NORMED)
+            _, max_score, _, max_loc = cv2.minMaxLoc(result)
+            px = x0 + int(max_loc[0])
+            py = y0 + int(max_loc[1])
+            tracked_box = enemy_pixels_to_box(frame, px, py, px + t_w, py + t_h)
+            if max_score >= accept_threshold:
+                write_enemy_frame_label(lib, profile, frame, tracked_box, "labeled")
+                current_template = image[py:py + t_h, px:px + t_w].copy()
+                previous_box = tracked_box
+                counts["labeled"] += 1
+                counts["processed"] += 1
+                processed += 1
+                track_reports.append({"frame_id": frame.get("id"), "status": "labeled", "score": float(max_score)})
+                continue
+            if max_score >= review_threshold:
+                write_enemy_frame_label(lib, profile, frame, tracked_box, "review")
+                counts["review"] += 1
+                counts["processed"] += 1
+                track_reports.append({"frame_id": frame.get("id"), "status": "review", "score": float(max_score)})
+            else:
+                track_reports.append({"frame_id": frame.get("id"), "status": "stopped", "score": float(max_score)})
+            counts["stopped"] += 1
+            break
+
+    if direction in {"both", "forward"}:
+        run_one_way(list(range(start_index + 1, len(source_frames))))
+    if direction in {"both", "backward"}:
+        run_one_way(list(range(start_index - 1, -1, -1)))
+
+    profile["frames"] = frames
+    update_enemy_training_state(profile)
+    lib["model_status"] = "needs_training"
+    save_enemy_library(lib)
+    return {
+        **counts,
+        "reports": track_reports[-40:],
+        "enemy": normalize_enemy_profile(profile),
+        "library": load_enemy_library(),
+    }
+
+
+def rename_enemy_profile(enemy_id: str, name: str) -> dict:
+    lib, profile = get_enemy_profile(enemy_id)
+    cleaned = " ".join(str(name or "").split())
+    if not cleaned:
+        raise RuntimeError("Enemy drone name cannot be empty.")
+    profile["name"] = cleaned[:80]
+    profile["class_name"] = slugify_label(profile["name"], "enemy_drone")
+    profile["updated_at"] = now_label()
+    save_enemy_library(lib)
+    return normalize_enemy_profile(profile)
+
+
+def delete_enemy_profile(enemy_id: str) -> None:
+    lib = load_enemy_library()
+    enemies = list(lib.get("enemies") or [])
+    if enemy_id not in {e.get("id") for e in enemies}:
+        raise RuntimeError(f"Unknown enemy drone profile: {enemy_id}")
+    lib["enemies"] = [e for e in enemies if e.get("id") != enemy_id]
+    profile_dir = ENEMY_DIR / enemy_id
+    if profile_dir.exists():
+        shutil.rmtree(profile_dir)
+    lib["model_status"] = "needs_training" if lib["enemies"] else "not_trained"
+    save_enemy_library(lib)
+
+
+def prepare_enemy_yolo_dataset(enemy_id: str | None = None) -> dict:
+    lib = load_enemy_library()
+    targets = [
+        profile
+        for profile in lib.get("enemies", [])
+        if not enemy_id or profile.get("id") == enemy_id
+    ]
+    if not targets:
+        raise RuntimeError("No enemy drone profiles selected for YOLO dataset preparation.")
+    dataset_dir = ENEMY_DIR / "yolo_dataset"
+    if dataset_dir.exists():
+        shutil.rmtree(dataset_dir)
+    images_dir = dataset_dir / "images" / "train"
+    labels_dir = dataset_dir / "labels" / "train"
+    images_dir.mkdir(parents=True, exist_ok=True)
+    labels_dir.mkdir(parents=True, exist_ok=True)
+
+    labeled_items = []
+    target_ids = {profile["id"] for profile in targets}
+    for profile in targets:
+        for frame in profile.get("frames", []):
+            if frame.get("status") != "labeled":
+                continue
+            image_path = enemy_public_path(frame.get("url") or "")
+            box = frame.get("box") if isinstance(frame.get("box"), dict) else None
+            if not image_path.exists() or not box:
+                continue
+            out_name = f"{profile['id']}_{frame['filename']}"
+            shutil.copy2(image_path, images_dir / out_name)
+            class_id = enemy_class_index(lib, profile["id"])
+            labels_dir.joinpath(f"{Path(out_name).stem}.txt").write_text(
+                (
+                    f"{class_id} {float(box['x_center']):.8f} {float(box['y_center']):.8f} "
+                    f"{float(box['width']):.8f} {float(box['height']):.8f}\n"
+                ),
+                encoding="utf-8",
+            )
+            labeled_items.append({"enemy_id": profile["id"], "frame_id": frame["id"], "image": out_name})
+    if not labeled_items:
+        raise RuntimeError("Extract frames and save at least one bounding-box label before preparing the YOLO dataset.")
+
+    class_names = [profile["class_name"] for profile in lib.get("enemies", [])]
+    yaml_path = dataset_dir / "data.yaml"
+    yaml_path.write_text(
+        "path: .\n"
+        "train: images/train\n"
+        "val: images/train\n"
+        f"nc: {len(class_names)}\n"
+        "names:\n"
+        + "".join(f"  {idx}: {name}\n" for idx, name in enumerate(class_names)),
+        encoding="utf-8",
+    )
+    dataset_manifest = {
+        "version": 1,
+        "prepared_at": now_label(),
+        "status": "ready_for_training",
+        "data_yaml": public_rel(yaml_path),
+        "labeled_frame_count": len(labeled_items),
+        "items": labeled_items,
+        "classes": [
+            {
+                "id": profile["id"],
+                "name": profile["name"],
+                "class_name": profile["class_name"],
+                "video_count": len(profile.get("videos", [])),
+                "frame_count": len(profile.get("frames", [])),
+                "labeled_frame_count": profile.get("labeled_frame_count", 0),
+            }
+            for profile in lib.get("enemies", [])
+        ],
+    }
+    manifest_path = dataset_dir / "dataset_manifest.json"
+    manifest_path.write_text(json.dumps(dataset_manifest, indent=2), encoding="utf-8")
+    for profile in lib.get("enemies", []):
+        if profile["id"] in target_ids:
+            profile["training_status"] = "dataset_ready"
+            profile["dataset_manifest"] = public_rel(manifest_path)
+            profile["updated_at"] = now_label()
+    lib["model_status"] = "dataset_ready"
+    lib["selected_model"] = None
+    lib["training"] = {
+        "status": "dataset_ready",
+        "data_yaml": public_rel(yaml_path),
+        "dataset_manifest": public_rel(manifest_path),
+        "labeled_frame_count": len(labeled_items),
+        "prepared_at": dataset_manifest["prepared_at"],
+    }
+    save_enemy_library(lib)
+    return load_enemy_library()
+
+
+def selected_enemy_model_path() -> Path | None:
+    lib = load_enemy_library()
+    rel = str(lib.get("selected_model") or "").strip().lstrip("/")
+    if not rel:
+        return None
+    path = (VIEWER / rel).resolve()
+    try:
+        if not path.is_relative_to(VIEWER.resolve()):
+            return None
+    except AttributeError:
+        if not str(path).startswith(str(VIEWER.resolve())):
+            return None
+    return path if path.exists() else None
+
+
+def set_enemy_library_training_state(
+    *,
+    status: str,
+    message: str,
+    run_id: str | None = None,
+    log_url: str | None = None,
+    summary_url: str | None = None,
+    selected_model: str | None = None,
+    training: dict | None = None,
+) -> dict:
+    lib = load_enemy_library()
+    lib["model_status"] = status
+    lib["training_message"] = message
+    if run_id is not None:
+        lib["training_run_id"] = run_id
+    if log_url is not None:
+        lib["training_log"] = log_url
+    if summary_url is not None:
+        lib["training_summary"] = summary_url
+    if selected_model is not None:
+        lib["selected_model"] = selected_model
+    if training is not None:
+        lib["training"] = training
+    save_enemy_library(lib)
+    return load_enemy_library()
+
+
+def enemy_yolo_training_job(
+    *,
+    run_id: str,
+    base_model: str,
+    epochs: int,
+    imgsz: int,
+    batch: int,
+    device: str,
+) -> None:
+    run_dir = ENEMY_DIR / "training_runs" / run_id
+    run_dir.mkdir(parents=True, exist_ok=True)
+    log_path = run_dir / "train.log"
+    summary_path = run_dir / "training_summary.json"
+    try:
+        cfg = load_config()
+        py = Path(cfg["python"])
+        scripts = ROOT / "scripts"
+        set_job("enemy", "running", "Preparing YOLO dataset from accepted enemy-drone labels.")
+        lib = prepare_enemy_yolo_dataset(None)
+        dataset_rel = str(lib.get("training", {}).get("data_yaml") or "")
+        dataset_yaml = (VIEWER / dataset_rel).resolve() if dataset_rel else (ENEMY_DIR / "yolo_dataset" / "data.yaml")
+        if not dataset_yaml.exists():
+            dataset_yaml = ENEMY_DIR / "yolo_dataset" / "data.yaml"
+        set_enemy_library_training_state(
+            status="training",
+            message=f"Fine-tuning {base_model} on {lib.get('total_labeled_frames', 0)} labeled frames.",
+            run_id=run_id,
+            log_url=public_rel(log_path),
+            training={
+                "status": "running",
+                "run_id": run_id,
+                "base_model": base_model,
+                "epochs": epochs,
+                "imgsz": imgsz,
+                "batch": batch,
+                "device": device,
+                "data_yaml": public_rel(dataset_yaml),
+                "started_at": now_label(),
+                "log": public_rel(log_path),
+            },
+        )
+        cmd = [
+            str(py),
+            str(scripts / "train_enemy_yolo.py"),
+            "--dataset-yaml",
+            str(dataset_yaml),
+            "--output-dir",
+            str(run_dir),
+            "--project-dir",
+            str(run_dir / "ultralytics_runs"),
+            "--model",
+            base_model,
+            "--epochs",
+            str(epochs),
+            "--imgsz",
+            str(imgsz),
+            "--batch",
+            str(batch),
+            "--device",
+            device,
+            "--run-name",
+            "enemy_drone_detector",
+        ]
+        append_log("enemy", "+ " + " ".join(cmd))
+        with log_path.open("w", encoding="utf-8") as log_handle:
+            proc = subprocess.Popen(
+                cmd,
+                cwd=str(ROOT),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1,
+            )
+            register_active_proc("enemy", proc)
+            try:
+                assert proc.stdout is not None
+                for line in proc.stdout:
+                    log_handle.write(line)
+                    log_handle.flush()
+                    append_log("enemy", line.rstrip())
+                rc = proc.wait()
+            finally:
+                unregister_active_proc("enemy", proc)
+        if rc != 0:
+            raise RuntimeError(f"YOLO fine-tuning failed with exit code {rc}. See {public_rel(log_path)}")
+        summary = json.loads(summary_path.read_text(encoding="utf-8")) if summary_path.exists() else {}
+        model_path = run_dir / "best.pt"
+        if not model_path.exists():
+            raise RuntimeError("Training finished but best.pt was not produced.")
+        model_rel = public_rel(model_path)
+        set_enemy_library_training_state(
+            status="trained",
+            message="Enemy-drone detector trained and enabled for live patrol.",
+            run_id=run_id,
+            log_url=public_rel(log_path),
+            summary_url=public_rel(summary_path),
+            selected_model=model_rel,
+            training={
+                **summary,
+                "status": "trained",
+                "run_id": run_id,
+                "base_model": base_model,
+                "epochs": epochs,
+                "imgsz": imgsz,
+                "batch": batch,
+                "device": device,
+                "log": public_rel(log_path),
+                "best_model": model_rel,
+                "finished_at": now_label(),
+            },
+        )
+        set_job("enemy", "done", "Enemy-drone YOLO model trained and enabled for live patrol.")
+    except Exception as exc:
+        append_log("enemy", f"ERROR: {exc}")
+        set_enemy_library_training_state(
+            status="training_failed",
+            message=str(exc),
+            run_id=run_id,
+            log_url=public_rel(log_path),
+            summary_url=public_rel(summary_path) if summary_path.exists() else None,
+            training={
+                "status": "failed",
+                "run_id": run_id,
+                "base_model": base_model,
+                "epochs": epochs,
+                "imgsz": imgsz,
+                "batch": batch,
+                "device": device,
+                "log": public_rel(log_path),
+                "error": str(exc),
+                "finished_at": now_label(),
+            },
+        )
+        set_job("enemy", "failed", f"Enemy detector training failed: {exc}")
 
 
 def get_map_entry(map_id: str | None = None) -> dict:
@@ -506,6 +1352,7 @@ def duplicate_map_entry(map_id: str) -> dict:
             "has_drone_demo": False,
             "replays": [],
             "active_replay_id": None,
+            "patrols": [],
         }
     )
     add_or_update_map(entry, select=True)
@@ -569,6 +1416,27 @@ def _vec3(value) -> list[float] | None:
     return out
 
 
+def _color(value, fallback: str) -> str:
+    text = str(value or "").strip()
+    if len(text) == 7 and text[0] == "#":
+        try:
+            int(text[1:], 16)
+            return text.lower()
+        except ValueError:
+            pass
+    return fallback
+
+
+def _opacity(value, fallback: float) -> float:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        number = fallback
+    if not math.isfinite(number):
+        number = fallback
+    return max(0.05, min(0.95, number))
+
+
 def sanitize_safety_barriers(raw_barriers) -> list[dict]:
     barriers: list[dict] = []
     if not isinstance(raw_barriers, list):
@@ -617,6 +1485,8 @@ def sanitize_safety_barriers(raw_barriers) -> list[dict]:
                 "corners": corners[:4],
                 "height_m": height,
                 "clearance_m": clearance,
+                "color": _color(raw.get("color"), "#cfd8df"),
+                "opacity": _opacity(raw.get("opacity"), 0.24),
                 "created_at": str(raw.get("created_at") or now),
                 "updated_at": now,
             }
@@ -624,7 +1494,65 @@ def sanitize_safety_barriers(raw_barriers) -> list[dict]:
     return barriers
 
 
-def set_map_safety_barriers(map_id: str, barriers) -> dict:
+def sanitize_safety_obstacles(raw_obstacles) -> list[dict]:
+    obstacles: list[dict] = []
+    if not isinstance(raw_obstacles, list):
+        return obstacles
+    now = time.strftime("%Y-%m-%d %H:%M:%S")
+    for index, raw in enumerate(raw_obstacles[:200]):
+        if not isinstance(raw, dict):
+            continue
+        points = []
+        if isinstance(raw.get("points"), list):
+            points = [p for p in (_vec3(v) for v in raw.get("points", [])[:80]) if p]
+        if len(points) < 2:
+            continue
+        try:
+            clearance = float(raw.get("clearance_m", 0.35))
+        except (TypeError, ValueError):
+            clearance = 0.35
+        clearance = max(0.05, min(3.0, clearance if math.isfinite(clearance) else 0.35))
+        xs = [p[0] for p in points]
+        ys = [p[1] for p in points]
+        zs = [p[2] for p in points]
+        bounds = {
+            "min": [min(xs), min(ys), min(zs)],
+            "max": [max(xs), max(ys), max(zs)],
+        }
+        raw_bounds = raw.get("bounds")
+        if isinstance(raw_bounds, dict):
+            raw_min = _vec3(raw_bounds.get("min"))
+            raw_max = _vec3(raw_bounds.get("max"))
+            if raw_min and raw_max:
+                bounds = {
+                    "min": [min(raw_min[i], raw_max[i]) for i in range(3)],
+                    "max": [max(raw_min[i], raw_max[i]) for i in range(3)],
+                }
+        # Keep very thin picked structures visible and useful for route checks.
+        for axis in range(3):
+            if bounds["max"][axis] - bounds["min"][axis] < 0.05:
+                pad = 0.025
+                bounds["min"][axis] -= pad
+                bounds["max"][axis] += pad
+        label = " ".join(str(raw.get("label") or f"Obstacle {len(obstacles) + 1}").split())[:64]
+        obstacle_id = " ".join(str(raw.get("id") or f"obstacle_{index}").split())[:80]
+        obstacles.append(
+            {
+                "id": obstacle_id or f"obstacle_{index}",
+                "label": label or f"Obstacle {len(obstacles) + 1}",
+                "points": points,
+                "bounds": bounds,
+                "clearance_m": clearance,
+                "color": _color(raw.get("color"), "#86dfff"),
+                "opacity": _opacity(raw.get("opacity"), 0.24),
+                "created_at": str(raw.get("created_at") or now),
+                "updated_at": now,
+            }
+        )
+    return obstacles
+
+
+def set_map_safety_barriers(map_id: str, barriers, obstacles=None) -> dict:
     lib = load_library()
     entry = None
     for candidate in lib.get("maps", []):
@@ -634,6 +1562,90 @@ def set_map_safety_barriers(map_id: str, barriers) -> dict:
     if entry is None:
         raise RuntimeError(f"Unknown map id: {map_id}")
     entry["safety_barriers"] = sanitize_safety_barriers(barriers)
+    if obstacles is not None:
+        entry["safety_obstacles"] = sanitize_safety_obstacles(obstacles)
+    entry["updated_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
+    save_library(lib)
+    return entry
+
+
+def sanitize_patrols(raw_patrols) -> list[dict]:
+    patrols: list[dict] = []
+    if not isinstance(raw_patrols, list):
+        return patrols
+    now = time.strftime("%Y-%m-%d %H:%M:%S")
+    for index, raw in enumerate(raw_patrols[:100]):
+        if not isinstance(raw, dict):
+            continue
+        points: list[dict] = []
+        for raw_point in raw.get("points", [])[:200]:
+            if isinstance(raw_point, dict):
+                rxyz = _vec3(raw_point.get("rxyz"))
+                rgb_raw = raw_point.get("rgb")
+            else:
+                rxyz = _vec3(raw_point)
+                rgb_raw = None
+            if not rxyz:
+                continue
+            rgb = None
+            if isinstance(rgb_raw, (list, tuple)) and len(rgb_raw) >= 3:
+                try:
+                    rgb = [max(0, min(255, int(float(v)))) for v in rgb_raw[:3]]
+                except (TypeError, ValueError):
+                    rgb = None
+            points.append({"rxyz": rxyz, "rgb": rgb})
+        if len(points) < 2:
+            continue
+        patrol_id = " ".join(str(raw.get("id") or f"patrol_{index}").split())[:96] or f"patrol_{index}"
+        title = " ".join(str(raw.get("title") or f"Patrol {len(patrols) + 1}").split())[:80]
+        try:
+            speed = float(raw.get("speed", 0.10))
+        except (TypeError, ValueError):
+            speed = 0.10
+        try:
+            altitude_m = float(raw.get("altitude_m", 1.0))
+        except (TypeError, ValueError):
+            altitude_m = 1.0
+        try:
+            dwell_s = float(raw.get("dwell_s", 2.0))
+        except (TypeError, ValueError):
+            dwell_s = 2.0
+        scan_mode = str(raw.get("scan_mode") or "yaw-sweep")
+        if scan_mode not in {"yaw-sweep", "forward"}:
+            scan_mode = "yaw-sweep"
+        patrol_mode = str(raw.get("patrol_mode") or raw.get("mode") or "").strip().lower()
+        if patrol_mode in {"back_and_forth", "back-forth", "pingpong", "ping-pong", "bounce"}:
+            patrol_mode = "back-and-forth"
+        elif patrol_mode not in {"circle", "back-and-forth"}:
+            patrol_mode = "circle" if bool(raw.get("loop", True)) else "back-and-forth"
+        patrols.append(
+            {
+                "id": patrol_id,
+                "title": title or f"Patrol {len(patrols) + 1}",
+                "points": points,
+                "speed": max(0.04, min(0.20, speed if math.isfinite(speed) else 0.10)),
+                "altitude_m": max(0.3, min(2.0, altitude_m if math.isfinite(altitude_m) else 1.0)),
+                "dwell_s": max(0.8, min(8.0, dwell_s if math.isfinite(dwell_s) else 2.0)),
+                "scan_mode": scan_mode,
+                "patrol_mode": patrol_mode,
+                "loop": patrol_mode == "circle",
+                "created_at": str(raw.get("created_at") or now),
+                "updated_at": str(raw.get("updated_at") or now),
+            }
+        )
+    return patrols
+
+
+def set_map_patrols(map_id: str, patrols) -> dict:
+    lib = load_library()
+    entry = None
+    for candidate in lib.get("maps", []):
+        if candidate["id"] == map_id:
+            entry = candidate
+            break
+    if entry is None:
+        raise RuntimeError(f"Unknown map id: {map_id}")
+    entry["patrols"] = sanitize_patrols(patrols)
     entry["updated_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
     save_library(lib)
     return entry
@@ -723,6 +1735,163 @@ def camera_center_from_rt(R: list, t: list) -> list[float] | None:
         ]
     except (TypeError, ValueError, IndexError):
         return None
+
+
+def room_dot(a: list[float], b: list[float]) -> float:
+    return sum(float(x) * float(y) for x, y in zip(a, b))
+
+
+def room_sub(a: list[float], b: list[float]) -> list[float]:
+    return [float(x) - float(y) for x, y in zip(a, b)]
+
+
+def room_mul(a: list[float], s: float) -> list[float]:
+    return [float(x) * float(s) for x in a]
+
+
+def room_cross(a: list[float], b: list[float]) -> list[float]:
+    return [
+        a[1] * b[2] - a[2] * b[1],
+        a[2] * b[0] - a[0] * b[2],
+        a[0] * b[1] - a[1] * b[0],
+    ]
+
+
+def room_normalize(a: list[float]) -> list[float]:
+    n = max(float(sum(x * x for x in a)) ** 0.5, 1e-12)
+    return [float(x) / n for x in a]
+
+
+def room_mat_vec(C: list[list[float]], v: list[float]) -> list[float]:
+    return [room_dot(row, v) for row in C]
+
+
+def room_power_eigen(C: list[list[float]], seed: list[float]) -> dict:
+    v = room_normalize(seed)
+    for _ in range(64):
+        v = room_normalize(room_mat_vec(C, v))
+    Cv = room_mat_vec(C, v)
+    return {"v": v, "lambda": room_dot(v, Cv)}
+
+
+def room_deflate(C: list[list[float]], eig: dict) -> list[list[float]]:
+    v = eig["v"]
+    lam = float(eig["lambda"])
+    return [[C[r][c] - lam * v[r] * v[c] for c in range(3)] for r in range(3)]
+
+
+def room_covariance(points: list[list[float]], center: list[float]) -> list[list[float]]:
+    C = [[0.0, 0.0, 0.0] for _ in range(3)]
+    inv = 1.0 / max(1, len(points))
+    for p in points:
+        d = room_sub(p, center)
+        for r in range(3):
+            for c in range(3):
+                C[r][c] += d[r] * d[c] * inv
+    return C
+
+
+def room_median(values: list[float]) -> float:
+    if not values:
+        return 0.0
+    arr = sorted(float(v) for v in values)
+    mid = len(arr) // 2
+    if len(arr) % 2:
+        return arr[mid]
+    return 0.5 * (arr[mid - 1] + arr[mid])
+
+
+def build_room_transform_from_scene(scene_json: Path | None, display_z_sign: float = -1.0):
+    """Match viewer/app.js buildRoomFrame() so patrol targets and TSolve poses share one frame."""
+    if scene_json is None or not scene_json.exists():
+        return None
+    try:
+        scene = json.loads(scene_json.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    visual_rows = scene.get("dense_points3D") if scene.get("dense_points3D") else scene.get("points3D")
+    if not isinstance(visual_rows, list) or not visual_rows:
+        return None
+    cloud: list[list[float]] = []
+    for row in visual_rows:
+        if not isinstance(row, dict) or not row.get("xyz"):
+            continue
+        try:
+            cloud.append([float(row["xyz"][0]), float(row["xyz"][1]), float(row["xyz"][2])])
+        except (TypeError, ValueError, IndexError):
+            continue
+    cameras: list[list[float]] = []
+    for row in scene.get("map_cameras", []):
+        if not isinstance(row, dict) or not row.get("center"):
+            continue
+        try:
+            cameras.append([float(row["center"][0]), float(row["center"][1]), float(row["center"][2])])
+        except (TypeError, ValueError, IndexError):
+            continue
+    if not cloud:
+        return None
+    sample_stride = max(1, int(math.ceil(len(cloud) / 7000.0)))
+    sample = cloud[::sample_stride] + cameras
+    center = [sum(p[i] for p in sample) / max(1, len(sample)) for i in range(3)]
+    C = room_covariance(sample, center)
+    e0 = room_power_eigen(C, [1.0, 0.2, 0.1])
+    e1 = room_power_eigen(room_deflate(C, e0), [0.1, 1.0, 0.2])
+    axis_x = room_normalize(e0["v"])
+    axis_z = room_normalize(room_sub(e1["v"], room_mul(axis_x, room_dot(e1["v"], axis_x))))
+    if float(display_z_sign) < 0:
+        axis_z = room_mul(axis_z, -1.0)
+    axis_y = room_normalize(room_cross(axis_z, axis_x))
+
+    def raw_transform(xyz: list[float]) -> list[float]:
+        d = room_sub(xyz, center)
+        return [room_dot(d, axis_x), room_dot(d, axis_y), room_dot(d, axis_z)]
+
+    point_y = [raw_transform(p)[1] for p in cloud[:5000]]
+    cam_y = [raw_transform(p)[1] for p in cameras]
+    if cam_y and room_median(cam_y) < room_median(point_y):
+        axis_y = room_mul(axis_y, -1.0)
+
+    def transform(xyz):
+        if xyz is None:
+            return None
+        try:
+            p = [float(xyz[0]), float(xyz[1]), float(xyz[2])]
+        except (TypeError, ValueError, IndexError):
+            return None
+        d = room_sub(p, center)
+        return [room_dot(d, axis_x), room_dot(d, axis_y), room_dot(d, axis_z)]
+
+    def transform_direction(xyz):
+        if xyz is None:
+            return None
+        try:
+            p = [float(xyz[0]), float(xyz[1]), float(xyz[2])]
+        except (TypeError, ValueError, IndexError):
+            return None
+        return [room_dot(p, axis_x), room_dot(p, axis_y), room_dot(p, axis_z)]
+
+    transform.direction = transform_direction
+    return transform
+
+
+def room_heading_from_R(R, room_transform):
+    direction_transform = getattr(room_transform, "direction", None)
+    if direction_transform is None or not isinstance(R, list) or len(R) < 3:
+        return None
+    try:
+        # Keep this matched to viewer/app.js rawRotationYaw(): the third row
+        # carries the camera optical-axis direction in the COLMAP frame.
+        forward = [float(R[2][0]), float(R[2][1]), float(R[2][2])]
+    except (TypeError, ValueError, IndexError):
+        return None
+    room_forward = direction_transform(forward)
+    if not room_forward:
+        return None
+    room_forward[1] = 0.0
+    n = math.sqrt(sum(v * v for v in room_forward))
+    if n < 1e-9:
+        return None
+    return [room_forward[0] / n, 0.0, room_forward[2] / n]
 
 
 def load_instance_meta(instances_dir: Path, instance_id: str) -> dict:
@@ -821,6 +1990,7 @@ def build_partial_pose_payload(
     replay_id: str,
     expected_count: int = 0,
     localized_model_text: Path | None = None,
+    room_transform=None,
 ) -> dict:
     static_dir = tsolve_runtime / "persistent_static_json"
     instances_dir = tsolve_runtime / "instances_all"
@@ -839,15 +2009,21 @@ def build_partial_pose_payload(
             if isinstance(t, list) and len(t) == 1 and isinstance(t[0], list):
                 t = t[0]
             center = camera_center_from_rt(R, t)
+            success = bool(result.get("success"))
+            rcenter = room_transform(center) if success and room_transform is not None else None
+            rheading = room_heading_from_R(R, room_transform) if success and room_transform is not None else None
             poses.append(
                 {
                     "instance_id": instance_id,
-                    "success": bool(result.get("success")),
+                    "success": success,
                     "time_sec": meta.get("time_sec"),
                     "image_name": meta.get("image_name"),
                     "R": R,
                     "t": t,
-                    "center": center,
+                    "center": center if success else None,
+                    "rcenter": rcenter if success else None,
+                    "rheading": rheading if success else None,
+                    "raw_center": center if not success else None,
                     "objective": result.get("objective"),
                     "total_ms": result.get("total_ms"),
                     "stages_ms": result.get("stages_ms", {}),
@@ -897,18 +2073,56 @@ def current_live_stream() -> dict | None:
         return json.loads(json.dumps(stream)) if isinstance(stream, dict) else None
 
 
+def dji_live_bridge_readiness(live_status: dict, command: str) -> tuple[bool, str]:
+    state = str(live_status.get("status") or "").strip().lower()
+    try:
+        updated_at = float(live_status.get("updated_at") or 0.0)
+    except (TypeError, ValueError):
+        updated_at = 0.0
+    age = time.time() - updated_at if updated_at > 0 else float("inf")
+    age_text = f"{age:.1f}s old" if math.isfinite(age) else "not available"
+    if command == "mission":
+        if state != "streaming":
+            return False, f"DJI bridge is {state or 'offline'}, not streaming."
+        if age > 4.0:
+            return False, f"DJI bridge heartbeat is stale ({age_text})."
+        if not bool(live_status.get("control_enabled")):
+            return False, "DJI bridge was started without control enabled."
+        return True, "DJI bridge is streaming and control-enabled."
+    if command in {"takeoff", "land", "hover", "enable", "disable"}:
+        if state not in {"streaming", "waiting_for_video"}:
+            return False, f"DJI bridge is {state or 'offline'}."
+        if age > 8.0:
+            return False, f"DJI bridge heartbeat is stale ({age_text})."
+        return True, "DJI bridge is connected."
+    return False, f"Unsupported DJI command: {command}"
+
+
 def send_dji_flight_command(payload: dict) -> dict:
     command = str(payload.get("command", "")).strip().lower()
-    if command not in {"takeoff", "land", "enable", "disable", "hover"}:
+    if command not in {"takeoff", "land", "enable", "disable", "hover", "mission"}:
         raise ValueError(f"Unsupported DJI flight command: {command}")
     phone_ip = str(payload.get("phone_ip", "")).strip()
     height_m = payload.get("height_m")
     if height_m is not None:
         height_m = max(0.1, min(2.0, float(height_m)))
+    mission = payload.get("mission") if isinstance(payload.get("mission"), dict) else None
 
     stream = current_live_stream() or recover_live_stream_from_disk() or {}
     live_status_path = PUBLIC / "live_dji" / "status.json"
-    use_live_bridge = bool(stream.get("live_atlas") and live_status_path.exists())
+    live_status = {}
+    if live_status_path.exists():
+        try:
+            live_status = json.loads(live_status_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            live_status = {}
+    live_state = str(live_status.get("status") or "").strip().lower()
+    bridge_ready, bridge_reason = dji_live_bridge_readiness(live_status, command)
+    use_live_bridge = bool(stream.get("live_atlas") and live_status_path.exists() and bridge_ready)
+    if command == "mission" and not use_live_bridge:
+        raise ValueError(f"Start Live ATLAS before confirming a mission, so the DJI bridge can receive the mission packet. {bridge_reason}")
+    if command in {"takeoff", "land", "hover"} and stream.get("live_atlas") and live_status_path.exists() and not bridge_ready:
+        raise ValueError(f"Live DJI bridge is not ready for {command}. {bridge_reason}")
     command_id = uuid.uuid4().hex
     command_payload = {
         "id": command_id,
@@ -917,6 +2131,8 @@ def send_dji_flight_command(payload: dict) -> dict:
         "height_m": height_m,
         "created_at": time.time(),
     }
+    if command == "mission":
+        command_payload["mission"] = mission or {}
     if use_live_bridge:
         command_path = PUBLIC / "live_dji" / "control_command.json"
         atomic_write_json(command_path, command_payload)
@@ -1017,7 +2233,11 @@ def recover_live_stream_from_disk() -> dict | None:
     try:
         payload = json.loads(partial_pose_path.read_text(encoding="utf-8"))
         poses = payload.get("poses") if isinstance(payload.get("poses"), list) else []
+        counts = pose_stream_counts(poses)
         stream["pose_count"] = int(payload.get("processed_count") or len(poses))
+        stream["accepted_pose_count"] = counts["poses"]
+        stream["held_pose_count"] = counts["held"]
+        stream["failed_pose_count"] = counts["failed"]
         stream["expected_count"] = int(payload.get("expected_count") or 0)
     except (OSError, TypeError, ValueError, json.JSONDecodeError):
         pass
@@ -1034,8 +2254,11 @@ def stream_partial_poses(
     stop_event: threading.Event,
     expected_count: int,
     localized_model_text: Path | None = None,
+    scene_json: Path | None = None,
+    display_z_sign: float = -1.0,
     started_at: float | None = None,
 ) -> None:
+    room_transform = build_room_transform_from_scene(scene_json, display_z_sign)
     last_count = -1
     last_write = 0.0
     while not stop_event.is_set():
@@ -1045,6 +2268,7 @@ def stream_partial_poses(
             replay_id,
             expected_count,
             localized_model_text,
+            room_transform,
         )
         try:
             existing = json.loads(partial_path.read_text(encoding="utf-8")) if partial_path.exists() else {}
@@ -1053,12 +2277,17 @@ def stream_partial_poses(
         if existing.get("current_frame"):
             payload["current_frame"] = existing["current_frame"]
             payload["current_frame_time_sec"] = existing.get("current_frame_time_sec")
-        count = int(payload.get("processed_count") or 0)
+        poses = payload.get("poses") if isinstance(payload.get("poses"), list) else []
+        counts = pose_stream_counts(poses)
+        count = int(payload.get("processed_count") or len(poses))
         now = time.time()
         if count != last_count or now - last_write > 2.5:
             atomic_write_json(partial_path, payload)
             stream_update = {
                 "pose_count": count,
+                "accepted_pose_count": counts["poses"],
+                "held_pose_count": counts["held"],
+                "failed_pose_count": counts["failed"],
                 "expected_count": expected_count,
                 "partial_pose_url": public_rel(partial_path),
             }
@@ -1068,7 +2297,11 @@ def stream_partial_poses(
                 stream_update["first_pose_latency_seconds"] = now - started_at
             update_live_stream(**stream_update)
             if count != last_count and count > 0:
-                set_job("drone", "running", f"Live TSolve self-localization: streamed {count}/{expected_count or '?'} R,t updates.")
+                set_job(
+                    "drone",
+                    "running",
+                    f"Live TSolve self-localization: {counts['poses']}/{count}/{expected_count or '?'} accepted/processed/target.",
+                )
             last_count = count
             last_write = now
         time.sleep(0.35)
@@ -1079,6 +2312,7 @@ def stream_partial_poses(
         replay_id,
         expected_count,
         localized_model_text,
+        room_transform,
     )
     try:
         existing = json.loads(partial_path.read_text(encoding="utf-8")) if partial_path.exists() else {}
@@ -1088,9 +2322,14 @@ def stream_partial_poses(
         payload["current_frame"] = existing["current_frame"]
         payload["current_frame_time_sec"] = existing.get("current_frame_time_sec")
     atomic_write_json(partial_path, payload)
-    final_count = int(payload.get("processed_count") or 0)
+    poses = payload.get("poses") if isinstance(payload.get("poses"), list) else []
+    counts = pose_stream_counts(poses)
+    final_count = int(payload.get("processed_count") or len(poses))
     stream_update = {
         "pose_count": final_count,
+        "accepted_pose_count": counts["poses"],
+        "held_pose_count": counts["held"],
+        "failed_pose_count": counts["failed"],
         "expected_count": expected_count,
         "partial_pose_url": public_rel(partial_path),
         "complete": True,
@@ -1202,10 +2441,14 @@ def monitor_partial_pose_file(
         except (OSError, json.JSONDecodeError):
             payload = {}
         poses = payload.get("poses") if isinstance(payload.get("poses"), list) else []
+        counts = pose_stream_counts(poses)
         count = int(payload.get("processed_count") or len(poses))
         if count != last_count:
             stream_update = {
                 "pose_count": count,
+                "accepted_pose_count": counts["poses"],
+                "held_pose_count": counts["held"],
+                "failed_pose_count": counts["failed"],
                 "expected_count": int(payload.get("expected_count") or 0),
                 "partial_pose_url": public_rel(partial_path),
             }
@@ -1258,12 +2501,16 @@ def finalize_partial_replay(
 ) -> int:
     payload = json.loads(partial_pose_path.read_text(encoding="utf-8")) if partial_pose_path.exists() else {"poses": []}
     poses = payload.get("poses") if isinstance(payload.get("poses"), list) else []
+    counts = pose_stream_counts(poses)
     final_payload = {
         **payload,
         "mode": "dji_live_tsolve_replay" if payload.get("mode") else "atlas_live_tsolve_replay",
         "description": "ATLAS TSolve R,t estimates produced from DJI MSDK live frames.",
         "complete": True,
         "processed_count": len(poses),
+        "accepted_count": counts["poses"],
+        "held_count": counts["held"],
+        "failed_count": counts["failed"],
         "updated_at": time.time(),
         "poses": poses,
     }
@@ -1278,19 +2525,22 @@ def finalize_partial_replay(
         "asset_base": public_rel(out_asset_dir),
         "created_at": time.strftime("%Y-%m-%d %H:%M:%S"),
         "source_video": source_video,
-        "counts": {"poses": len(poses)},
+        "counts": counts,
     }
     if query_frame_base_url:
         replay["query_frame_base_url"] = query_frame_base_url
     update_live_stream(
         pose_count=len(poses),
+        accepted_pose_count=counts["poses"],
+        held_pose_count=counts["held"],
+        failed_pose_count=counts["failed"],
         expected_count=int(payload.get("expected_count") or 0),
         partial_pose_url=public_rel(final_pose_path),
         final_pose_url=public_rel(final_pose_path),
         complete=True,
     )
     add_replay_to_map(selected["id"], replay, select=True)
-    return len(poses)
+    return counts["poses"]
 
 
 def save_upload(field, dst: Path) -> None:
@@ -1414,17 +2664,21 @@ def colmap_artifacts_for_entry(entry: dict) -> dict[str, Path]:
         if not map_id or map_id in seen:
             continue
         seen.add(map_id)
-        root = ROOT / "results" / "maps" / map_id / "colmap"
-        database = root / "database.db"
-        images = root / "images"
-        sparse_text = root / "sparse_text"
-        sparse_root = root / "sparse"
-        if (
-            database.exists()
-            and images.exists()
-            and (sparse_text / "points3D.txt").exists()
-            and sparse_root.exists()
-        ):
+        map_root = ROOT / "results" / "maps" / map_id
+        roots = [map_root / "colmap"]
+        roots.extend(sorted(map_root.glob("colmap_backup_*"), reverse=True))
+        for root in roots:
+            database = root / "database.db"
+            images = root / "images"
+            sparse_text = root / "sparse_text"
+            sparse_root = root / "sparse"
+            if not (
+                database.exists()
+                and images.exists()
+                and (sparse_text / "points3D.txt").exists()
+                and sparse_root.exists()
+            ):
+                continue
             return {
                 "root": root,
                 "database": database,
@@ -1438,16 +2692,16 @@ def colmap_artifacts_for_entry(entry: dict) -> dict[str, Path]:
     )
 
 
-def copy_frame_bank(src: Path, dst: Path) -> None:
+def copy_frame_bank(src: Path, dst: Path, prefix: str = "") -> None:
     dst.mkdir(parents=True, exist_ok=True)
     try:
-        if src.resolve() == dst.resolve():
+        if not prefix and src.resolve() == dst.resolve():
             return
     except FileNotFoundError:
         pass
     for item in src.iterdir():
         if item.is_file() and item.suffix.lower() in {".jpg", ".jpeg", ".png"}:
-            target = dst / item.name
+            target = dst / (f"{prefix}_{item.name}" if prefix else item.name)
             if not target.exists():
                 shutil.copy2(item, target)
 
@@ -1869,6 +3123,70 @@ def enhance_map_job(map_id: str, videos: list[Path]) -> None:
             set_job("map", "error", str(exc))
 
 
+def replay_query_frame_dir(replay: dict) -> Path | None:
+    raw = str(replay.get("query_frame_base_url") or replay.get("frame_source") or "").strip()
+    if not raw:
+        return None
+    if raw.startswith("public/") or raw.startswith("maps/"):
+        candidate = VIEWER / raw
+    else:
+        candidate = Path(raw)
+        if not candidate.is_absolute():
+            candidate = VIEWER / raw
+    return candidate if candidate.exists() and candidate.is_dir() else None
+
+
+def enhance_map_from_replay_job(map_id: str, replay_id: str) -> None:
+    try:
+        selected = get_map_entry(map_id)
+        replay = next((r for r in selected.get("replays", []) if r.get("id") == replay_id), None)
+        if replay is None:
+            raise RuntimeError(f"Unknown replay id for {selected.get('title') or map_id}: {replay_id}")
+
+        replay_title = str(replay.get("title") or replay_id)
+        replay_asset = VIEWER / str(replay.get("asset_base") or "")
+        replay_video = replay_asset / "media" / "drone_query.mp4"
+        if replay_video.exists():
+            set_job("map", "running", f"Enhancing {selected['title']} with source video from {replay_title}.")
+            enhance_map_job(map_id, [replay_video])
+            return
+
+        src_frames = replay_query_frame_dir(replay)
+        if src_frames is None or count_frame_images(src_frames) < 5:
+            raise RuntimeError("This path has no saved video or enough saved query frames to enhance the 3D map.")
+
+        frames = frames_for_entry(selected)
+        asset_dir = VIEWER / selected["asset_base"]
+        colmap_out = ROOT / "results" / "maps" / selected["id"] / "colmap"
+        safe_prefix = f"replay_{replay_id.replace('-', '_')[:24]}"
+        MAP_STOP_EVENT.clear()
+        set_selected_map(selected["id"])
+        set_job(
+            "map",
+            "running",
+            f"Adding {count_frame_images(src_frames)} saved DJI frames from {replay_title} to {selected['title']} and rerunning COLMAP.",
+        )
+        backup = backup_frame_bank(frames)
+        restore_frame_bank(backup, frames)
+        copy_frame_bank(src_frames, frames, prefix=safe_prefix)
+        append_log("map", f"Combined frame bank now has {count_frame_images(frames)} images.")
+        run_map_from_frames(
+            frames,
+            colmap_out,
+            asset_dir,
+            selected["id"],
+            selected["title"],
+            f"{selected['title']} frame bank plus saved DJI frames from {replay_title}",
+        )
+    except Exception as exc:
+        append_log("map", f"ERROR: {exc}")
+        if MAP_STOP_EVENT.is_set():
+            set_job("map", "cancelled", "Map enhancement from drone path stopped by user.")
+            MAP_STOP_EVENT.clear()
+        else:
+            set_job("map", "error", str(exc))
+
+
 def dji_live_atlas_job(
     *,
     map_id: str | None = None,
@@ -1914,6 +3232,7 @@ def dji_live_atlas_job(
                 "mode": "dji_live_tsolve_partial",
                 "replay_id": replay_id,
                 "frame_source": str(query_frames),
+                "query_frame_base_url": public_rel(query_frames),
                 "expected_count": 0,
                 "processed_count": 0,
                 "complete": False,
@@ -1959,7 +3278,26 @@ def dji_live_atlas_job(
             public_live_root,
             "--public-root",
             PUBLIC / "live_dji",
+            "--pose-stream",
+            partial_pose_path,
         ]
+        enemy_model = selected_enemy_model_path()
+        if enemy_model:
+            bridge_cmd.extend(
+                [
+                    "--enemy-model",
+                    enemy_model,
+                    "--enemy-output",
+                    PUBLIC / "live_dji" / "enemy_detections.json",
+                    "--enemy-detect-fps",
+                    cfg.get("enemy_live_detect_fps", min(float(fps), 2.0)),
+                    "--enemy-conf",
+                    cfg.get("enemy_live_confidence", 0.35),
+                ]
+            )
+            append_log("drone", f"Enemy-drone detector enabled: {enemy_model.name}")
+        else:
+            append_log("drone", "Enemy-drone detector disabled: no trained YOLO model selected.")
         bridge_thread = start_logged_background_cmd("drone", bridge_cmd, DRONE_STOP_EVENT)
 
         set_job("drone", "running", "Preparing TSolve runtime while DJI frames start streaming.")
@@ -2000,73 +3338,90 @@ def dji_live_atlas_job(
         )
         monitor_thread.start()
 
-        run_cmd(
-            "drone",
-            [
-                py,
-                scripts / "run_bounded_tsolve_video_stream.py",
-                "--colmap",
-                cfg["colmap_bin"],
-                "--map-database",
-                map_artifacts["database"],
-                "--map-images",
-                map_artifacts["images"],
-                "--map-sparse-model",
-                map_artifacts["sparse_model"],
-                "--map-sparse-text",
-                map_artifacts["sparse_text"],
-                "--query-frames",
-                query_frames,
-                "--runtime-dir",
-                runtime_dir,
-                "--solver-dir",
-                cfg["solver_dir"],
-                "--inputs-out-dir",
-                tsolve_inputs,
-                "--out-dir",
-                tsolve_runtime,
-                "--work-dir",
-                stream_work,
-                "--max-image-size",
-                cfg["max_image_size"],
-                "--query-camera-model",
-                cfg["query_camera_model"],
-                "--min-points",
-                cfg["min_query_correspondences"],
-                "--max-points",
-                cfg["max_query_correspondences"],
-                "--max-reference-images",
-                cfg.get("live_reference_image_cap", 24),
-                "--tracking-reference-images",
-                cfg.get("live_tracking_reference_image_cap", 10),
-                "--track-pool-size",
-                cfg.get("live_tracking_pool_size", 900),
-                "--relocalize-every",
-                cfg.get("live_relocalize_every", 0),
-                "--flow-max-error",
-                cfg.get("live_flow_max_error", 34.0),
-                "--flow-backtrack-error",
-                cfg.get("live_flow_backtrack_error", 2.5),
-                "--prime",
-                cfg["tsolve_prime"],
-                "--degree",
-                cfg["tsolve_degree"],
-                "--action-weights",
-                cfg["tsolve_action_weights"],
-                "--fallback-action-weights",
-                cfg["tsolve_fallback_action_weights"],
-                "--partial-pose-out",
-                partial_pose_path,
-                "--replay-id",
-                replay_id,
-                "--expected-count",
-                0,
-                "--follow-dir",
-                "--stop-file",
-                stop_file,
-            ],
-            DRONE_STOP_EVENT,
-        )
+        live_stream_cmd = [
+            py,
+            scripts / "run_bounded_tsolve_video_stream.py",
+            "--colmap",
+            cfg["colmap_bin"],
+            "--map-database",
+            map_artifacts["database"],
+            "--map-images",
+            map_artifacts["images"],
+            "--map-sparse-model",
+            map_artifacts["sparse_model"],
+            "--map-sparse-text",
+            map_artifacts["sparse_text"],
+            "--query-frames",
+            query_frames,
+            "--runtime-dir",
+            runtime_dir,
+            "--solver-dir",
+            cfg["solver_dir"],
+            "--inputs-out-dir",
+            tsolve_inputs,
+            "--out-dir",
+            tsolve_runtime,
+            "--work-dir",
+            stream_work,
+            "--max-image-size",
+            cfg["max_image_size"],
+            "--query-camera-model",
+            cfg["query_camera_model"],
+            "--min-points",
+            cfg["min_query_correspondences"],
+            "--max-points",
+            cfg["max_query_correspondences"],
+            "--max-reference-images",
+            cfg.get("live_reference_image_cap", 24),
+            "--tracking-reference-images",
+            cfg.get("live_tracking_reference_image_cap", 10),
+            "--track-pool-size",
+            cfg.get("live_tracking_pool_size", 900),
+            "--relocalize-every",
+            cfg.get("live_relocalize_every", 0),
+            "--flow-max-error",
+            cfg.get("live_flow_max_error", 34.0),
+            "--flow-backtrack-error",
+            cfg.get("live_flow_backtrack_error", 2.5),
+            "--flow-window",
+            cfg.get("live_flow_window", 21),
+            "--flow-levels",
+            cfg.get("live_flow_levels", 3),
+            "--flow-iterations",
+            cfg.get("live_flow_iterations", 18),
+            "--min-track-points",
+            cfg.get("live_min_track_points", 80),
+            "--min-track-ratio",
+            cfg.get("live_min_track_ratio", 0.10),
+            "--global-recovery-after-failures",
+            cfg.get("live_global_recovery_after_failures", 2),
+            "--prime",
+            cfg["tsolve_prime"],
+            "--degree",
+            cfg["tsolve_degree"],
+            "--action-weights",
+            cfg["tsolve_action_weights"],
+            "--fallback-action-weights",
+            cfg["tsolve_fallback_action_weights"],
+            "--partial-pose-out",
+            partial_pose_path,
+            "--replay-id",
+            replay_id,
+            "--expected-count",
+            0,
+            "--scene-json",
+            base_asset_dir / "scene.json",
+            "--display-z-sign",
+            selected.get("display_z_sign", -1),
+            "--follow-dir",
+            "--stop-file",
+            stop_file,
+        ]
+        if cfg.get("live_blocking_global_recovery", True):
+            live_stream_cmd.append("--blocking-global-recovery")
+        if not cfg.get("live_background_recovery", False):
+            live_stream_cmd.append("--disable-background-recovery")
+        run_cmd("drone", live_stream_cmd, None)
 
         set_job("drone", "running", "Finalizing stopped DJI live path.")
         pose_count = finalize_partial_replay(
@@ -2241,22 +3596,43 @@ def drone_video_job(video: Path, map_id: str | None = None) -> None:
         )
 
         localizer_mode = str(cfg.get("live_localizer_mode") or "bounded_tracking")
+        stream_tracking_reference_images = cfg.get("live_tracking_reference_image_cap", 10)
         if localizer_mode == "colmap_per_frame":
             stream_script = scripts / "run_live_tsolve_existing_map_stream.py"
             stream_mode_message = "Running TSolve online R,t updates with COLMAP registration on each frame."
             extra_stream_args: list[object] = []
         else:
+            # Uploaded-video replay is our finite, reproducible live simulation.
+            # Keep it on the proven stable settings that produced the reference
+            # 13:09 path: enough local tracks, and immediate recovery when the
+            # drone lands or the image content changes abruptly.
+            stream_tracking_reference_images = cfg.get("simulated_live_tracking_reference_image_cap", 10)
             stream_script = scripts / "run_bounded_tsolve_video_stream.py"
             stream_mode_message = "Running bounded simulated-live TSolve: first-frame COLMAP bootstrap, then optical-flow tracking."
             extra_stream_args = [
                 "--track-pool-size",
-                cfg.get("live_tracking_pool_size", 900),
+                cfg.get("simulated_live_tracking_pool_size", 900),
                 "--relocalize-every",
                 cfg.get("live_relocalize_every", 0),
                 "--flow-max-error",
                 cfg.get("live_flow_max_error", 34.0),
                 "--flow-backtrack-error",
                 cfg.get("live_flow_backtrack_error", 2.5),
+                "--flow-window",
+                cfg.get("live_flow_window", 21),
+                "--flow-levels",
+                cfg.get("live_flow_levels", 3),
+                "--flow-iterations",
+                cfg.get("live_flow_iterations", 18),
+                "--min-track-points",
+                cfg.get("simulated_live_min_track_points", 60),
+                "--min-track-ratio",
+                cfg.get("simulated_live_min_track_ratio", cfg.get("live_min_track_ratio", 0.10)),
+                "--global-recovery-after-failures",
+                cfg.get("simulated_live_global_recovery_after_failures", 2),
+                "--pace-replay",
+                "--pace-scale",
+                cfg.get("simulated_live_pace_scale", 1.0),
                 "--partial-pose-out",
                 partial_pose_path,
                 "--replay-id",
@@ -2266,6 +3642,8 @@ def drone_video_job(video: Path, map_id: str | None = None) -> None:
                 "--expected-count",
                 expected_count,
             ]
+            if cfg.get("simulated_live_blocking_global_recovery", True):
+                extra_stream_args.append("--blocking-global-recovery")
 
         set_job("drone", "running", stream_mode_message)
         partial_thread = threading.Thread(
@@ -2278,6 +3656,8 @@ def drone_video_job(video: Path, map_id: str | None = None) -> None:
                 partial_stop,
                 expected_count,
                 map_artifacts["sparse_text"],
+                base_asset_dir / "scene.json",
+                selected.get("display_z_sign", -1),
                 live_started_at,
             ),
             daemon=True,
@@ -2322,7 +3702,7 @@ def drone_video_job(video: Path, map_id: str | None = None) -> None:
                     "--max-reference-images",
                     cfg.get("live_reference_image_cap", 24),
                     "--tracking-reference-images",
-                    cfg.get("live_tracking_reference_image_cap", 10),
+                    stream_tracking_reference_images,
                     "--prime",
                     cfg["tsolve_prime"],
                     "--degree",
@@ -2331,6 +3711,10 @@ def drone_video_job(video: Path, map_id: str | None = None) -> None:
                     cfg["tsolve_action_weights"],
                     "--fallback-action-weights",
                     cfg["tsolve_fallback_action_weights"],
+                    "--scene-json",
+                    base_asset_dir / "scene.json",
+                    "--display-z-sign",
+                    selected.get("display_z_sign", -1),
                 ]
                 + extra_stream_args,
                 DRONE_STOP_EVENT,
@@ -2447,10 +3831,175 @@ class AtlasHandler(SimpleHTTPRequestHandler):
         if url.path == "/api/maps":
             self.send_json(load_library())
             return
+        if url.path == "/api/enemy-drones":
+            payload = load_enemy_library()
+            with STATE_LOCK:
+                payload["job"] = json.loads(json.dumps(STATE["enemy"]))
+            self.send_json(payload)
+            return
         super().do_GET()
 
     def do_POST(self) -> None:
         url = urllib.parse.urlparse(self.path)
+        if url.path == "/api/enemy-drone/upload":
+            form = cgi.FieldStorage(fp=self.rfile, headers=self.headers, environ={"REQUEST_METHOD": "POST"})
+            file_fields = uploaded_video_fields(form)
+            try:
+                profile = upload_enemy_videos(
+                    str(form.getfirst("enemy_id", "")).strip() or None,
+                    str(form.getfirst("name", "")).strip(),
+                    file_fields,
+                )
+            except Exception as exc:
+                self.send_json({"ok": False, "error": str(exc)}, 400)
+                return
+            self.send_json({"ok": True, "enemy": profile, "library": load_enemy_library()})
+            return
+
+        if url.path == "/api/enemy-drone/rename":
+            length = int(self.headers.get("Content-Length", "0"))
+            body = self.rfile.read(length).decode("utf-8") if length else "{}"
+            payload = json.loads(body or "{}")
+            try:
+                profile = rename_enemy_profile(
+                    str(payload.get("enemy_id", "")).strip(),
+                    str(payload.get("name", "")).strip(),
+                )
+            except Exception as exc:
+                self.send_json({"ok": False, "error": str(exc)}, 400)
+                return
+            self.send_json({"ok": True, "enemy": profile, "library": load_enemy_library()})
+            return
+
+        if url.path == "/api/enemy-drone/delete":
+            length = int(self.headers.get("Content-Length", "0"))
+            body = self.rfile.read(length).decode("utf-8") if length else "{}"
+            payload = json.loads(body or "{}")
+            try:
+                delete_enemy_profile(str(payload.get("enemy_id", "")).strip())
+            except Exception as exc:
+                self.send_json({"ok": False, "error": str(exc)}, 400)
+                return
+            self.send_json({"ok": True, "library": load_enemy_library()})
+            return
+
+        if url.path == "/api/enemy-drone/extract-frames":
+            length = int(self.headers.get("Content-Length", "0"))
+            body = self.rfile.read(length).decode("utf-8") if length else "{}"
+            payload = json.loads(body or "{}")
+            try:
+                result = extract_enemy_frames(
+                    str(payload.get("enemy_id", "")).strip(),
+                    float(payload.get("fps") or 2.0),
+                    int(payload.get("max_frames_per_video") or 180),
+                    int(payload.get("max_size") or 960),
+                    bool(payload.get("force") or False),
+                )
+            except Exception as exc:
+                self.send_json({"ok": False, "error": str(exc)}, 400)
+                return
+            self.send_json({"ok": True, **result})
+            return
+
+        if url.path == "/api/enemy-drone/label-frame":
+            length = int(self.headers.get("Content-Length", "0"))
+            body = self.rfile.read(length).decode("utf-8") if length else "{}"
+            payload = json.loads(body or "{}")
+            try:
+                result = save_enemy_frame_label(
+                    str(payload.get("enemy_id", "")).strip(),
+                    str(payload.get("frame_id", "")).strip(),
+                    payload.get("box") if isinstance(payload.get("box"), dict) else None,
+                    str(payload.get("status") or "labeled"),
+                )
+            except Exception as exc:
+                self.send_json({"ok": False, "error": str(exc)}, 400)
+                return
+            self.send_json({"ok": True, **result})
+            return
+
+        if url.path == "/api/enemy-drone/track-labels":
+            length = int(self.headers.get("Content-Length", "0"))
+            body = self.rfile.read(length).decode("utf-8") if length else "{}"
+            payload = json.loads(body or "{}")
+            try:
+                result = track_enemy_labels(
+                    str(payload.get("enemy_id", "")).strip(),
+                    str(payload.get("frame_id", "")).strip(),
+                    payload.get("box") if isinstance(payload.get("box"), dict) else None,
+                    str(payload.get("direction") or "both"),
+                    float(payload.get("accept_threshold") or 0.72),
+                    float(payload.get("review_threshold") or 0.50),
+                    float(payload.get("search_scale") or 3.0),
+                    int(payload.get("max_frames") or 160),
+                    bool(payload.get("overwrite") or False),
+                )
+            except Exception as exc:
+                self.send_json({"ok": False, "error": str(exc)}, 400)
+                return
+            self.send_json({"ok": True, **result})
+            return
+
+        if url.path == "/api/enemy-drone/prepare-yolo":
+            length = int(self.headers.get("Content-Length", "0"))
+            body = self.rfile.read(length).decode("utf-8") if length else "{}"
+            payload = json.loads(body or "{}")
+            try:
+                lib = prepare_enemy_yolo_dataset(str(payload.get("enemy_id", "")).strip() or None)
+            except Exception as exc:
+                self.send_json({"ok": False, "error": str(exc)}, 400)
+                return
+            self.send_json({"ok": True, "library": lib})
+            return
+
+        if url.path == "/api/enemy-drone/train-yolo":
+            if job_is_active("enemy"):
+                self.send_json({"ok": False, "error": "Enemy detector training is already running."}, 409)
+                return
+            length = int(self.headers.get("Content-Length", "0"))
+            body = self.rfile.read(length).decode("utf-8") if length else "{}"
+            payload = json.loads(body or "{}")
+            run_id = f"enemy_yolo_{time.strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}"
+            base_model = str(payload.get("base_model") or "yolov8n.pt").strip() or "yolov8n.pt"
+            epochs = max(1, min(300, int(payload.get("epochs") or 50)))
+            imgsz = max(160, min(1600, int(payload.get("imgsz") or 640)))
+            batch = max(1, min(128, int(payload.get("batch") or 8)))
+            device = str(payload.get("device") or "auto").strip() or "auto"
+            queue_job("enemy", "Enemy-drone YOLO fine-tuning queued.")
+            set_enemy_library_training_state(
+                status="queued",
+                message="Enemy detector fine-tuning queued.",
+                run_id=run_id,
+                training={
+                    "status": "queued",
+                    "run_id": run_id,
+                    "base_model": base_model,
+                    "epochs": epochs,
+                    "imgsz": imgsz,
+                    "batch": batch,
+                    "device": device,
+                    "queued_at": now_label(),
+                },
+            )
+            thread = threading.Thread(
+                target=enemy_yolo_training_job,
+                kwargs={
+                    "run_id": run_id,
+                    "base_model": base_model,
+                    "epochs": epochs,
+                    "imgsz": imgsz,
+                    "batch": batch,
+                    "device": device,
+                },
+                daemon=True,
+            )
+            thread.start()
+            payload = load_enemy_library()
+            with STATE_LOCK:
+                payload["job"] = json.loads(json.dumps(STATE["enemy"]))
+            self.send_json({"ok": True, "library": payload})
+            return
+
         if url.path == "/api/map/live":
             if job_is_active("map"):
                 self.send_json({"ok": False, "error": "A map build is already running. Stop it or wait for it to finish."}, 409)
@@ -2488,6 +4037,7 @@ class AtlasHandler(SimpleHTTPRequestHandler):
                 set_job("drone", "stopping", "Stopping DJI live localization and saving the current ATLAS path.")
                 touch_stop_file(stream.get("stop_file"), "ATLAS Stop Live Localization pressed")
                 update_live_stream(stopping=True, live_preview_url=None)
+                mark_live_dji_status_stopped("ATLAS live localization stop requested; saving current path.")
             else:
                 set_job("drone", "stopping", "Cancelling live TSolve path creation.")
                 update_live_stream(complete=True, cancelled=True)
@@ -2496,7 +4046,11 @@ class AtlasHandler(SimpleHTTPRequestHandler):
             if orphan_count:
                 append_log("drone", f"Stopped {orphan_count} orphan live subprocess(es).")
             mark_live_dji_status_stopped("ATLAS live localization stopped by user.")
-            if terminated == 0 and orphan_count == 0:
+            if terminated or orphan_count:
+                update_live_stream(complete=True, cancelled=True, stopping=False, live_preview_url=None)
+                set_job("drone", "cancelled", "Live localization stopped; active live subprocesses were terminated.")
+                DRONE_STOP_EVENT.clear()
+            else:
                 update_live_stream(complete=True, cancelled=True, stopping=False, live_preview_url=None)
                 set_job("drone", "cancelled", "Live localization stopped; no active drone subprocess remained.")
                 DRONE_STOP_EVENT.clear()
@@ -2599,6 +4153,22 @@ class AtlasHandler(SimpleHTTPRequestHandler):
                 entry = set_map_safety_barriers(
                     str(payload.get("map_id", "")),
                     payload.get("barriers", []),
+                    payload.get("obstacles", None),
+                )
+            except Exception as exc:
+                self.send_json({"ok": False, "error": str(exc)}, 400)
+                return
+            self.send_json({"ok": True, "map": entry, "state": snapshot_state()})
+            return
+
+        if url.path == "/api/map/patrols":
+            length = int(self.headers.get("Content-Length", "0"))
+            body = self.rfile.read(length).decode("utf-8") if length else "{}"
+            payload = json.loads(body or "{}")
+            try:
+                entry = set_map_patrols(
+                    str(payload.get("map_id", "")),
+                    payload.get("patrols", []),
                 )
             except Exception as exc:
                 self.send_json({"ok": False, "error": str(exc)}, 400)
@@ -2632,6 +4202,30 @@ class AtlasHandler(SimpleHTTPRequestHandler):
                 self.send_json({"ok": False, "error": str(exc)}, 400)
                 return
             self.send_json({"ok": True, "map": entry, "state": snapshot_state()})
+            return
+
+        if url.path == "/api/replay/enhance-map":
+            if job_is_active("map"):
+                self.send_json({"ok": False, "error": "A map build is already running. Wait for it to finish before enhancing this map from a drone path."}, 409)
+                return
+            length = int(self.headers.get("Content-Length", "0"))
+            body = self.rfile.read(length).decode("utf-8") if length else "{}"
+            payload = json.loads(body or "{}")
+            map_id = str(payload.get("map_id", "")).strip()
+            replay_id = str(payload.get("replay_id", "")).strip()
+            if not map_id or not replay_id:
+                self.send_json({"ok": False, "error": "Missing map_id or replay_id."}, 400)
+                return
+            try:
+                entry = set_selected_map(map_id)
+                replay = next((r for r in entry.get("replays", []) if r.get("id") == replay_id), None)
+                replay_title = str(replay.get("title") if replay else replay_id)
+            except Exception as exc:
+                self.send_json({"ok": False, "error": str(exc)}, 400)
+                return
+            queue_job("map", f"Enhancing {entry.get('title') or map_id} from drone path {replay_title}.")
+            start_thread(enhance_map_from_replay_job, map_id, replay_id)
+            self.send_json({"ok": True, "state": snapshot_state()})
             return
 
         if url.path == "/api/replay/delete":

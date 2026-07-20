@@ -1,5 +1,6 @@
 const canvas = document.getElementById("map");
 let ctx = canvas.getContext("2d");
+let currentRenderedPose = null;
 const staticCanvas = document.createElement("canvas");
 const staticCtx = staticCanvas.getContext("2d");
 const video = document.getElementById("video");
@@ -15,10 +16,34 @@ const poseT = document.getElementById("pose-t");
 const poseR = document.getElementById("pose-r");
 const demoApp = document.getElementById("demo-app");
 const startPage = document.getElementById("start-page");
+const enemyPage = document.getElementById("enemy-page");
 const startPreview = document.getElementById("start-preview");
 const navBack = document.getElementById("nav-back");
 const atlasHome = document.getElementById("atlas-home");
 const atlasScreenLabel = document.getElementById("atlas-screen-label");
+const enemyLabButton = document.getElementById("enemy-lab-button");
+const enemyDroneList = document.getElementById("enemy-drone-list");
+const enemyNameInput = document.getElementById("enemy-name");
+const enemyVideoUpload = document.getElementById("enemy-video-upload");
+const enemyUploadSubmit = document.getElementById("enemy-upload-submit");
+const enemyUploadStatus = document.getElementById("enemy-upload-status");
+const enemyModelStatus = document.getElementById("enemy-model-status");
+const enemyModelNote = document.getElementById("enemy-model-note");
+const enemyPrepareAllButton = document.getElementById("enemy-prepare-all");
+const enemyTrainModelButton = document.getElementById("enemy-train-model");
+const enemyTrainEpochs = document.getElementById("enemy-train-epochs");
+const enemyTrainImgsz = document.getElementById("enemy-train-imgsz");
+const enemyRefreshButton = document.getElementById("enemy-refresh");
+const enemyAnnotationProfile = document.getElementById("enemy-annotation-profile");
+const enemyExtractFramesButton = document.getElementById("enemy-extract-frames");
+const enemyAnnotationStatus = document.getElementById("enemy-annotation-status");
+const enemyFrameStrip = document.getElementById("enemy-frame-strip");
+const enemyAnnotationCanvas = document.getElementById("enemy-annotation-canvas");
+const enemySaveBoxButton = document.getElementById("enemy-save-box");
+const enemyTrackBoxButton = document.getElementById("enemy-track-box");
+const enemyCopyPrevBoxButton = document.getElementById("enemy-copy-prev-box");
+const enemySkipFrameButton = document.getElementById("enemy-skip-frame");
+const enemyClearBoxButton = document.getElementById("enemy-clear-box");
 const mapCardList = document.getElementById("map-card-list");
 const uploadStatus = document.getElementById("upload-status");
 const mapStatus = document.getElementById("map-status");
@@ -43,20 +68,49 @@ const mapUpload = document.getElementById("map-upload");
 const mapVideoUpload = document.getElementById("map-video-upload");
 const demoDroneUpload = document.getElementById("demo-drone-upload");
 const liveAtlasPhoneIp = document.getElementById("live-atlas-phone-ip");
+const phoneIpOptions = document.getElementById("phone-ip-options");
+const phoneIpSelect = document.getElementById("phone-ip-select");
+const savePhoneIpButton = document.getElementById("save-phone-ip");
 const liveAtlasFps = document.getElementById("live-atlas-fps");
+const droneHeadingTrimSelect = document.getElementById("drone-heading-trim");
+const enemyLiveDetectorState = document.getElementById("enemy-live-detector-state");
+const enemyLiveDetection = document.getElementById("enemy-live-detection");
+const enemyResponseStatus = document.getElementById("enemy-response-status");
+const enemyConfirmLockButton = document.getElementById("enemy-confirm-lock");
+const enemyClearAlertButton = document.getElementById("enemy-clear-alert");
 const liveLocalizationControl = document.getElementById("live-localization-control");
 const liveControlSummary = document.getElementById("live-control-summary");
+const pinLiveControlButton = document.getElementById("pin-live-control");
 const startLiveAtlasButton = document.getElementById("start-live-atlas");
 const stopLiveAtlasButton = document.getElementById("stop-live-atlas");
 const takeoffHeightInput = document.getElementById("takeoff-height-m");
 const djiTakeoffButton = document.getElementById("dji-takeoff");
 const djiLandButton = document.getElementById("dji-land");
+const djiEmergencyHoverButton = document.getElementById("dji-emergency-hover");
+const guidedMotionEnable = document.getElementById("guided-motion-enable");
 const djiCommandStatus = document.getElementById("dji-command-status");
 const confirmLocalizationButton = document.getElementById("confirm-localization");
 const localizationGateStatus = document.getElementById("localization-gate-status");
 const droneControlPanel = document.getElementById("drone-control-panel");
 const missionSpeedSelect = document.getElementById("mission-speed");
 const planMissionButton = document.getElementById("plan-mission");
+const patrolControlPanel = document.getElementById("patrol-control-panel");
+const editPatrolButton = document.getElementById("edit-patrol");
+const patrolNameInput = document.getElementById("patrol-name");
+const patrolSpeedSelect = document.getElementById("patrol-speed");
+const patrolAltitudeInput = document.getElementById("patrol-altitude-m");
+const patrolDwellSelect = document.getElementById("patrol-dwell-s");
+const patrolScanModeSelect = document.getElementById("patrol-scan-mode");
+const patrolModeSelect = document.getElementById("patrol-mode");
+const patrolLoopInput = document.getElementById("patrol-loop");
+const clearPatrolButton = document.getElementById("clear-patrol");
+const validatePatrolButton = document.getElementById("validate-patrol");
+const startPatrolButton = document.getElementById("start-patrol");
+const stopPatrolButton = document.getElementById("stop-patrol");
+const patrolStatus = document.getElementById("patrol-status");
+const patrolCommandList = document.getElementById("patrol-command-list");
+const savedPatrolList = document.getElementById("saved-patrol-list");
+const newPatrolButton = document.getElementById("new-patrol");
 const replayTabs = document.getElementById("replay-tabs");
 const replayTabList = document.getElementById("replay-tab-list");
 const sidePanel = document.querySelector(".side");
@@ -77,12 +131,30 @@ const missionCommandList = document.getElementById("mission-command-list");
 const safetyBarrierPanel = document.getElementById("safety-barrier-panel");
 const addBarrierButton = document.getElementById("add-barrier");
 const adjustWallsButton = document.getElementById("adjust-walls");
+const undoWallEditButton = document.getElementById("undo-wall-edit");
 const saveWallAdjustmentsButton = document.getElementById("save-wall-adjustments");
 const cancelBarrierButton = document.getElementById("cancel-barrier");
 const clearBarriersButton = document.getElementById("clear-barriers");
 const barrierStatus = document.getElementById("barrier-status");
 const barrierList = document.getElementById("barrier-list");
 const barrierClearanceInput = document.getElementById("barrier-clearance-m");
+const barrierColorInput = document.getElementById("barrier-color");
+const barrierOpacityInput = document.getElementById("barrier-opacity");
+const safetyTabWallsButton = document.getElementById("safety-tab-walls");
+const safetyTabObstaclesButton = document.getElementById("safety-tab-obstacles");
+const wallTools = document.getElementById("wall-tools");
+const obstacleTools = document.getElementById("obstacle-tools");
+const addObstacleButton = document.getElementById("add-obstacle");
+const finishObstacleButton = document.getElementById("finish-obstacle");
+const cancelObstacleButton = document.getElementById("cancel-obstacle");
+const clearObstaclePointsButton = document.getElementById("clear-obstacle-points");
+const undoObstacleEditButton = document.getElementById("undo-obstacle-edit");
+const clearObstaclesButton = document.getElementById("clear-obstacles");
+const obstacleStatus = document.getElementById("obstacle-status");
+const obstacleList = document.getElementById("obstacle-list");
+const obstacleClearanceInput = document.getElementById("obstacle-clearance-m");
+const obstacleColorInput = document.getElementById("obstacle-color");
+const obstacleOpacityInput = document.getElementById("obstacle-opacity");
 
 let scene = null;
 let poses = [];
@@ -92,6 +164,15 @@ let room = null;
 let droneModel = null;
 let droneModelPromise = null;
 let mapLibraryData = { selected_map_id: "default_demo", maps: [] };
+let enemyLibraryData = { model_status: "not_trained", enemies: [] };
+let selectedEnemyId = "";
+let selectedEnemyFrameId = "";
+let enemyAnnotationImage = new Image();
+let enemyAnnotationImageReady = false;
+let enemyAnnotationImageFrameId = "";
+let enemyBoxDraft = null;
+let enemyBoxDrag = null;
+let enemyCanvasRectCache = null;
 let currentMapEntry = null;
 let renderStarted = false;
 let lastMapStatus = null;
@@ -114,14 +195,31 @@ let liveVideoSyncedToFirstPose = false;
 let liveCurrentPoseOverride = null;
 let liveFrameMode = false;
 let liveAtlasPreviewActive = false;
+let lastDjiControlStatusId = "";
+let lastDjiControlStatusKey = "";
+let latestDjiLiveStatus = null;
+let pendingDjiControlAck = null;
 let lastReplayFrameUrl = "";
 let replayFramePlaybackEnabled = false;
+let replayFramePlaybackRaf = 0;
+
+const PHONE_IP_STORAGE_KEY = "atlas.savedPhoneIps";
+const DEFAULT_PHONE_IPS = ["192.168.50.235"];
+const LIVE_CONTROL_PIN_STORAGE_KEY = "atlas.liveControlPinned";
+const DRONE_HEADING_TRIM_STORAGE_KEY = "atlas.droneHeadingTrimDeg";
+const DEFAULT_DRONE_HEADING_TRIM_DEG = -45;
 let pathPlaybackActive = false;
 let pathPlaybackStartWallMs = 0;
 let pathPlaybackStartTimeSec = 0;
 let pathPlaybackEndTimeSec = 0;
-const MISSION_AUTONOMY_SPEED_LIMIT_MPS = 0.25;
+const MISSION_AUTONOMY_SPEED_LIMIT_MPS = 0.16;
+const PATROL_AUTONOMY_SPEED_LIMIT_MPS = 0.12;
+const PATROL_SCAN_YAW_DEG = 90;
 const MISSION_RELOCALIZE_HOVER_SECONDS = 1.5;
+const ENEMY_ALERT_MIN_CONFIDENCE = 0.35;
+const ENEMY_HOVER_COOLDOWN_MS = 7000;
+const ENEMY_LOCKON_MAX_YAW_DEG = 24;
+const ENEMY_LOCKON_FOLLOW_TARGET_HEIGHT = 0.28;
 const previewSceneCache = new Map();
 const previewZoomByMap = new Map();
 let view = {
@@ -139,8 +237,26 @@ let missionTarget = null;
 let missionSelecting = false;
 let missionDraggingTarget = false;
 let missionDragMoved = false;
+let patrolPoints = [];
+let patrolSelecting = false;
+let patrolDraggingIndex = -1;
+let patrolDragMoved = false;
+let patrolPointHover = null;
+let editingPatrolId = null;
+let activePatrolId = null;
 let firstLocalizationConfirmed = false;
 let plannedMission = null;
+let plannedPatrol = null;
+let activeExecutionPatrolRoute = null;
+let enemyAlertState = {
+  active: false,
+  hoverSent: false,
+  hoverSentAt: 0,
+  lockOnSentAt: 0,
+  target: null,
+  frame: "",
+  updatedAt: 0,
+};
 let barrierDraft = null;
 let barrierEditing = false;
 let barrierAdjusting = false;
@@ -154,6 +270,20 @@ let barrierCornerHover = null;
 let barrierTransformHover = null;
 let barrierDragMoved = false;
 let barrierClickSuppress = false;
+let selectedBarrierId = null;
+let safetyBarrierMode = "walls";
+let obstacleEditing = false;
+let obstacleDraft = null;
+let selectedObstacleId = null;
+let obstaclePointHover = null;
+let obstaclePointDrag = null;
+let obstacleTransformHover = null;
+let obstacleTransformDrag = null;
+let obstacleDragMoved = false;
+let obstacleClickSuppress = false;
+let wallUndoStack = [];
+let obstacleUndoStack = [];
+let patrolPointSafetyIssues = new Map();
 const isoViewPresets = [
   { yaw: -0.72, pitch: 0.68, zoom: 1.22 },
   { yaw: 0.78, pitch: 0.66, zoom: 1.22 },
@@ -474,6 +604,60 @@ function pointCloudBounds(points, low = 0.01, high = 0.99) {
   return b;
 }
 
+function orientedStructureBox(points, fallbackBounds, floorY) {
+  const raw = (points || []).map(p => p.rxyz || p).filter(p =>
+    Array.isArray(p) &&
+    p.length >= 3 &&
+    Number.isFinite(p[0]) &&
+    Number.isFinite(p[1]) &&
+    Number.isFinite(p[2])
+  );
+  if (raw.length < 24 || !fallbackBounds) return null;
+
+  const yLow = quantile(raw.map(p => p[1]), 0.06);
+  const yHigh = quantile(raw.map(p => p[1]), 0.88);
+  const horizontal = raw.filter(p => p[1] >= yLow && p[1] <= yHigh);
+  const sample = horizontal.length >= 24 ? horizontal : raw;
+
+  const cx = median(sample.map(p => p[0]));
+  const cz = median(sample.map(p => p[2]));
+  let cxx = 0, cxz = 0, czz = 0;
+  for (const p of sample) {
+    const x = p[0] - cx;
+    const z = p[2] - cz;
+    cxx += x * x;
+    cxz += x * z;
+    czz += z * z;
+  }
+  cxx /= sample.length;
+  cxz /= sample.length;
+  czz /= sample.length;
+
+  const yaw = 0.5 * Math.atan2(2 * cxz, cxx - czz);
+  const ux = Math.cos(yaw), uz = Math.sin(yaw);
+  const vx = -uz, vz = ux;
+  const us = sample.map(p => (p[0] - cx) * ux + (p[2] - cz) * uz);
+  const vs = sample.map(p => (p[0] - cx) * vx + (p[2] - cz) * vz);
+  let u0 = quantile(us, 0.015), u1 = quantile(us, 0.985);
+  let v0 = quantile(vs, 0.015), v1 = quantile(vs, 0.985);
+  const uPad = Math.max(0.08, (u1 - u0) * 0.055);
+  const vPad = Math.max(0.08, (v1 - v0) * 0.055);
+  u0 -= uPad; u1 += uPad;
+  v0 -= vPad; v1 += vPad;
+
+  const toRoom = (u, v, y) => [cx + ux * u + vx * v, y, cz + uz * u + vz * v];
+  const y0 = Math.max(floorY, fallbackBounds.min[1]);
+  const y1 = Math.max(y0 + 0.24, fallbackBounds.max[1]);
+  const bottom = [
+    toRoom(u0, v0, y0),
+    toRoom(u1, v0, y0),
+    toRoom(u1, v1, y0),
+    toRoom(u0, v1, y0),
+  ];
+  const top = bottom.map(p => [p[0], y1, p[2]]);
+  return { bottom, top, yaw, center: [cx, 0.5 * (y0 + y1), cz] };
+}
+
 function poseReferenceError(pose) {
   const center = pose?.center;
   const ref = pose?.colmap_reference?.center;
@@ -484,8 +668,8 @@ function poseReferenceError(pose) {
 function poseTrackMaxStep(a, b) {
   const dt = Math.abs(Number(b?.time_sec) - Number(a?.time_sec));
   return Number.isFinite(dt) && dt > 0
-    ? Math.min(3.2, Math.max(1.15, 1.65 * dt + 0.35))
-    : 1.35;
+    ? Math.min(1.35, Math.max(0.42, 0.85 * dt + 0.28))
+    : 0.75;
 }
 
 function posesAreLocallyStable(a, b) {
@@ -493,15 +677,52 @@ function posesAreLocallyStable(a, b) {
   return norm(sub(b.rcenter, a.rcenter)) <= poseTrackMaxStep(a, b);
 }
 
-function filterReplayPoseTrack(roomPoses) {
+function isRealPose(pose) {
+  return Boolean(pose?.success && !pose?.held_pose && pose?.rcenter);
+}
+
+function markLegacyHeldPoses(roomPoses) {
+  let lastReal = null;
+  for (const pose of roomPoses) {
+    if (isRealPose(pose)) {
+      lastReal = pose;
+      continue;
+    }
+    const totalMs = Number(pose?.total_ms);
+    const looksLikeHeld =
+      pose?.success === false &&
+      !pose?.held_pose &&
+      pose?.rcenter &&
+      lastReal?.rcenter &&
+      Number.isFinite(totalMs) &&
+      Math.abs(totalMs) < 1e-6 &&
+      (!pose.rejected_reason || norm(sub(pose.rcenter, lastReal.rcenter)) < 1e-6);
+    if (!looksLikeHeld) continue;
+    pose.held_pose = true;
+    pose.output_rejected = true;
+    pose.hold_reason = pose.hold_reason || "legacy_held_pose";
+  }
+  return roomPoses;
+}
+
+function filterReplayPoseTrack(roomPoses, options = {}) {
   const out = roomPoses.map(p => ({
     ...p,
     rawRcenter: p.rcenter ? p.rcenter.slice() : null,
   }));
 
+  if (options.filterTrack === false) {
+    out.poseQuality = {
+      total: out.length,
+      accepted: out.filter(p => isRealPose(p)).length,
+      rejected: out.filter(p => p.filtered).length,
+    };
+    return out;
+  }
+
   const valid = out
     .map((pose, index) => ({ pose, index }))
-    .filter(item => item.pose.success && item.pose.rcenter);
+    .filter(item => isRealPose(item.pose));
 
   const dp = new Array(valid.length).fill(1);
   const prev = new Array(valid.length).fill(-1);
@@ -531,14 +752,14 @@ function filterReplayPoseTrack(roomPoses) {
   for (let i = 0; i < out.length; i++) {
     const pose = out[i];
     const keep = acceptedIndices.has(i);
-    pose.filtered = !keep && Boolean(pose.success && pose.rawRcenter);
+    pose.filtered = !keep && Boolean(pose.success && !pose.held_pose && pose.rawRcenter);
     pose.filter_reason = null;
     pose.trackSegment = 0;
     const refErr = poseReferenceError(pose);
     if (Number.isFinite(refErr)) pose.colmap_reference_error_m = refErr;
     if (keep) {
       accepted += 1;
-    } else if (pose.success && pose.rcenter) {
+    } else if (pose.rcenter && (pose.success || pose.held_pose)) {
       pose.rcenter = null;
     }
   }
@@ -717,6 +938,7 @@ function buildRoomFrame() {
     p.rxyz[2] >= displayBounds.min[2] && p.rxyz[2] <= displayBounds.max[2]
   );
   const structureBounds = pointCloudBounds(displayPoints.map(p => p.rxyz), 0.015, 0.985);
+  const structureBox = orientedStructureBox(displayPoints, structureBounds, quantile(displayPoints.map(p => p.rxyz[1]), 0.05));
   const allRoom = [
     ...displayPoints.map(p => p.rxyz),
     ...cameras.map(transform),
@@ -732,14 +954,50 @@ function buildRoomFrame() {
   b.radius = Math.max(...b.max.map((v, i) => Math.abs(v - b.center[i])), 1e-6);
   const floorY = quantile(displayPoints.map(p => p.rxyz[1]), 0.05);
   const scanPoints = buildScanVisualPoints(b, floorY);
-  const rawRoomPoses = poses.map(p => ({ ...p, rcenter: p.center ? transform(p.center) : null }));
-  const roomPoses = buildReplayDisplayPoses(rawRoomPoses, floorY, { applyLanding: false });
+  const rawRoomPoses = poses
+    .map((p, index) => ({
+      ...p,
+      _poseOrder: index,
+      rcenter: Array.isArray(p.rcenter) ? p.rcenter : (p.center ? transform(p.center) : null),
+    }))
+    .sort((a, bPose) => {
+      const ta = Number(a.time_sec);
+      const tb = Number(bPose.time_sec);
+      const aFinite = Number.isFinite(ta);
+      const bFinite = Number.isFinite(tb);
+      if (aFinite && bFinite && ta !== tb) return ta - tb;
+      if (aFinite !== bFinite) return aFinite ? -1 : 1;
+      return (a._poseOrder || 0) - (bPose._poseOrder || 0);
+    });
+  markLegacyHeldPoses(rawRoomPoses);
+  const replay = activeReplay(currentMapEntry);
+  const activeReplayIsLive = Boolean(
+    replay?.id?.startsWith("dji_live_") ||
+    replay?.id?.startsWith("video_live_") ||
+    replay?.asset_base?.includes("/replays/dji_live_") ||
+    replay?.asset_base?.includes("/replays/video_live_")
+  );
+  const livePoseStreamActive = Boolean(
+    liveReplayInFlight ||
+    pendingLiveReplayOpen ||
+    poseStreamMeta?.complete === false ||
+    activeReplayIsLive
+  );
+  const completedReplayDisplay = Boolean(
+    !liveReplayInFlight &&
+    !pendingLiveReplayOpen &&
+    poseStreamMeta?.complete !== false
+  );
+  const roomPoses = buildReplayDisplayPoses(rawRoomPoses, floorY, {
+    applyLanding: completedReplayDisplay,
+    filterTrack: !livePoseStreamActive,
+  });
   const poseQuality = roomPoses.poseQuality || {
     total: roomPoses.length,
-    accepted: roomPoses.filter(p => p.success && p.rcenter).length,
+    accepted: roomPoses.filter(p => isRealPose(p)).length,
     rejected: roomPoses.filter(p => p.filtered).length,
   };
-  const routeYs = roomPoses.filter(p => p.success && p.rcenter).map(p => p.rcenter[1]);
+  const routeYs = roomPoses.filter(p => isRealPose(p)).map(p => p.rcenter[1]);
   const routeHeightBounds = routeYs.length
     ? {
       min: Math.min(floorY, quantile(routeYs, 0.03)),
@@ -760,7 +1018,7 @@ function buildRoomFrame() {
 
   assignStablePathHeadings(roomPoses);
 
-  const firstWithHeading = roomPoses.find(p => p.success && p.rcenter && p.pathHeading);
+  const firstWithHeading = roomPoses.find(p => isRealPose(p) && p.pathHeading);
   let rotationYawOffset = 0;
   if (firstWithHeading) {
     const route = firstWithHeading.pathHeading;
@@ -782,6 +1040,7 @@ function buildRoomFrame() {
     transform,
     bounds: b,
     structureBounds,
+    structureBox,
     displayPoints,
     scanPoints,
     floorY,
@@ -899,6 +1158,12 @@ function project(rxyz) {
   ];
 }
 
+function projectToViewport(rxyz) {
+  const p = project(rxyz);
+  const rect = canvas.getBoundingClientRect();
+  return [rect.left + p[0], rect.top + p[1], p[2]];
+}
+
 function clamp01(v) {
   return Math.max(0, Math.min(1, v));
 }
@@ -970,6 +1235,30 @@ function activeReplay(entry = currentMapEntry) {
   return replays.find(replay => replay.id === entry?.active_replay_id) || replays[0];
 }
 
+function patrolList(entry = currentMapEntry) {
+  return Array.isArray(entry?.patrols) ? entry.patrols : [];
+}
+
+function activeSavedPatrol(entry = currentMapEntry) {
+  const patrols = patrolList(entry);
+  return patrols.find(patrol => patrol.id === activePatrolId)
+    || patrols.find(patrol => patrol.id === editingPatrolId)
+    || patrols[0]
+    || null;
+}
+
+function replayPoseCountText(replay, fallbackCounts = {}) {
+  const counts = replay?.counts || fallbackCounts || {};
+  const accepted = Number(counts.poses ?? counts.accepted ?? 0);
+  const frames = Number(counts.frames ?? 0);
+  const held = Number(counts.held ?? 0);
+  if (frames > accepted) {
+    const heldText = held ? `, ${held} held` : "";
+    return `${accepted}/${frames} real R,t${heldText}`;
+  }
+  return `${accepted} pose${accepted === 1 ? "" : "s"}`;
+}
+
 function replayAssetUrl(replay, file) {
   const base = replay?.asset_base || currentMapEntry?.asset_base || "public";
   return `${base.replace(/\/$/, "")}/${file}`;
@@ -1007,6 +1296,10 @@ function replayFrameUrlForPose(replay, pose) {
   return `${base}/${encodeURIComponent(name)}`;
 }
 
+function replayUsesCapturedFrames(replay = activeReplay(currentMapEntry)) {
+  return Boolean(replayQueryFrameBaseUrl(replay));
+}
+
 function cacheBust(url) {
   const sep = url.includes("?") ? "&" : "?";
   const stamp = currentMapEntry?.updated_at || currentMapEntry?.created_at || "atlas";
@@ -1033,7 +1326,7 @@ function setLiveFrameMode(enabled) {
     if (liveFrameView) liveFrameView.removeAttribute("src");
     if (liveFrameStatus) liveFrameStatus.textContent = "";
     lastReplayFrameUrl = "";
-    replayFramePlaybackEnabled = false;
+    stopPoseClockPlayback();
   }
 }
 
@@ -1045,35 +1338,98 @@ function setLiveFrameStatus(text, visible = true) {
 
 function sortedTimedPoses(sourcePoses = room?.poses || []) {
   return sourcePoses
-    .filter(p => p?.success && p.rcenter && Number.isFinite(Number(p.time_sec)))
+    .filter(p => isRealPose(p) && Number.isFinite(Number(p.time_sec)))
     .sort((a, b) => Number(a.time_sec) - Number(b.time_sec));
+}
+
+function sortedTimedFramePoses(sourcePoses = room?.poses || []) {
+  return sourcePoses
+    .filter(p => p?.image_name && Number.isFinite(Number(p.time_sec)))
+    .sort((a, b) => Number(a.time_sec) - Number(b.time_sec));
+}
+
+function replayFramePoseAt(timeSec) {
+  const frames = sortedTimedFramePoses();
+  if (!frames.length || !Number.isFinite(Number(timeSec))) return null;
+  const t = Number(timeSec);
+  let best = frames[0];
+  let bestDt = Math.abs(Number(best.time_sec) - t);
+  for (const frame of frames) {
+    const dt = Math.abs(Number(frame.time_sec) - t);
+    if (dt < bestDt) {
+      best = frame;
+      bestDt = dt;
+    }
+    if (Number(frame.time_sec) > t && dt > bestDt) break;
+  }
+  return best;
+}
+
+function firstPlayableReplayPose() {
+  const timedFrames = sortedTimedFramePoses(room?.poses || []);
+  if (timedFrames.length) return timedFrames[0];
+  const timedPoses = sortedTimedPoses(room?.poses || []);
+  if (timedPoses.length) return timedPoses[0];
+  return (room?.poses || []).find(p => p?.success && !p?.held_pose && (p.rcenter || p.center))
+    || (room?.poses || [])[0]
+    || null;
+}
+
+function stopPoseClockPlayback() {
+  pathPlaybackActive = false;
+  replayFramePlaybackEnabled = false;
+  if (replayFramePlaybackRaf) {
+    cancelAnimationFrame(replayFramePlaybackRaf);
+    replayFramePlaybackRaf = 0;
+  }
+}
+
+function tickReplayFramePlayback() {
+  if (!replayFramePlaybackEnabled) {
+    replayFramePlaybackRaf = 0;
+    return;
+  }
+  const framePose = replayFramePoseAt(currentReplayClockTime(room?.poses || []));
+  if (!replayFramePlaybackEnabled) {
+    replayFramePlaybackRaf = 0;
+    return;
+  }
+  if (framePose) updateReplayFrameViewForPose(framePose);
+  replayFramePlaybackRaf = requestAnimationFrame(tickReplayFramePlayback);
+}
+
+function startReplayFrameTicker() {
+  if (replayFramePlaybackRaf) cancelAnimationFrame(replayFramePlaybackRaf);
+  replayFramePlaybackRaf = requestAnimationFrame(tickReplayFramePlayback);
 }
 
 function currentReplayClockTime(good) {
   if (pathPlaybackActive) {
-    const timed = sortedTimedPoses(good);
-    if (timed.length >= 2) {
-      const first = Number(timed[0].time_sec);
-      const last = Number(timed[timed.length - 1].time_sec);
+    const timed = sortedTimedFramePoses(room?.poses || []);
+    const fallbackTimed = sortedTimedPoses(good);
+    const clockSource = timed.length >= 2 ? timed : fallbackTimed;
+    if (clockSource.length >= 2) {
+      const first = Number(clockSource[0].time_sec);
+      const last = Number(clockSource[clockSource.length - 1].time_sec);
       const elapsed = (performance.now() - pathPlaybackStartWallMs) / 1000;
       const t = Math.min(pathPlaybackStartTimeSec + elapsed, last);
       if (t >= last - 1e-3) {
-        pathPlaybackActive = false;
-        replayFramePlaybackEnabled = false;
+        stopPoseClockPlayback();
       }
       return t;
     }
-    pathPlaybackActive = false;
-    replayFramePlaybackEnabled = false;
+    stopPoseClockPlayback();
   }
   const t = Number(video.currentTime);
   return Number.isFinite(t) ? t : 0;
 }
 
 function startPoseClockPlayback() {
-  const timed = sortedTimedPoses();
+  const timedFrames = sortedTimedFramePoses();
+  const timedPoses = sortedTimedPoses();
+  const timed = timedFrames.length >= 2 ? timedFrames : timedPoses;
   if (timed.length < 2) {
-    uploadStatus.textContent = "No timestamped TSolve path is available to play.";
+    uploadStatus.textContent = "No timestamped TSolve frames are available to play.";
     return false;
   }
   const first = Number(timed[0].time_sec);
@@ -1086,17 +1442,25 @@ function startPoseClockPlayback() {
   pathPlaybackEndTimeSec = last;
   lastReplayFrameUrl = "";
   video.pause();
-  uploadStatus.textContent = "Playing saved TSolve path and its captured DJI frames.";
+  const firstFrame = replayFramePoseAt(first);
+  if (firstFrame) updateReplayFrameViewForPose(firstFrame, { force: true });
+  startReplayFrameTicker();
+  uploadStatus.textContent = timedFrames.length >= 2
+    ? "Playing saved captured DJI frames with the TSolve pose track."
+    : "Playing saved TSolve path.";
   return true;
 }
 
 function playCurrentReplay() {
   if (sidePanel) sidePanel.scrollTo({ top: 0, behavior: "smooth" });
+  if (replayUsesCapturedFrames()) {
+    startPoseClockPlayback();
+    return;
+  }
   const src = video.getAttribute("src");
   const canUseVideoNow = src && !liveFrameMode && Number.isFinite(Number(video.duration)) && Number(video.duration) > 0.05;
   if (canUseVideoNow) {
-    pathPlaybackActive = false;
-    replayFramePlaybackEnabled = false;
+    stopPoseClockPlayback();
     video.play().catch(() => startPoseClockPlayback());
     return;
   }
@@ -1112,8 +1476,7 @@ function playCurrentReplay() {
       cleanup();
       const duration = Number(video.duration);
       if (Number.isFinite(duration) && duration > 0.05) {
-        pathPlaybackActive = false;
-        replayFramePlaybackEnabled = false;
+        stopPoseClockPlayback();
         video.play().catch(() => startPoseClockPlayback());
       } else {
         startPoseClockPlayback();
@@ -1156,7 +1519,15 @@ function liveFrameUrlForPayload(payload, stream = null, options = {}) {
   const liveStream = stream || payload?.stream || poseStreamMeta?.stream || {};
   const sourcePayload = payload || poseStreamMeta || {};
   const processedPose = latestPoseFrame(sourcePayload?.poses);
-  const frame = processedPose || sourcePayload?.current_frame || {};
+  const preferCurrentFrame = Boolean(
+    options.preferCurrentFrame ||
+    liveReplayInFlight ||
+    pendingLiveReplayOpen ||
+    liveStream.live_atlas
+  );
+  const frame = preferCurrentFrame
+    ? (sourcePayload?.current_frame || processedPose || {})
+    : (processedPose || sourcePayload?.current_frame || {});
   const base = liveStream.query_frame_base_url;
   const name = String(frame.image_name || "").split("/").pop();
   if (base && name) return `${base.replace(/\/$/, "")}/${encodeURIComponent(name)}?t=${Date.now()}`;
@@ -1175,7 +1546,7 @@ function updateLiveFrameView(payload = null, stream = null, options = {}) {
 
 function updateReplayFrameViewForPose(pose, options = {}) {
   if (!replayFramePlaybackEnabled && !options.force) return false;
-  if (liveReplayInFlight || pendingLiveReplayOpen) return false;
+  if (liveReplayInFlight || (pendingLiveReplayOpen && !options.force)) return false;
   const replay = activeReplay(currentMapEntry);
   const url = replayFrameUrlForPose(replay, pose);
   if (!url || !liveFrameView) return false;
@@ -1184,7 +1555,7 @@ function updateReplayFrameViewForPose(pose, options = {}) {
   setVideoFrameSteppingMode(true);
   video.pause();
   video.removeAttribute("src");
-  liveFrameView.src = url;
+  liveFrameView.src = `${url}?t=${Date.now()}`;
   lastReplayFrameUrl = url;
   setLiveFrameStatus("", false);
   return true;
@@ -1236,7 +1607,7 @@ function poseTimestampSeconds(pose) {
 
 function syncUploadedVideoToFirstPose(partialPoses) {
   if (!liveVideoWaitingForFirstPose || liveVideoSyncedToFirstPose) return;
-  const first = (partialPoses || []).find(p => p && p.success !== false && p.center);
+  const first = (partialPoses || []).find(p => p && p.success !== false && !p.held_pose && p.center);
   if (!first) return;
   const startTime = poseTimestampSeconds(first);
   liveVideoSyncedToFirstPose = true;
@@ -1259,17 +1630,19 @@ function syncUploadedVideoToFirstPose(partialPoses) {
 }
 
 function latestSuccessfulPose(partialPoses) {
-  const good = (partialPoses || []).filter(p => p && p.success !== false && p.rcenter);
+  const good = (partialPoses || []).filter(p => p && p.success !== false && !p.held_pose && (p.rcenter || p.center));
   return good.length ? good[good.length - 1] : null;
 }
 
 function latestLivePoseForDisplay(partialPoses) {
   const good = (partialPoses || [])
-    .filter(p => p && p.success !== false && (p.rcenter || p.rawRcenter));
+    .filter(p => p && (p.success !== false || p.held_pose) && (p.rcenter || p.rawRcenter || p.center));
   if (!good.length) return null;
   const latest = good[good.length - 1];
   if (latest.rcenter) return latest;
-  return { ...latest, rcenter: latest.rawRcenter };
+  if (latest.rawRcenter) return { ...latest, rcenter: latest.rawRcenter };
+  if (latest.center && room?.transform) return { ...latest, rcenter: room.transform(latest.center) };
+  return null;
 }
 
 function syncUploadedVideoToLatestPose(partialPoses) {
@@ -1379,6 +1752,141 @@ function takeoffHeightM() {
   return Math.min(2, Math.max(0.1, raw));
 }
 
+function normalizePhoneIp(value) {
+  return String(value || "").trim();
+}
+
+function savedPhoneIps() {
+  let stored = [];
+  try {
+    stored = JSON.parse(localStorage.getItem(PHONE_IP_STORAGE_KEY) || "[]");
+  } catch {
+    stored = [];
+  }
+  const all = [...DEFAULT_PHONE_IPS, ...(Array.isArray(stored) ? stored : [])]
+    .map(normalizePhoneIp)
+    .filter(Boolean);
+  return [...new Set(all)].slice(0, 12);
+}
+
+function renderPhoneIpOptions() {
+  const ips = savedPhoneIps();
+  if (phoneIpOptions) {
+    phoneIpOptions.innerHTML = "";
+    for (const ip of ips) {
+      const option = document.createElement("option");
+      option.value = ip;
+      phoneIpOptions.appendChild(option);
+    }
+  }
+  if (phoneIpSelect) {
+    const current = normalizePhoneIp(liveAtlasPhoneIp?.value) || ips[0] || "";
+    phoneIpSelect.innerHTML = "";
+    for (const ip of ips) {
+      const option = document.createElement("option");
+      option.value = ip;
+      option.textContent = ip;
+      phoneIpSelect.appendChild(option);
+    }
+    if (current && !ips.includes(current)) {
+      const option = document.createElement("option");
+      option.value = current;
+      option.textContent = `${current} (new)`;
+      phoneIpSelect.insertBefore(option, phoneIpSelect.firstChild);
+    }
+    phoneIpSelect.value = current;
+  }
+}
+
+function rememberPhoneIp(value) {
+  const ip = normalizePhoneIp(value);
+  if (!ip) return;
+  const known = savedPhoneIps();
+  const next = [ip, ...known.filter(v => v !== ip)].slice(0, 12);
+  try {
+    localStorage.setItem(PHONE_IP_STORAGE_KEY, JSON.stringify(next));
+  } catch {
+    // Local storage is a convenience only; keep live controls working if blocked.
+  }
+  renderPhoneIpOptions();
+}
+
+function storedDroneHeadingTrimDeg() {
+  try {
+    const stored = localStorage.getItem(DRONE_HEADING_TRIM_STORAGE_KEY);
+    if (stored != null && stored !== "") {
+      const value = Number(stored);
+      if (Number.isFinite(value)) return value;
+    }
+  } catch {
+    // Local storage is optional.
+  }
+  return DEFAULT_DRONE_HEADING_TRIM_DEG;
+}
+
+function selectedDroneHeadingTrimDeg() {
+  // Heading is calibrated automatically from TSolve rotation against the
+  // first stable motion segment. Keep this at zero so visual and physical
+  // patrol logic do not depend on an operator trim knob.
+  return 0;
+}
+
+function selectedDroneHeadingTrimRad() {
+  return selectedDroneHeadingTrimDeg() * Math.PI / 180;
+}
+
+function renderDroneHeadingTrim() {
+  if (!droneHeadingTrimSelect) return;
+  droneHeadingTrimSelect.value = "0";
+  droneHeadingTrimSelect.disabled = true;
+  const label = droneHeadingTrimSelect.closest("label");
+  if (label) label.hidden = true;
+}
+
+function storedLiveControlPinned() {
+  try {
+    return localStorage.getItem(LIVE_CONTROL_PIN_STORAGE_KEY) === "true";
+  } catch {
+    return false;
+  }
+}
+
+function setLiveControlPinned(pinned) {
+  const enabled = Boolean(pinned);
+  document.body.classList.toggle("live-control-pinned", enabled);
+  if (enabled && liveLocalizationControl) liveLocalizationControl.open = true;
+  if (pinLiveControlButton) {
+    pinLiveControlButton.setAttribute("aria-pressed", String(enabled));
+    pinLiveControlButton.textContent = enabled ? "Unpin" : "Pin";
+    pinLiveControlButton.title = enabled
+      ? "Release this control panel from the left dock"
+      : "Pin this control panel to the left edge";
+  }
+  if (enabled && liveLocalizationControl) {
+    liveLocalizationControl.classList.remove("is-user-placed");
+    liveLocalizationControl.style.left = "";
+    liveLocalizationControl.style.top = "";
+    liveLocalizationControl.style.right = "";
+    liveLocalizationControl.style.bottom = "";
+  }
+  try {
+    localStorage.setItem(LIVE_CONTROL_PIN_STORAGE_KEY, enabled ? "true" : "false");
+  } catch {
+    // Pinning is visual convenience; keep the UI functional if storage is blocked.
+  }
+  syncLiveControlCollapsedState();
+  if (renderStarted) render();
+}
+
+function liveControlIsPinned() {
+  return document.body.classList.contains("live-control-pinned");
+}
+
+function syncLiveControlCollapsedState() {
+  const collapsed = liveControlIsPinned() && liveLocalizationControl && !liveLocalizationControl.open;
+  document.body.classList.toggle("live-control-collapsed", Boolean(collapsed));
+}
+
 function setDjiCommandStatus(text, tone = "") {
   if (!djiCommandStatus) return;
   djiCommandStatus.textContent = text || "Drone control idle.";
@@ -1397,11 +1905,251 @@ function firstConfirmedPoseReady() {
   );
 }
 
+function djiBridgeAgeSeconds(status = latestDjiLiveStatus) {
+  const updated = Number(status?.updated_at || 0);
+  return updated > 0 ? Math.max(0, Date.now() / 1000 - updated) : Infinity;
+}
+
+function djiBridgeFresh(status = latestDjiLiveStatus, maxAgeSeconds = 5) {
+  return djiBridgeAgeSeconds(status) <= maxAgeSeconds;
+}
+
+function djiBridgeState(status = latestDjiLiveStatus) {
+  return String(status?.status || "").trim().toLowerCase();
+}
+
+function djiBridgeReadyForControl() {
+  const state = djiBridgeState();
+  return ["streaming", "waiting_for_video"].includes(state) && djiBridgeFresh(latestDjiLiveStatus, 5);
+}
+
+function djiBridgeReadyForMission() {
+  const state = djiBridgeState();
+  return state === "streaming" && djiBridgeFresh(latestDjiLiveStatus, 3.5) && Boolean(latestDjiLiveStatus?.control_enabled);
+}
+
+function liveMovementLockReason() {
+  if (!liveLocalizationStarted()) return "Start Live ATLAS before executing drone movement.";
+  if (!djiBridgeReadyForMission()) {
+    const state = djiBridgeState() || "offline";
+    const age = djiBridgeAgeSeconds();
+    const ageText = Number.isFinite(age) ? `${age.toFixed(1)}s old` : "not available";
+    return `Live DJI bridge is not streaming fresh command-ready frames (${state}, heartbeat ${ageText}).`;
+  }
+  if (!firstLocalizationConfirmed) return "Confirm the first TSolve localization before movement.";
+  if (!firstConfirmedPoseReady()) return "Wait for a visible TSolve R,t pose before movement.";
+  if (!guidedMotionEnable?.checked) return "Enable guided movement after localization confirmation.";
+  return "";
+}
+
+function guidedMotionArmed() {
+  return Boolean(
+    guidedMotionEnable?.checked &&
+    liveLocalizationStarted() &&
+    djiBridgeReadyForMission() &&
+    firstLocalizationConfirmed &&
+    firstConfirmedPoseReady()
+  );
+}
+
+function bestEnemyDetection(detections) {
+  return [...(detections || [])]
+    .filter(d => Number(d?.confidence) >= ENEMY_ALERT_MIN_CONFIDENCE && d?.box)
+    .sort((a, b) => Number(b.confidence || 0) - Number(a.confidence || 0))[0] || null;
+}
+
+function enemyTargetEstimate(target) {
+  const box = target?.box || {};
+  const centerX = Number(box.x1 ?? 0) + Number(box.width ?? 0) * 0.5;
+  const centerY = Number(box.y1 ?? 0) + Number(box.height ?? 0) * 0.5;
+  const width = Math.max(0, Number(box.width || 0));
+  const height = Math.max(0, Number(box.height || 0));
+  const area = width * height;
+  const dx = centerX - 0.5;
+  const dy = centerY - 0.5;
+  const yawDeg = Math.max(-ENEMY_LOCKON_MAX_YAW_DEG, Math.min(ENEMY_LOCKON_MAX_YAW_DEG, dx * 58));
+  const followDuration = Math.max(0, Math.min(1.15, (ENEMY_LOCKON_FOLLOW_TARGET_HEIGHT - height) * 3.0));
+  return { centerX, centerY, width, height, area, dx, dy, yawDeg, followDuration };
+}
+
+function updateEnemyResponseStatus(text = "", tone = "") {
+  if (!enemyResponseStatus) return;
+  enemyResponseStatus.textContent = text || "Patrol response is armed only after live localization starts.";
+  enemyResponseStatus.dataset.tone = tone;
+}
+
+function updateEnemyResponseControls() {
+  const hasTarget = Boolean(enemyAlertState.active && enemyAlertState.target);
+  if (enemyConfirmLockButton) {
+    enemyConfirmLockButton.disabled = !hasTarget || !guidedMotionArmed();
+  }
+  if (enemyClearAlertButton) {
+    enemyClearAlertButton.disabled = !hasTarget;
+  }
+  if (!hasTarget) {
+    updateEnemyResponseStatus(
+      liveLocalizationStarted()
+        ? "Waiting for trained YOLO enemy-drone detections."
+        : "Patrol response is armed only after live localization starts.",
+      ""
+    );
+  }
+}
+
+async function pauseForEnemyDetection(payload, target) {
+  const now = Date.now();
+  const sameFrame = enemyAlertState.frame && payload.frame && enemyAlertState.frame === payload.frame;
+  enemyAlertState = {
+    ...enemyAlertState,
+    active: true,
+    target,
+    frame: String(payload.frame || ""),
+    updatedAt: now,
+  };
+  const est = enemyTargetEstimate(target);
+  updateEnemyResponseStatus(
+    `Enemy drone candidate: ${target.class_name || "target"} ${(Number(target.confidence || 0) * 100).toFixed(0)}% · yaw estimate ${est.yawDeg.toFixed(1)} deg. Confirm lock-on for a slow guarded follow pulse.`,
+    "alert"
+  );
+  updateEnemyResponseControls();
+  if (!liveLocalizationStarted()) return;
+  if (sameFrame || enemyAlertState.hoverSent && now - enemyAlertState.hoverSentAt < ENEMY_HOVER_COOLDOWN_MS) return;
+  enemyAlertState.hoverSent = true;
+  enemyAlertState.hoverSentAt = now;
+  try {
+    setDjiCommandStatus("Enemy drone detected. Sending guarded hover and waiting for lock-on confirmation.", "busy");
+    await sendDjiFlightCommand("hover", { enemy_alert: true, emergency_stop: true });
+  } catch (error) {
+    setDjiCommandStatus(`Enemy alert hover failed: ${error.message || error}`, "error");
+    updateEnemyResponseStatus(`Enemy detected, but hover command failed: ${error.message || error}`, "error");
+  }
+}
+
+function clearEnemyAlert() {
+  enemyAlertState = {
+    active: false,
+    hoverSent: false,
+    hoverSentAt: 0,
+    lockOnSentAt: 0,
+    target: null,
+    frame: "",
+    updatedAt: Date.now(),
+  };
+  updateEnemyResponseControls();
+}
+
+function buildEnemyLockOnPlan(target) {
+  const est = enemyTargetEstimate(target);
+  const commands = [
+    {
+      type: "hover",
+      title: "Enemy lock-on confirmation hold",
+      detail: "Hold while ATLAS verifies fresh TSolve pose before lock-on pulse.",
+      duration_s: 0.45,
+      safety: "enemy-lock-on-gate",
+    },
+  ];
+  if (Math.abs(est.yawDeg) >= 3) {
+    commands.push({
+      type: "yaw",
+      title: "Align to enemy drone bearing",
+      yaw_delta_deg: est.yawDeg,
+      detail: "Slowly rotate toward the detected target in the live camera frame.",
+      duration_s: 0.75,
+      safety: "enemy-yaw-align",
+    });
+  }
+  if (est.followDuration > 0.18) {
+    commands.push({
+      type: "cruise",
+      title: "Cautious enemy follow pulse",
+      distance: Math.max(0.05, Math.min(0.35, est.followDuration * 0.18)),
+      duration_s: est.followDuration,
+      detail: "Short forward pulse only; ATLAS stops after the pulse and waits for another confirmed detection.",
+      safety: "enemy-follow-pulse",
+    });
+  }
+  commands.push({
+    type: "hover",
+    title: "Post lock-on TSolve refresh",
+    detail: "Stop and wait for the next live TSolve update before any further movement.",
+    duration_s: 0.75,
+    safety: "enemy-relocalize",
+  });
+  return { estimate: est, commands };
+}
+
+async function confirmEnemyLockOn() {
+  if (!enemyAlertState.target) {
+    updateEnemyResponseStatus("No enemy target is available for lock-on.", "error");
+    return;
+  }
+  if (!guidedMotionArmed()) {
+    updateEnemyResponseStatus("Confirm first localization and enable guided movement before lock-on.", "error");
+    setDjiCommandStatus("Enemy lock-on blocked. Confirm localization and arm guided movement first.", "error");
+    updateFlightControlState();
+    return;
+  }
+  const { estimate, commands } = buildEnemyLockOnPlan(enemyAlertState.target);
+  const ok = window.confirm(
+    `Confirm guarded enemy-drone lock-on?\n\n` +
+    `ATLAS will send ${commands.length} tiny TSolve-gated step(s): hover, yaw-align, optional short forward pulse, then hover.\n` +
+    `Estimated yaw: ${estimate.yawDeg.toFixed(1)} deg.\n` +
+    `Keep the physical controller ready and press Hover Now if anything looks wrong.\n\nContinue?`
+  );
+  if (!ok) {
+    updateEnemyResponseStatus("Enemy lock-on cancelled. Drone remains in hover/normal patrol control.", "busy");
+    return;
+  }
+  enemyAlertState.lockOnSentAt = Date.now();
+  updateEnemyResponseStatus("Sending guarded enemy lock-on pulse to DJI bridge...", "busy");
+  try {
+    const result = await sendDjiFlightCommand("mission", {
+      mission: {
+        guided_enabled: true,
+        enemy_lock_on: true,
+        pose_max_age_seconds: 1.8,
+        pose_recovery_seconds: 6.0,
+        pulse_seconds: 0.16,
+        max_forward_rc: 0.055,
+        max_yaw_rc: 0.040,
+        max_vertical_rc: 0.020,
+        max_step_seconds: 1.2,
+        map_id: currentMapEntry?.id || null,
+        map_title: currentMapEntry?.title || null,
+        target_detection: enemyAlertState.target,
+        target_estimate: estimate,
+        commands,
+        safety_barriers: mapSafetyBarriers(),
+        safety_obstacles: mapSafetyObstacles(),
+        barrier_clearance_m: selectedBarrierClearance(),
+        obstacle_clearance_m: selectedObstacleClearance(),
+        heading_trim_deg: 0,
+        confirmed_at: new Date().toISOString(),
+      },
+    });
+    const bridgeMessage = result.result?.message || result.message || "Enemy lock-on packet queued.";
+    updateEnemyResponseStatus(`${bridgeMessage} Drone will hover after this pulse and wait for the next confirmed lock-on.`, "busy");
+  } catch (error) {
+    updateEnemyResponseStatus(`Enemy lock-on failed: ${error.message || error}`, "error");
+    setDjiCommandStatus(`Enemy lock-on failed: ${error.message || error}`, "error");
+  } finally {
+    updateEnemyResponseControls();
+  }
+}
+
 function updateFlightControlState() {
   const liveStarted = liveLocalizationStarted();
   const poseReady = firstConfirmedPoseReady();
-  if (djiTakeoffButton) djiTakeoffButton.disabled = !liveStarted;
-  if (djiLandButton) djiLandButton.disabled = !liveStarted;
+  const bridgeControlReady = djiBridgeReadyForControl();
+  const bridgeMissionReady = djiBridgeReadyForMission();
+  if (djiTakeoffButton) djiTakeoffButton.disabled = !liveStarted || !bridgeControlReady;
+  if (djiLandButton) djiLandButton.disabled = !liveStarted || !bridgeControlReady;
+  if (djiEmergencyHoverButton) djiEmergencyHoverButton.disabled = !liveStarted || !bridgeControlReady;
+  if (guidedMotionEnable) {
+    guidedMotionEnable.disabled = !liveStarted || !firstLocalizationConfirmed || !poseReady || !bridgeMissionReady;
+    if (guidedMotionEnable.disabled) guidedMotionEnable.checked = false;
+  }
   if (confirmLocalizationButton) {
     confirmLocalizationButton.disabled = !poseReady;
     confirmLocalizationButton.textContent = firstLocalizationConfirmed
@@ -1409,24 +2157,48 @@ function updateFlightControlState() {
       : "Confirm First Localization";
   }
   if (localizationGateStatus) {
-    if (firstLocalizationConfirmed) {
+    if (firstLocalizationConfirmed && bridgeMissionReady) {
       localizationGateStatus.textContent = "Confirmed. Mission controls are unlocked.";
+    } else if (firstLocalizationConfirmed && !bridgeMissionReady) {
+      const state = djiBridgeState() || "offline";
+      const age = djiBridgeAgeSeconds();
+      const ageText = Number.isFinite(age) ? `${age.toFixed(1)}s old` : "not available";
+      localizationGateStatus.textContent = `Localization confirmed, but movement is locked until the live DJI bridge is streaming and fresh (${state}, heartbeat ${ageText}).`;
     } else if (poseReady) {
       localizationGateStatus.textContent = "First R,t is visible. Confirm it matches the map before mission planning.";
     } else if (!liveStarted) {
       localizationGateStatus.textContent = "Start live localization before takeoff or mission planning.";
+    } else if (!bridgeMissionReady) {
+      const state = djiBridgeState() || "offline";
+      const age = djiBridgeAgeSeconds();
+      const ageText = Number.isFinite(age) ? `${age.toFixed(1)}s old` : "not available";
+      localizationGateStatus.textContent = `DJI bridge is not ready for movement (${state}, heartbeat ${ageText}). Keep live localization running until it is streaming.`;
     } else {
       localizationGateStatus.textContent = "Waiting for first TSolve R,t.";
     }
   }
   if (!liveStarted && djiCommandStatus) {
     setDjiCommandStatus("Start live localization to unlock takeoff and land.", "");
+  } else if (liveStarted && !bridgeControlReady && djiCommandStatus) {
+    const state = djiBridgeState() || "offline";
+    setDjiCommandStatus(`Waiting for active DJI bridge before commands can move the drone (${state}).`, "busy");
   }
   droneControlPanel?.classList.toggle("is-locked", false);
   if (selectTargetButton) selectTargetButton.disabled = !room;
   if (clearTargetButton) clearTargetButton.disabled = !missionTarget?.rxyz;
   if (planMissionButton) planMissionButton.disabled = !missionTarget?.rxyz;
-  if (startMissionButton) startMissionButton.disabled = !firstLocalizationConfirmed || !plannedMission;
+  if (startMissionButton) startMissionButton.disabled = !firstLocalizationConfirmed || !plannedMission || !guidedMotionArmed();
+  if (editPatrolButton) editPatrolButton.disabled = !room;
+  if (clearPatrolButton) clearPatrolButton.disabled = patrolPoints.length === 0;
+  if (validatePatrolButton) validatePatrolButton.disabled = patrolPoints.length < 2;
+  if (startPatrolButton) startPatrolButton.disabled = patrolPoints.length < 2;
+  if (stopPatrolButton) stopPatrolButton.disabled = !liveStarted;
+  const movementLock = liveMovementLockReason();
+  for (const button of document.querySelectorAll('.saved-patrol-actions [data-action="play"]')) {
+    button.disabled = Boolean(movementLock);
+    button.title = movementLock || "Execute this saved patrol through the live DJI bridge.";
+  }
+  updateEnemyResponseControls();
 }
 
 function resetLocalizationGate(options = {}) {
@@ -1436,15 +2208,35 @@ function resetLocalizationGate(options = {}) {
     plannedMission = null;
     missionTarget = null;
     missionSelecting = false;
+    patrolSelecting = false;
+    patrolDraggingIndex = -1;
+    patrolPointHover = null;
+    plannedPatrol = null;
     selectTargetButton?.classList.remove("active");
+    editPatrolButton?.classList.remove("active");
+    patrolControlPanel?.classList.remove("is-selecting");
     renderMissionCommands([]);
+    renderPatrolCommands([]);
   }
   updateFlightControlState();
   updateMissionStatus();
+  updatePatrolStatus();
 }
 
 async function sendDjiFlightCommand(command, fields = {}) {
+  const normalizedCommand = String(command || "").toLowerCase();
+  if (normalizedCommand === "mission" && !djiBridgeReadyForMission()) {
+    const state = djiBridgeState() || "offline";
+    const age = djiBridgeAgeSeconds();
+    const ageText = Number.isFinite(age) ? `${age.toFixed(1)}s old` : "not available";
+    throw new Error(`Live DJI bridge is not ready for movement (${state}, heartbeat ${ageText}). Start Live ATLAS and wait for streaming frames before pressing Play/Confirm.`);
+  }
+  if (["takeoff", "land", "hover"].includes(normalizedCommand) && !djiBridgeReadyForControl()) {
+    const state = djiBridgeState() || "offline";
+    throw new Error(`Live DJI bridge is not active for flight commands (${state}). Start Live ATLAS first.`);
+  }
   const phoneIp = (liveAtlasPhoneIp?.value || "").trim();
+  rememberPhoneIp(phoneIp);
   const data = await postJson("/api/drone/flight-command", {
     command,
     phone_ip: phoneIp,
@@ -1455,13 +2247,91 @@ async function sendDjiFlightCommand(command, fields = {}) {
     : `${command} sent.`;
   setDjiCommandStatus(resultText, "ok");
   if (data.result?.note) setDjiCommandStatus(data.result.note, "ok");
+  if (data.queued && data.command_id) watchDjiCommandAcknowledgement(command, data.command_id);
   return data;
+}
+
+function watchDjiCommandAcknowledgement(command, commandId) {
+  pendingDjiControlAck = {
+    id: commandId,
+    command: String(command || "command"),
+    sentAt: Date.now(),
+  };
+  window.setTimeout(async () => {
+    if (!pendingDjiControlAck || pendingDjiControlAck.id !== commandId) return;
+    try {
+      const resp = await fetch(`public/live_dji/control_status.json?t=${Date.now()}`, { cache: "no-store" });
+      const status = resp.ok ? await resp.json() : null;
+      if (status?.id === commandId) {
+        pendingDjiControlAck = null;
+        if (status.status === "running") {
+          setDjiCommandStatus(status.message || `${command} accepted by DJI bridge.`, "ok");
+        }
+        return;
+      }
+    } catch {
+      // The bridge status poll below will surface the same problem; keep this check best-effort.
+    }
+    if (latestDjiLiveStatus?.last_control?.id === commandId) {
+      pendingDjiControlAck = null;
+      return;
+    }
+    const state = djiBridgeState() || "offline";
+    const age = djiBridgeAgeSeconds();
+    const ageText = Number.isFinite(age) ? `${age.toFixed(1)}s old` : "not available";
+    const message = `${command} was queued, but the DJI bridge did not acknowledge it. Bridge state: ${state}, heartbeat ${ageText}. Keep Live ATLAS running and try again.`;
+    setDjiCommandStatus(message, "error");
+    if (String(command).toLowerCase() === "mission") {
+      updateMissionStatus(message);
+      updatePatrolStatus(message, "error");
+    }
+  }, 9000);
 }
 
 function asVec3(value) {
   if (!Array.isArray(value) || value.length < 3) return null;
   const out = value.slice(0, 3).map(Number);
   return out.every(Number.isFinite) ? out : null;
+}
+
+function sanitizeHexColor(value, fallback = "#cfd8df") {
+  const text = String(value || "").trim();
+  return /^#[0-9a-fA-F]{6}$/.test(text) ? text.toLowerCase() : fallback;
+}
+
+function selectedOpacity(input, fallback = 0.24) {
+  const value = Number(input?.value ?? fallback);
+  return Math.max(0.05, Math.min(0.95, Number.isFinite(value) ? value : fallback));
+}
+
+function hexToRgb(color) {
+  const hex = sanitizeHexColor(color).slice(1);
+  return [
+    parseInt(hex.slice(0, 2), 16),
+    parseInt(hex.slice(2, 4), 16),
+    parseInt(hex.slice(4, 6), 16),
+  ];
+}
+
+function rgbaFromHex(color, alpha = 1) {
+  const [r, g, b] = hexToRgb(color);
+  return `rgba(${r}, ${g}, ${b}, ${Math.max(0, Math.min(1, alpha))})`;
+}
+
+function selectedBarrierColor() {
+  return sanitizeHexColor(barrierColorInput?.value, "#cfd8df");
+}
+
+function selectedObstacleColor() {
+  return sanitizeHexColor(obstacleColorInput?.value, "#86dfff");
+}
+
+function selectedBarrierOpacity() {
+  return selectedOpacity(barrierOpacityInput, 0.24);
+}
+
+function selectedObstacleOpacity() {
+  return selectedOpacity(obstacleOpacityInput, 0.24);
 }
 
 function legacyBarrierCorners(barrier) {
@@ -1525,6 +2395,8 @@ function mapSafetyBarriers() {
         corners,
         height_m: Math.max(0.25, Math.min(8, Math.max(...ys) - Math.min(...ys) || Number(barrier.height_m || 1.8))),
         clearance_m: Math.max(0.05, Math.min(5, Number(barrier.clearance_m || 0.45))),
+        color: sanitizeHexColor(barrier.color, "#cfd8df"),
+        opacity: Math.max(0.05, Math.min(0.95, Number(barrier.opacity ?? 0.24))),
       };
     })
     .filter(Boolean);
@@ -1533,6 +2405,103 @@ function mapSafetyBarriers() {
 function selectedBarrierClearance() {
   const value = Number(barrierClearanceInput?.value || 0.45);
   return Math.max(0.15, Math.min(2, Number.isFinite(value) ? value : 0.45));
+}
+
+function selectedObstacleClearance() {
+  const value = Number(obstacleClearanceInput?.value || 0.35);
+  return Math.max(0.10, Math.min(2, Number.isFinite(value) ? value : 0.35));
+}
+
+function obstacleBoundsFromPoints(points, clearance = 0) {
+  const clean = (points || []).map(asVec3).filter(Boolean);
+  if (!clean.length) return null;
+  const min = [Infinity, Infinity, Infinity];
+  const max = [-Infinity, -Infinity, -Infinity];
+  for (const point of clean) {
+    for (let axis = 0; axis < 3; axis++) {
+      min[axis] = Math.min(min[axis], point[axis]);
+      max[axis] = Math.max(max[axis], point[axis]);
+    }
+  }
+  for (let axis = 0; axis < 3; axis++) {
+    min[axis] -= clearance;
+    max[axis] += clearance;
+    if (max[axis] - min[axis] < 0.06) {
+      min[axis] -= 0.03;
+      max[axis] += 0.03;
+    }
+  }
+  return { min, max };
+}
+
+function normalizedObstacleBounds(obstacle, clearance = 0) {
+  const rawMin = asVec3(obstacle?.bounds?.min);
+  const rawMax = asVec3(obstacle?.bounds?.max);
+  const bounds = rawMin && rawMax
+    ? {
+        min: [Math.min(rawMin[0], rawMax[0]), Math.min(rawMin[1], rawMax[1]), Math.min(rawMin[2], rawMax[2])],
+        max: [Math.max(rawMin[0], rawMax[0]), Math.max(rawMin[1], rawMax[1]), Math.max(rawMin[2], rawMax[2])],
+      }
+    : obstacleBoundsFromPoints(obstacle?.points || [], 0);
+  if (!bounds) return null;
+  const min = bounds.min.slice(0, 3);
+  const max = bounds.max.slice(0, 3);
+  for (let axis = 0; axis < 3; axis++) {
+    min[axis] -= clearance;
+    max[axis] += clearance;
+    if (max[axis] - min[axis] < 0.06) {
+      min[axis] -= 0.03;
+      max[axis] += 0.03;
+    }
+  }
+  return { min, max };
+}
+
+function mapSafetyObstacles() {
+  const obstacles = Array.isArray(currentMapEntry?.safety_obstacles) ? currentMapEntry.safety_obstacles : [];
+  return obstacles
+    .map((obstacle, index) => {
+      const points = (obstacle.points || []).map(asVec3).filter(Boolean);
+      const clearance = Math.max(0.05, Math.min(3, Number(obstacle.clearance_m || 0.35)));
+      const bounds = normalizedObstacleBounds(obstacle, 0) || obstacleBoundsFromPoints(points, 0);
+      if (!bounds || points.length < 2) return null;
+      return {
+        id: String(obstacle.id || `obstacle_${index}`),
+        label: String(obstacle.label || `Obstacle ${index + 1}`),
+        points,
+        bounds,
+        clearance_m: clearance,
+        color: sanitizeHexColor(obstacle.color, "#86dfff"),
+        opacity: Math.max(0.05, Math.min(0.95, Number(obstacle.opacity ?? 0.24))),
+      };
+    })
+    .filter(Boolean);
+}
+
+function safetyBlockerCount() {
+  return mapSafetyBarriers().length + mapSafetyObstacles().length;
+}
+
+function obstaclePayloadForSave(obstacle) {
+  const points = (obstacle?.points || []).map(asVec3).filter(Boolean);
+  if (points.length < 2) return null;
+  const clearance = Math.max(0.05, Math.min(3, Number(obstacle.clearance_m || selectedObstacleClearance())));
+  const bounds = normalizedObstacleBounds(obstacle, 0) || obstacleBoundsFromPoints(points, 0);
+  if (!bounds) return null;
+  return {
+    id: String(obstacle.id || `obstacle_${Date.now().toString(36)}`),
+    label: String(obstacle.label || "Obstacle"),
+    points,
+    bounds,
+    clearance_m: clearance,
+    color: sanitizeHexColor(obstacle.color || selectedObstacleColor(), "#86dfff"),
+    opacity: Math.max(0.05, Math.min(0.95, Number(obstacle.opacity ?? selectedObstacleOpacity()))),
+    created_at: obstacle.created_at,
+  };
+}
+
+function normalizeSafetyObstacleBank(obstacles) {
+  return (obstacles || []).map(obstaclePayloadForSave).filter(Boolean);
 }
 
 function pointSegmentDistance2D(p, a, b) {
@@ -1610,26 +2579,130 @@ function barrierRouteDistance2D(routeA, routeB, barrier) {
   return best;
 }
 
+function pointAabbDistance(point, bounds) {
+  let sum = 0;
+  for (let axis = 0; axis < 3; axis++) {
+    const v = point[axis];
+    const d = v < bounds.min[axis] ? bounds.min[axis] - v : (v > bounds.max[axis] ? v - bounds.max[axis] : 0);
+    sum += d * d;
+  }
+  return Math.sqrt(sum);
+}
+
+function segmentIntersectsAabb(a, b, bounds) {
+  let tMin = 0;
+  let tMax = 1;
+  for (let axis = 0; axis < 3; axis++) {
+    const delta = b[axis] - a[axis];
+    if (Math.abs(delta) < 1e-12) {
+      if (a[axis] < bounds.min[axis] || a[axis] > bounds.max[axis]) return false;
+      continue;
+    }
+    const inv = 1 / delta;
+    let t1 = (bounds.min[axis] - a[axis]) * inv;
+    let t2 = (bounds.max[axis] - a[axis]) * inv;
+    if (t1 > t2) [t1, t2] = [t2, t1];
+    tMin = Math.max(tMin, t1);
+    tMax = Math.min(tMax, t2);
+    if (tMin > tMax) return false;
+  }
+  return true;
+}
+
+function obstacleRouteDistance3D(routeA, routeB, obstacle) {
+  const bounds = normalizedObstacleBounds(obstacle, 0);
+  if (!bounds) return Infinity;
+  if (segmentIntersectsAabb(routeA, routeB, bounds)) return 0;
+  let best = Math.min(pointAabbDistance(routeA, bounds), pointAabbDistance(routeB, bounds));
+  for (let i = 1; i < 24; i++) {
+    const t = i / 24;
+    const p = [
+      routeA[0] + (routeB[0] - routeA[0]) * t,
+      routeA[1] + (routeB[1] - routeA[1]) * t,
+      routeA[2] + (routeB[2] - routeA[2]) * t,
+    ];
+    best = Math.min(best, pointAabbDistance(p, bounds));
+  }
+  return best;
+}
+
 function missionRouteSafetyCheck(segments) {
   if (!segments.length) return { blocked: false, reason: "No route segments yet.", nearest: null };
   let nearest = null;
   for (const barrier of mapSafetyBarriers()) {
     const dist = Math.min(...segments.map(([a, b]) => barrierRouteDistance2D(a, b, barrier)));
     const clearance = barrier.clearance_m;
-    if (!nearest || dist < nearest.distance) nearest = { barrier, distance: dist, clearance };
+    if (!nearest || dist < nearest.distance) nearest = { type: "wall", barrier, label: barrier.label, distance: dist, clearance };
     if (dist <= clearance) {
       return {
         blocked: true,
-        nearest: { barrier, distance: dist, clearance },
+        nearest: { type: "wall", barrier, label: barrier.label, distance: dist, clearance },
         reason: `${barrier.label} is ${dist.toFixed(2)} map units from the route; required clearance is ${clearance.toFixed(2)}.`,
+      };
+    }
+  }
+  for (const obstacle of mapSafetyObstacles()) {
+    const dist = Math.min(...segments.map(([a, b]) => obstacleRouteDistance3D(a, b, obstacle)));
+    const clearance = obstacle.clearance_m;
+    if (!nearest || dist < nearest.distance) nearest = { type: "obstacle", obstacle, label: obstacle.label, distance: dist, clearance };
+    if (dist <= clearance) {
+      return {
+        blocked: true,
+        nearest: { type: "obstacle", obstacle, label: obstacle.label, distance: dist, clearance },
+        reason: `${obstacle.label} is ${dist.toFixed(2)} map units from the route; required clearance is ${clearance.toFixed(2)}. The route may pass over it only above its saved height.`,
       };
     }
   }
   return { blocked: false, nearest };
 }
 
+function pointSafetyIssue(point) {
+  if (!point) return null;
+  for (const barrier of mapSafetyBarriers()) {
+    const dist = barrierRouteDistance2D(point, point, barrier);
+    const clearance = barrier.clearance_m;
+    if (dist <= clearance) {
+      return {
+        type: "wall",
+        label: barrier.label,
+        distance: dist,
+        clearance,
+        reason: `${barrier.label} is ${dist.toFixed(2)} map units from the point; required clearance is ${clearance.toFixed(2)}.`,
+      };
+    }
+  }
+  for (const obstacle of mapSafetyObstacles()) {
+    const bounds = normalizedObstacleBounds(obstacle, 0);
+    if (!bounds) continue;
+    const dist = pointAabbDistance(point, bounds);
+    const clearance = obstacle.clearance_m;
+    if (dist <= clearance) {
+      return {
+        type: "obstacle",
+        label: obstacle.label,
+        distance: dist,
+        clearance,
+        reason: `${obstacle.label} is ${dist.toFixed(2)} map units from the point; required clearance is ${clearance.toFixed(2)}.`,
+      };
+    }
+  }
+  return null;
+}
+
+function updatePatrolPointSafetyIssues() {
+  const next = new Map();
+  for (let i = 0; i < patrolPoints.length; i++) {
+    const target = patrolTargetPoint(patrolPoints[i]);
+    const issue = pointSafetyIssue(target);
+    if (issue) next.set(i, issue);
+  }
+  patrolPointSafetyIssues = next;
+  return next;
+}
+
 function missionBarrierCheck(target = missionTarget?.rxyz) {
   const cur = closestPose();
+  currentRenderedPose = cur || null;
   if (!cur?.rcenter || !target) return { blocked: false, reason: "No current pose yet.", nearest: null };
   return missionRouteSafetyCheck(missionRouteSegments(target, cur));
 }
@@ -1662,6 +2735,7 @@ function updateBarrierAdjustControls() {
     adjustWallsButton.classList.toggle("active", barrierAdjusting);
     adjustWallsButton.textContent = barrierAdjusting ? "Adjusting Walls" : "Adjust Walls";
   }
+  if (undoWallEditButton) undoWallEditButton.disabled = barrierSaving || wallUndoStack.length === 0;
   if (saveWallAdjustmentsButton) saveWallAdjustmentsButton.disabled = !barrierUnsaved || barrierSaving;
   if (cancelBarrierButton && !barrierEditing) cancelBarrierButton.disabled = !barrierUnsaved;
 }
@@ -1673,10 +2747,168 @@ function markBarrierAdjustUnsaved(message = "Wall adjusted. Press Save Walls to 
   updateBarrierStatus(message, "busy");
 }
 
+function syncBarrierStyleInputs(barrier = null) {
+  if (!barrier) {
+    barrier = mapSafetyBarriers().find(candidate => candidate.id === selectedBarrierId) || null;
+  }
+  if (!barrier) return;
+  if (barrierClearanceInput) barrierClearanceInput.value = Number(barrier.clearance_m || selectedBarrierClearance()).toFixed(2);
+  if (barrierColorInput) barrierColorInput.value = sanitizeHexColor(barrier.color, "#cfd8df");
+  if (barrierOpacityInput) barrierOpacityInput.value = String(Math.max(0.05, Math.min(0.95, Number(barrier.opacity ?? 0.24))));
+}
+
+function syncObstacleStyleInputs(obstacle = null) {
+  if (!obstacle) {
+    obstacle = mapSafetyObstacles().find(candidate => candidate.id === selectedObstacleId) || null;
+  }
+  if (!obstacle) return;
+  if (obstacleClearanceInput) obstacleClearanceInput.value = Number(obstacle.clearance_m || selectedObstacleClearance()).toFixed(2);
+  if (obstacleColorInput) obstacleColorInput.value = sanitizeHexColor(obstacle.color, "#86dfff");
+  if (obstacleOpacityInput) obstacleOpacityInput.value = String(Math.max(0.05, Math.min(0.95, Number(obstacle.opacity ?? 0.24))));
+}
+
+function setSelectedBarrier(barrierId) {
+  selectedBarrierId = barrierId || null;
+  const barrier = mapSafetyBarriers().find(candidate => candidate.id === selectedBarrierId) || null;
+  syncBarrierStyleInputs(barrier);
+  renderBarrierList();
+  invalidateStaticLayer();
+}
+
+function setSelectedObstacle(obstacleId, options = {}) {
+  const { renderList = true } = options;
+  selectedObstacleId = obstacleId || null;
+  const obstacle = mapSafetyObstacles().find(candidate => candidate.id === selectedObstacleId) || null;
+  syncObstacleStyleInputs(obstacle);
+  if (renderList) renderObstacleList();
+  else {
+    obstacleList?.querySelectorAll(".obstacle-item").forEach(item => {
+      item.classList.toggle("selected", item.dataset.obstacleId === selectedObstacleId);
+    });
+  }
+  invalidateStaticLayer();
+}
+
+function updateSelectedBarrierPatch(patch, saveNow = true) {
+  if (!selectedBarrierId) {
+    updateBarrierStatus("Select a wall from the list or on the map before changing style.", "error");
+    return;
+  }
+  const next = mapSafetyBarriers().map(barrier => (
+    barrier.id === selectedBarrierId
+      ? barrierPayloadForSave({ ...barrier, ...patch })
+      : barrierPayloadForSave(barrier)
+  ));
+  if (currentMapEntry) currentMapEntry.safety_barriers = next;
+  const libEntry = (mapLibraryData.maps || []).find(m => m.id === currentMapEntry?.id);
+  if (libEntry) libEntry.safety_barriers = next;
+  renderBarrierList();
+  invalidateStaticLayer();
+  plannedPatrol = null;
+  renderPatrolCommands([]);
+  if (patrolPoints.length >= 2) validatePatrolPreview(false);
+  if (saveNow) saveSafetyBarriers(next);
+}
+
+function updateSelectedObstaclePatch(patch, saveNow = true) {
+  if (!selectedObstacleId) {
+    updateObstacleStatus("Select an object from the list or on the map before changing style.", "error");
+    return;
+  }
+  const next = mapSafetyObstacles().map(obstacle => (
+    obstacle.id === selectedObstacleId
+      ? obstaclePayloadForSave({ ...obstacle, ...patch })
+      : obstaclePayloadForSave(obstacle)
+  )).filter(Boolean);
+  if (currentMapEntry) currentMapEntry.safety_obstacles = next;
+  const libEntry = (mapLibraryData.maps || []).find(m => m.id === currentMapEntry?.id);
+  if (libEntry) libEntry.safety_obstacles = next;
+  renderObstacleList();
+  invalidateStaticLayer();
+  plannedPatrol = null;
+  renderPatrolCommands([]);
+  if (patrolPoints.length >= 2) validatePatrolPreview(false);
+  if (saveNow) saveSafetyObstacles(next);
+}
+
+function commitObstacleRename(obstacleId, rawLabel) {
+  const label = String(rawLabel || "").trim();
+  if (!label) {
+    updateObstacleStatus("Object name cannot be empty.", "error");
+    renderObstacleList();
+    return false;
+  }
+  pushObstacleUndoSnapshot();
+  const next = mapSafetyObstacles().map(obstacle => (
+    obstacle.id === obstacleId
+      ? obstaclePayloadForSave({ ...obstacle, label })
+      : obstaclePayloadForSave(obstacle)
+  )).filter(Boolean);
+  selectedObstacleId = obstacleId;
+  if (currentMapEntry) currentMapEntry.safety_obstacles = next;
+  const libEntry = (mapLibraryData.maps || []).find(m => m.id === currentMapEntry?.id);
+  if (libEntry) libEntry.safety_obstacles = next;
+  renderObstacleList();
+  invalidateStaticLayer();
+  plannedPatrol = null;
+  plannedMission = null;
+  renderPatrolCommands([]);
+  renderMissionCommands([]);
+  updateObstacleStatus(`Renamed object to "${label}".`, "busy");
+  saveSafetyObstacles(next);
+  return true;
+}
+
+function beginObstacleRename(obstacle, nameElement) {
+  if (!obstacle || !nameElement) return;
+  selectedObstacleId = obstacle.id;
+  syncObstacleStyleInputs(obstacle);
+  nameElement.closest(".obstacle-item")?.classList.add("selected");
+  invalidateStaticLayer();
+  const input = document.createElement("input");
+  input.type = "text";
+  input.className = "obstacle-name-edit";
+  input.value = obstacle.label || "";
+  input.setAttribute("aria-label", "Rename safety object");
+  let finished = false;
+  const finish = save => {
+    if (finished) return;
+    finished = true;
+    if (save) {
+      const nextLabel = input.value.trim();
+      if (nextLabel && nextLabel !== (obstacle.label || "")) {
+        commitObstacleRename(obstacle.id, nextLabel);
+        return;
+      }
+    }
+    renderObstacleList();
+  };
+  input.addEventListener("click", event => event.stopPropagation());
+  input.addEventListener("dblclick", event => event.stopPropagation());
+  input.addEventListener("keydown", event => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      event.stopPropagation();
+      finish(true);
+    } else if (event.key === "Escape") {
+      event.preventDefault();
+      event.stopPropagation();
+      finish(false);
+    }
+  });
+  input.addEventListener("blur", () => finish(true));
+  nameElement.replaceWith(input);
+  requestAnimationFrame(() => {
+    input.focus();
+    input.select();
+  });
+}
+
 function renderBarrierList() {
   if (!barrierList) return;
   updateBarrierAdjustControls();
   const barriers = mapSafetyBarriers();
+  if (selectedBarrierId && !barriers.some(barrier => barrier.id === selectedBarrierId)) selectedBarrierId = null;
   barrierList.innerHTML = "";
   if (!barriers.length) {
     updateBarrierStatus();
@@ -1685,34 +2917,190 @@ function renderBarrierList() {
   for (const barrier of barriers) {
     const item = document.createElement("div");
     item.className = "barrier-item";
+    if (barrier.id === selectedBarrierId) item.classList.add("selected");
     const text = document.createElement("div");
     const name = document.createElement("strong");
     name.textContent = barrier.label;
     const detail = document.createElement("span");
-    detail.textContent = `4 adjustable corners, clearance ${barrier.clearance_m.toFixed(2)} map units`;
+    detail.textContent = `4 corners, clearance ${barrier.clearance_m.toFixed(2)}, opacity ${(Number(barrier.opacity ?? 0.24) * 100).toFixed(0)}%`;
     text.append(name, detail);
     const remove = document.createElement("button");
     remove.type = "button";
     remove.textContent = "Remove";
     remove.addEventListener("click", event => {
       event.stopPropagation();
+      pushWallUndoSnapshot();
       saveSafetyBarriers(barriers.filter(candidate => candidate.id !== barrier.id));
     });
+    item.addEventListener("click", () => setSelectedBarrier(barrier.id));
     item.append(text, remove);
     barrierList.appendChild(item);
   }
   updateBarrierStatus();
 }
 
+function updateObstacleStatus(message = null, tone = "") {
+  if (!obstacleStatus) return;
+  obstacleStatus.dataset.tone = tone;
+  if (message) {
+    obstacleStatus.textContent = message;
+    return;
+  }
+  if (obstacleEditing) {
+    const count = obstacleDraft?.points?.length || 0;
+    obstacleStatus.textContent = count
+      ? `${count} point${count === 1 ? "" : "s"} selected. Pick more points around the object, then Save Object.`
+      : "Pick existing COLMAP points around the finite object.";
+    return;
+  }
+  const count = mapSafetyObstacles().length;
+  obstacleStatus.textContent = count
+    ? `${count} finite object${count === 1 ? "" : "s"} saved. Routes may go over or under them when clearance allows.`
+    : "Pick existing COLMAP points around furniture or objects. ATLAS fills a finite 3D safety structure.";
+}
+
+function updateObstacleControls() {
+  const draftCount = obstacleDraft?.points?.length || 0;
+  if (addObstacleButton) addObstacleButton.classList.toggle("active", obstacleEditing);
+  if (finishObstacleButton) finishObstacleButton.disabled = !obstacleEditing || draftCount < 2 || barrierSaving;
+  if (cancelObstacleButton) cancelObstacleButton.disabled = !obstacleEditing || barrierSaving;
+  if (undoObstacleEditButton) undoObstacleEditButton.disabled = barrierSaving || obstacleUndoStack.length === 0;
+  if (clearObstaclePointsButton) {
+    clearObstaclePointsButton.disabled = barrierSaving || !(draftCount > 0 || selectedObstacleId);
+  }
+}
+
+function cloneBarrierBank(barriers = mapSafetyBarriers()) {
+  return (barriers || []).map(barrierPayloadForSave).filter(barrier => (barrier.corners || []).length >= 4);
+}
+
+function cloneObstacleBank(obstacles = mapSafetyObstacles()) {
+  return (obstacles || []).map(obstaclePayloadForSave).filter(Boolean);
+}
+
+function pushWallUndoSnapshot() {
+  const snapshot = cloneBarrierBank();
+  wallUndoStack.push(snapshot);
+  if (wallUndoStack.length > 32) wallUndoStack.shift();
+  updateBarrierAdjustControls();
+}
+
+function pushObstacleUndoSnapshot() {
+  const snapshot = cloneObstacleBank();
+  obstacleUndoStack.push(snapshot);
+  if (obstacleUndoStack.length > 32) obstacleUndoStack.shift();
+  updateObstacleControls();
+}
+
+function restoreWallSnapshot(snapshot) {
+  const next = cloneBarrierBank(snapshot);
+  stagedSafetyBarrierMapId = currentMapEntry?.id || null;
+  stagedSafetyBarriers = next;
+  if (currentMapEntry) currentMapEntry.safety_barriers = next;
+  const libEntry = (mapLibraryData.maps || []).find(m => m.id === currentMapEntry?.id);
+  if (libEntry) libEntry.safety_barriers = next;
+  selectedBarrierId = next.some(barrier => barrier.id === selectedBarrierId) ? selectedBarrierId : next[0]?.id || null;
+  barrierUnsaved = true;
+  plannedMission = null;
+  plannedPatrol = null;
+  renderMissionCommands([]);
+  renderPatrolCommands([]);
+  renderBarrierList();
+  invalidateStaticLayer();
+  updateMissionStatus();
+  updatePatrolStatus();
+  markBarrierAdjustUnsaved("Undo applied. Press Save Walls to commit the restored wall layout.");
+}
+
+function undoWallEdit() {
+  const snapshot = wallUndoStack.pop();
+  if (!snapshot) return;
+  barrierCornerDrag = null;
+  barrierTransformDrag = null;
+  clearBarrierHover();
+  restoreWallSnapshot(snapshot);
+  updateBarrierAdjustControls();
+}
+
+function undoObstacleEdit() {
+  const snapshot = obstacleUndoStack.pop();
+  if (!snapshot) return;
+  obstaclePointDrag = null;
+  obstacleTransformDrag = null;
+  obstaclePointHover = null;
+  obstacleTransformHover = null;
+  selectedObstacleId = snapshot.some(obstacle => obstacle.id === selectedObstacleId) ? selectedObstacleId : snapshot[0]?.id || null;
+  saveSafetyObstacles(snapshot);
+  updateObstacleControls();
+}
+
+function renderObstacleList() {
+  if (!obstacleList) return;
+  updateObstacleControls();
+  const obstacles = mapSafetyObstacles();
+  if (selectedObstacleId && !obstacles.some(obstacle => obstacle.id === selectedObstacleId)) selectedObstacleId = null;
+  obstacleList.innerHTML = "";
+  if (!obstacles.length) {
+    updateObstacleStatus();
+    return;
+  }
+  for (const obstacle of obstacles) {
+    const item = document.createElement("div");
+    item.className = "barrier-item obstacle-item";
+    item.dataset.obstacleId = obstacle.id;
+    if (obstacle.id === selectedObstacleId) item.classList.add("selected");
+    const text = document.createElement("div");
+    const name = document.createElement("strong");
+    name.textContent = obstacle.label;
+    name.title = "Double-click to rename, Enter to save";
+    name.addEventListener("dblclick", event => {
+      event.preventDefault();
+      event.stopPropagation();
+      beginObstacleRename(obstacle, name);
+    });
+    const height = obstacle.bounds.max[1] - obstacle.bounds.min[1];
+    const detail = document.createElement("span");
+    detail.textContent = `${obstacle.points.length} points, height ${height.toFixed(2)}, clearance ${obstacle.clearance_m.toFixed(2)}, opacity ${(Number(obstacle.opacity ?? 0.24) * 100).toFixed(0)}%`;
+    text.append(name, detail);
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.textContent = "Remove";
+    remove.addEventListener("click", event => {
+      event.stopPropagation();
+      pushObstacleUndoSnapshot();
+      saveSafetyObstacles(obstacles.filter(candidate => candidate.id !== obstacle.id));
+    });
+    const rename = document.createElement("button");
+    rename.type = "button";
+    rename.textContent = "Rename";
+    rename.addEventListener("click", event => {
+      event.stopPropagation();
+      beginObstacleRename(obstacle, name);
+    });
+    item.addEventListener("click", () => setSelectedObstacle(obstacle.id, { renderList: false }));
+    item.addEventListener("dblclick", event => {
+      if (event.target.closest("button") || event.target.closest("input")) return;
+      event.preventDefault();
+      event.stopPropagation();
+      beginObstacleRename(obstacle, name);
+    });
+    item.append(text, rename, remove);
+    obstacleList.appendChild(item);
+  }
+  updateObstacleStatus();
+}
+
 async function saveSafetyBarriers(nextBarriers) {
   if (!currentMapEntry?.id || barrierSaving) return;
   const barriersForSave = normalizeSafetyBarrierBank(nextBarriers);
+  const obstaclesForSave = normalizeSafetyObstacleBank(mapSafetyObstacles());
   barrierSaving = true;
   updateBarrierStatus("Saving safety barriers...", "busy");
   try {
     const data = await postJson("/api/map/barriers", {
       map_id: currentMapEntry.id,
       barriers: barriersForSave,
+      obstacles: obstaclesForSave,
     });
     if (data.state?.library) mapLibraryData = data.state.library;
     currentMapEntry = selectedMap() || data.map || currentMapEntry;
@@ -1726,12 +3114,58 @@ async function saveSafetyBarriers(nextBarriers) {
     if (cancelBarrierButton) cancelBarrierButton.disabled = true;
     updateBarrierAdjustControls();
     renderBarrierList();
+    renderObstacleList();
     invalidateStaticLayer();
+    plannedPatrol = null;
+    renderPatrolCommands([]);
+    if (patrolPoints.length >= 2) validatePatrolPreview(false);
+    else updatePatrolStatus();
     updateMissionStatus();
   } catch (err) {
     updateBarrierStatus(`Could not save safety barriers: ${err.message || err}`, "error");
   } finally {
     barrierSaving = false;
+    updateBarrierAdjustControls();
+    updateObstacleControls();
+  }
+}
+
+async function saveSafetyObstacles(nextObstacles) {
+  if (!currentMapEntry?.id || barrierSaving) return;
+  const barriersForSave = normalizeSafetyBarrierBank(mapSafetyBarriers());
+  const obstaclesForSave = normalizeSafetyObstacleBank(nextObstacles);
+  barrierSaving = true;
+  updateObstacleStatus("Saving safety obstacles...", "busy");
+  try {
+    const data = await postJson("/api/map/barriers", {
+      map_id: currentMapEntry.id,
+      barriers: barriersForSave,
+      obstacles: obstaclesForSave,
+    });
+    if (data.state?.library) mapLibraryData = data.state.library;
+    currentMapEntry = selectedMap() || data.map || currentMapEntry;
+    obstacleEditing = false;
+    obstacleDraft = null;
+    selectedObstacleId = null;
+    obstaclePointHover = null;
+    obstaclePointDrag = null;
+    obstacleTransformHover = null;
+    obstacleTransformDrag = null;
+    renderObstacleList();
+    renderBarrierList();
+    invalidateStaticLayer();
+    plannedMission = null;
+    plannedPatrol = null;
+    renderMissionCommands([]);
+    renderPatrolCommands([]);
+    if (patrolPoints.length >= 2) validatePatrolPreview(false);
+    else updatePatrolStatus();
+    updateMissionStatus();
+  } catch (err) {
+    updateObstacleStatus(`Could not save safety obstacles: ${err.message || err}`, "error");
+  } finally {
+    barrierSaving = false;
+    updateObstacleControls();
     updateBarrierAdjustControls();
   }
 }
@@ -1766,9 +3200,90 @@ function addBarrierFromPickedPoint(picked) {
     corners,
     height_m: height,
     clearance_m: selectedBarrierClearance(),
+    color: selectedBarrierColor(),
+    opacity: selectedBarrierOpacity(),
   });
+  selectedBarrierId = next[next.length - 1].id;
+  pushWallUndoSnapshot();
   saveSafetyBarriers(next);
   return true;
+}
+
+function setSafetyBarrierMode(mode) {
+  safetyBarrierMode = mode === "obstacles" ? "obstacles" : "walls";
+  safetyTabWallsButton?.classList.toggle("active", safetyBarrierMode === "walls");
+  safetyTabObstaclesButton?.classList.toggle("active", safetyBarrierMode === "obstacles");
+  safetyTabWallsButton?.setAttribute("aria-selected", String(safetyBarrierMode === "walls"));
+  safetyTabObstaclesButton?.setAttribute("aria-selected", String(safetyBarrierMode === "obstacles"));
+  wallTools?.classList.toggle("active", safetyBarrierMode === "walls");
+  obstacleTools?.classList.toggle("active", safetyBarrierMode === "obstacles");
+  if (safetyBarrierMode !== "obstacles") {
+    obstacleEditing = false;
+    obstacleDraft = null;
+    obstaclePointHover = null;
+    obstacleTransformHover = null;
+    obstaclePointDrag = null;
+    obstacleTransformDrag = null;
+  }
+  if (safetyBarrierMode !== "walls") {
+    barrierEditing = false;
+    barrierDraft = null;
+    addBarrierButton?.classList.remove("active");
+  }
+  updateObstacleControls();
+  updateObstacleStatus();
+  updateBarrierAdjustControls();
+  updateBarrierStatus();
+}
+
+function addObstacleFromPickedPoint(picked) {
+  if (!picked?.rxyz) return false;
+  if (!obstacleDraft) {
+    obstacleDraft = {
+      id: `obstacle_${Date.now().toString(36)}`,
+      label: `Obstacle ${mapSafetyObstacles().length + 1}`,
+      points: [],
+      clearance_m: selectedObstacleClearance(),
+      color: selectedObstacleColor(),
+      opacity: selectedObstacleOpacity(),
+    };
+  }
+  const point = picked.rxyz.slice(0, 3);
+  if (obstacleDraft.points.some(existing => norm(sub(existing, point)) < 0.04)) {
+    updateObstacleStatus("That point is already part of this obstacle. Pick another visible point.", "error");
+    return false;
+  }
+  obstacleDraft.points.push(point);
+  obstacleDraft.clearance_m = selectedObstacleClearance();
+  obstacleDraft.color = selectedObstacleColor();
+  obstacleDraft.opacity = selectedObstacleOpacity();
+  obstacleDraft.bounds = obstacleBoundsFromPoints(obstacleDraft.points, 0);
+  updateObstacleControls();
+  updateObstacleStatus();
+  invalidateStaticLayer();
+  return true;
+}
+
+function finishObstacleDraft() {
+  if (!obstacleDraft || (obstacleDraft.points || []).length < 2) {
+    updateObstacleStatus("Pick at least two visible points around the object before saving.", "error");
+    return;
+  }
+  const obstacles = mapSafetyObstacles();
+  const payload = obstaclePayloadForSave({
+    ...obstacleDraft,
+    label: `Obstacle ${obstacles.length + 1}`,
+    clearance_m: selectedObstacleClearance(),
+    color: selectedObstacleColor(),
+    opacity: selectedObstacleOpacity(),
+  });
+  if (!payload) {
+    updateObstacleStatus("Could not form a finite 3D object from those points. Pick a wider point cluster.", "error");
+    return;
+  }
+  selectedObstacleId = payload.id;
+  pushObstacleUndoSnapshot();
+  saveSafetyObstacles(obstacles.concat(payload));
 }
 
 function planMissionPreview() {
@@ -1791,7 +3306,7 @@ function planMissionPreview() {
     if (routePlan.blocked) {
       plannedMission = null;
       renderMissionCommands([]);
-      updateMissionStatus(`Mission blocked by safety wall. ${routePlan.reason || safety.reason}`);
+      updateMissionStatus(`Mission blocked by a safety barrier. ${routePlan.reason || safety.reason}`);
       updateFlightControlState();
       return;
     }
@@ -1814,10 +3329,10 @@ function planMissionPreview() {
   renderMissionCommands(plannedMission.commands);
   const distText = distance == null ? "distance pending until first live R,t" : `${distance.toFixed(2)} map units`;
   const clearanceText = safety.nearest
-    ? ` Nearest wall clearance: ${safety.nearest.distance.toFixed(2)} map units.`
+    ? ` Nearest safety clearance: ${safety.nearest.distance.toFixed(2)} map units.`
     : "";
   const actionText = profile?.targetLooksGround ? "horizontal approach above the point, then land" : "horizontal approach, then descend";
-  const detourText = routePlan?.detoured ? " with a safety-wall detour" : "";
+  const detourText = routePlan?.detoured ? " with a safety-barrier detour" : "";
   const speedText = requestedSpeed > speed + 1e-6 ? `${speed.toFixed(2)} m/s indoor cap` : `${speed.toFixed(2)} m/s`;
   const gateText = firstLocalizationConfirmed ? "Confirm before any autonomous command." : "Start live localization and confirm first R,t before execution.";
   updateMissionStatus(`Preflight path saved${detourText}: ${actionText} at ${speedText} (${distText}).${clearanceText} ${gateText}`);
@@ -1832,6 +3347,7 @@ async function startLiveAtlas() {
     uploadStatus.textContent = "Enter the Android phone IP before starting Live ATLAS.";
     return;
   }
+  rememberPhoneIp(phoneIp);
   resetLocalizationGate({ preserveMission: true });
   await selectMap(mapId, false);
   pendingLiveReplayOpen = true;
@@ -1902,6 +3418,523 @@ function formatDateTime(value) {
   if (!value) return "not recorded";
   const text = String(value).replace("T", " ").replace(/\.\d+Z?$/, "");
   return text.length > 16 ? text.slice(0, 16) : text;
+}
+
+function enemyStatusLabel(status) {
+  const value = String(status || "not_trained");
+  if (value === "needs_videos") return "needs videos";
+  if (value === "needs_labels") return "needs labels";
+  if (value === "labels_ready") return "labels ready";
+  if (value === "dataset_ready") return "dataset ready";
+  if (value === "dataset_ready_needs_labels") return "dataset needs labels";
+  if (value === "trained") return "trained";
+  if (value === "queued") return "training queued";
+  if (value === "training") return "training";
+  if (value === "training_failed") return "training failed";
+  return value.replaceAll("_", " ");
+}
+
+function currentEnemyProfile() {
+  const enemies = Array.isArray(enemyLibraryData.enemies) ? enemyLibraryData.enemies : [];
+  return enemies.find(enemy => enemy.id === selectedEnemyId) || enemies[0] || null;
+}
+
+function currentEnemyFrames() {
+  const profile = currentEnemyProfile();
+  return Array.isArray(profile?.frames) ? profile.frames : [];
+}
+
+function currentEnemyFrame() {
+  const frames = currentEnemyFrames();
+  return frames.find(frame => frame.id === selectedEnemyFrameId) || frames[0] || null;
+}
+
+function enemyFrameStats(profile) {
+  const frames = Array.isArray(profile?.frames) ? profile.frames : [];
+  const labeled = frames.filter(frame => frame.status === "labeled").length;
+  const review = frames.filter(frame => frame.status === "review").length;
+  const skipped = frames.filter(frame => frame.status === "skipped").length;
+  return { total: frames.length, labeled, review, skipped };
+}
+
+function setEnemyAnnotationStatus(message) {
+  if (enemyAnnotationStatus) enemyAnnotationStatus.textContent = message;
+}
+
+function selectEnemyProfile(enemyId, frameId = "") {
+  const enemies = Array.isArray(enemyLibraryData.enemies) ? enemyLibraryData.enemies : [];
+  const profile = enemies.find(enemy => enemy.id === enemyId) || enemies[0] || null;
+  selectedEnemyId = profile?.id || "";
+  const frames = Array.isArray(profile?.frames) ? profile.frames : [];
+  const frame = frames.find(item => item.id === frameId) || frames[0] || null;
+  selectedEnemyFrameId = frame?.id || "";
+  enemyBoxDraft = frame?.box ? { ...frame.box } : null;
+  loadEnemyAnnotationImage(frame);
+  renderEnemyLibrary();
+}
+
+function loadEnemyAnnotationImage(frame) {
+  enemyAnnotationImageReady = false;
+  enemyAnnotationImageFrameId = frame?.id || "";
+  enemyCanvasRectCache = null;
+  if (!frame?.url) {
+    drawEnemyAnnotationCanvas();
+    return;
+  }
+  enemyAnnotationImage = new Image();
+  enemyAnnotationImage.onload = () => {
+    enemyAnnotationImageReady = true;
+    drawEnemyAnnotationCanvas();
+  };
+  enemyAnnotationImage.onerror = () => {
+    enemyAnnotationImageReady = false;
+    drawEnemyAnnotationCanvas();
+  };
+  enemyAnnotationImage.src = `${frame.url}?v=${Date.now()}`;
+}
+
+function resizeEnemyAnnotationCanvas() {
+  if (!enemyAnnotationCanvas) return;
+  const rect = enemyAnnotationCanvas.getBoundingClientRect();
+  const dpr = Math.max(1, window.devicePixelRatio || 1);
+  const width = Math.max(640, Math.round((rect.width || 960) * dpr));
+  const height = Math.max(360, Math.round((rect.height || 540) * dpr));
+  if (enemyAnnotationCanvas.width !== width || enemyAnnotationCanvas.height !== height) {
+    enemyAnnotationCanvas.width = width;
+    enemyAnnotationCanvas.height = height;
+    enemyCanvasRectCache = null;
+  }
+}
+
+function enemyImageRect() {
+  if (!enemyAnnotationCanvas || !enemyAnnotationImageReady || !enemyAnnotationImage.naturalWidth) return null;
+  if (enemyCanvasRectCache) return enemyCanvasRectCache;
+  const canvasWidth = enemyAnnotationCanvas.width;
+  const canvasHeight = enemyAnnotationCanvas.height;
+  const imageWidth = enemyAnnotationImage.naturalWidth;
+  const imageHeight = enemyAnnotationImage.naturalHeight;
+  const scale = Math.min(canvasWidth / imageWidth, canvasHeight / imageHeight);
+  const width = imageWidth * scale;
+  const height = imageHeight * scale;
+  enemyCanvasRectCache = {
+    x: (canvasWidth - width) / 2,
+    y: (canvasHeight - height) / 2,
+    width,
+    height,
+  };
+  return enemyCanvasRectCache;
+}
+
+function enemyCanvasPoint(event) {
+  const rect = enemyAnnotationCanvas.getBoundingClientRect();
+  return {
+    x: (event.clientX - rect.left) * (enemyAnnotationCanvas.width / rect.width),
+    y: (event.clientY - rect.top) * (enemyAnnotationCanvas.height / rect.height),
+  };
+}
+
+function enemyNormalizedPoint(point) {
+  const rect = enemyImageRect();
+  if (!rect) return null;
+  return {
+    x: Math.max(0, Math.min(1, (point.x - rect.x) / rect.width)),
+    y: Math.max(0, Math.min(1, (point.y - rect.y) / rect.height)),
+  };
+}
+
+function enemyBoxFromCorners(start, end) {
+  const x1 = Math.max(0, Math.min(1, Math.min(start.x, end.x)));
+  const x2 = Math.max(0, Math.min(1, Math.max(start.x, end.x)));
+  const y1 = Math.max(0, Math.min(1, Math.min(start.y, end.y)));
+  const y2 = Math.max(0, Math.min(1, Math.max(start.y, end.y)));
+  const width = x2 - x1;
+  const height = y2 - y1;
+  if (width < 0.01 || height < 0.01) return null;
+  return {
+    x_center: x1 + width / 2,
+    y_center: y1 + height / 2,
+    width,
+    height,
+  };
+}
+
+function drawEnemyAnnotationCanvas() {
+  if (!enemyAnnotationCanvas) return;
+  resizeEnemyAnnotationCanvas();
+  const localCtx = enemyAnnotationCanvas.getContext("2d");
+  const w = enemyAnnotationCanvas.width;
+  const h = enemyAnnotationCanvas.height;
+  localCtx.clearRect(0, 0, w, h);
+  localCtx.fillStyle = "#020916";
+  localCtx.fillRect(0, 0, w, h);
+  localCtx.strokeStyle = "rgba(109, 223, 255, 0.16)";
+  localCtx.lineWidth = 1;
+  for (let x = 0; x < w; x += 48) {
+    localCtx.beginPath();
+    localCtx.moveTo(x, 0);
+    localCtx.lineTo(x, h);
+    localCtx.stroke();
+  }
+  for (let y = 0; y < h; y += 48) {
+    localCtx.beginPath();
+    localCtx.moveTo(0, y);
+    localCtx.lineTo(w, y);
+    localCtx.stroke();
+  }
+  const frame = currentEnemyFrame();
+  if (!frame || !enemyAnnotationImageReady) {
+    localCtx.fillStyle = "#a7e8ff";
+    localCtx.font = `${Math.max(15, Math.round(w / 58))}px Inter, system-ui, sans-serif`;
+    localCtx.textAlign = "center";
+    localCtx.fillText(frame ? "Loading calibration frame..." : "Extract frames, then select a frame to annotate.", w / 2, h / 2);
+    return;
+  }
+  const rect = enemyImageRect();
+  localCtx.drawImage(enemyAnnotationImage, rect.x, rect.y, rect.width, rect.height);
+  const box = enemyBoxDraft || frame.box;
+  if (box) {
+    const x = rect.x + (box.x_center - box.width / 2) * rect.width;
+    const y = rect.y + (box.y_center - box.height / 2) * rect.height;
+    const bw = box.width * rect.width;
+    const bh = box.height * rect.height;
+    const reviewBox = frame.status === "review" && !enemyBoxDraft;
+    localCtx.fillStyle = reviewBox ? "rgba(255, 147, 51, 0.13)" : "rgba(255, 209, 74, 0.12)";
+    localCtx.fillRect(x, y, bw, bh);
+    localCtx.strokeStyle = reviewBox ? "#ff9f43" : "#ffd84e";
+    localCtx.lineWidth = Math.max(2, w / 480);
+    localCtx.strokeRect(x, y, bw, bh);
+    localCtx.fillStyle = "rgba(1, 8, 20, 0.78)";
+    localCtx.fillRect(x, Math.max(0, y - 30), 142, 28);
+    localCtx.fillStyle = "#fff3a3";
+    localCtx.font = `${Math.max(13, Math.round(w / 72))}px Inter, system-ui, sans-serif`;
+    localCtx.textAlign = "left";
+    localCtx.fillText(reviewBox ? "review match" : "enemy drone", x + 9, Math.max(20, y - 10));
+  }
+}
+
+function renderEnemyAnnotation() {
+  const enemies = Array.isArray(enemyLibraryData.enemies) ? enemyLibraryData.enemies : [];
+  if (!selectedEnemyId && enemies.length) selectedEnemyId = enemies[0].id;
+  const profile = currentEnemyProfile();
+  if (enemyAnnotationProfile) {
+    enemyAnnotationProfile.innerHTML = enemies.map(enemy => (
+      `<option value="${escapeHtml(enemy.id)}"${enemy.id === selectedEnemyId ? " selected" : ""}>${escapeHtml(enemy.name)}</option>`
+    )).join("") || "<option value=\"\">No profiles</option>";
+  }
+  const frames = currentEnemyFrames();
+  const frame = currentEnemyFrame();
+  if (profile && !selectedEnemyFrameId && frame) selectedEnemyFrameId = frame.id;
+  if (frame && enemyAnnotationImageFrameId !== frame.id) {
+    enemyBoxDraft = frame.box ? { ...frame.box } : null;
+    loadEnemyAnnotationImage(frame);
+  }
+  if (enemyFrameStrip) {
+    enemyFrameStrip.innerHTML = "";
+    if (!profile) {
+      enemyFrameStrip.innerHTML = "<div class=\"enemy-empty compact\">No enemy profile selected.</div>";
+    } else if (!frames.length) {
+      enemyFrameStrip.innerHTML = "<div class=\"enemy-empty compact\">No frames yet. Click Extract Frames.</div>";
+    } else {
+      frames.forEach((item, index) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = `enemy-frame-thumb ${item.id === selectedEnemyFrameId ? "active" : ""} ${item.status || "unlabeled"}`;
+        button.dataset.frameId = item.id;
+        button.innerHTML = `
+          <img src="${escapeHtml(item.url)}" alt="" loading="lazy" />
+          <span>${String(index + 1).padStart(3, "0")}</span>
+          <b>${escapeHtml(item.status || "unlabeled")}</b>
+        `;
+        button.addEventListener("click", () => {
+          selectedEnemyFrameId = item.id;
+          enemyBoxDraft = item.box ? { ...item.box } : null;
+          loadEnemyAnnotationImage(item);
+          renderEnemyAnnotation();
+        });
+        enemyFrameStrip.appendChild(button);
+      });
+    }
+  }
+  if (profile) {
+    const stats = enemyFrameStats(profile);
+    const frameText = frame ? ` · frame ${frames.findIndex(f => f.id === frame.id) + 1}/${frames.length}` : "";
+    setEnemyAnnotationStatus(`${profile.name}: ${stats.labeled}/${stats.total} labeled, ${stats.review} review, ${stats.skipped} skipped${frameText}. Draw one tight box, then auto-track the clip.`);
+  } else {
+    setEnemyAnnotationStatus("Choose an enemy drone profile to extract frames and draw bounding boxes.");
+  }
+  drawEnemyAnnotationCanvas();
+}
+
+function renderEnemyLibrary() {
+  if (!enemyDroneList) return;
+  const enemies = Array.isArray(enemyLibraryData.enemies) ? enemyLibraryData.enemies : [];
+  const modelStatus = enemyStatusLabel(enemyLibraryData.model_status || "not_trained");
+  if (enemyModelStatus) enemyModelStatus.textContent = modelStatus;
+  if (enemyModelNote) {
+    const totalVideos = Number(enemyLibraryData.total_videos || 0);
+    const trainedModel = enemyLibraryData.selected_model ? " · live patrol enabled" : "";
+    const trainingMessage = enemyLibraryData.training_message ? ` · ${enemyLibraryData.training_message}` : "";
+    enemyModelNote.textContent = enemies.length
+      ? `${enemies.length} drone profile${enemies.length === 1 ? "" : "s"} · ${totalVideos} calibration clip${totalVideos === 1 ? "" : "s"}${trainedModel}${trainingMessage}`
+      : "Upload enemy-drone clips to begin detector calibration.";
+  }
+  enemyDroneList.innerHTML = "";
+  if (!enemies.length) {
+    enemyDroneList.innerHTML = `
+      <div class="enemy-empty">
+        <strong>No enemy drones registered yet.</strong>
+        <span>Upload short clips of a target drone from multiple angles to create the first YOLO class.</span>
+      </div>
+    `;
+    renderEnemyAnnotation();
+    return;
+  }
+  if (!selectedEnemyId || !enemies.some(enemy => enemy.id === selectedEnemyId)) selectedEnemyId = enemies[0].id;
+
+  for (const enemy of enemies) {
+    const videos = Array.isArray(enemy.videos) ? enemy.videos : [];
+    const frameStats = enemyFrameStats(enemy);
+    const card = document.createElement("article");
+    card.className = `enemy-drone-card${enemy.id === selectedEnemyId ? " selected" : ""}`;
+    card.dataset.enemyId = enemy.id;
+    card.innerHTML = `
+      <div class="enemy-card-main">
+        <button type="button" class="enemy-delete" data-enemy-id="${enemy.id}" title="Delete this enemy drone">×</button>
+        <div class="enemy-drone-orbit" aria-hidden="true">
+          <span></span><span></span><span></span><span></span>
+        </div>
+        <div>
+          <p class="enemy-kicker">${escapeHtml(enemy.class_name || "enemy_drone")}</p>
+          <h3 class="enemy-card-title" data-enemy-id="${enemy.id}" title="Double-click to rename">${escapeHtml(enemy.name || "Enemy Drone")}</h3>
+          <p>${videos.length} clip${videos.length === 1 ? "" : "s"} · ${frameStats.labeled}/${frameStats.total} labels · ${frameStats.review} review · ${escapeHtml(enemyStatusLabel(enemy.training_status))}</p>
+        </div>
+      </div>
+      <div class="enemy-video-strip">
+        ${videos.slice(0, 4).map(video => `
+          <a href="${escapeHtml(video.url)}" target="_blank" rel="noreferrer">
+            <span>clip</span>
+            <strong>${escapeHtml(video.filename)}</strong>
+          </a>
+        `).join("") || "<span class=\"enemy-no-video\">No videos yet</span>"}
+        ${videos.length > 4 ? `<span class="enemy-more">+${videos.length - 4} more</span>` : ""}
+      </div>
+      <div class="enemy-card-actions">
+        <label class="enemy-small-upload">
+          Upload More
+          <input class="enemy-more-upload" data-enemy-id="${enemy.id}" type="file" accept="video/*" multiple />
+        </label>
+        <button type="button" class="enemy-extract" data-enemy-id="${enemy.id}">Extract Frames</button>
+        <button type="button" class="enemy-prepare" data-enemy-id="${enemy.id}">Prepare Class</button>
+        <button type="button" class="enemy-rename" data-enemy-id="${enemy.id}">Rename</button>
+      </div>
+    `;
+    enemyDroneList.appendChild(card);
+  }
+
+  for (const card of enemyDroneList.querySelectorAll(".enemy-drone-card")) {
+    card.addEventListener("click", event => {
+      if (event.target.closest("button, input, label, a")) return;
+      selectEnemyProfile(card.dataset.enemyId);
+    });
+  }
+  for (const title of enemyDroneList.querySelectorAll(".enemy-card-title")) {
+    title.addEventListener("dblclick", event => {
+      event.stopPropagation();
+      runUi(() => renameEnemyDrone(title.dataset.enemyId));
+    });
+  }
+  for (const button of enemyDroneList.querySelectorAll(".enemy-rename")) {
+    button.addEventListener("click", event => {
+      event.stopPropagation();
+      runUi(() => renameEnemyDrone(button.dataset.enemyId));
+    });
+  }
+  for (const button of enemyDroneList.querySelectorAll(".enemy-delete")) {
+    button.addEventListener("click", event => {
+      event.stopPropagation();
+      runUi(() => deleteEnemyDrone(button.dataset.enemyId));
+    });
+  }
+  for (const button of enemyDroneList.querySelectorAll(".enemy-prepare")) {
+    button.addEventListener("click", event => {
+      event.stopPropagation();
+      runUi(() => prepareEnemyYoloDataset(button.dataset.enemyId));
+    });
+  }
+  for (const button of enemyDroneList.querySelectorAll(".enemy-extract")) {
+    button.addEventListener("click", event => {
+      event.stopPropagation();
+      runUi(() => extractEnemyFrames(button.dataset.enemyId));
+    });
+  }
+  for (const input of enemyDroneList.querySelectorAll(".enemy-more-upload")) {
+    input.addEventListener("change", event => runUi(async () => {
+      const files = [...(event.target.files || [])];
+      const enemyId = input.dataset.enemyId;
+      if (!files.length || !enemyId) return;
+      enemyUploadStatus.textContent = `Uploading ${files.length} calibration clip${files.length === 1 ? "" : "s"}...`;
+      const data = await uploadVideos("/api/enemy-drone/upload", files, { enemy_id: enemyId });
+      enemyLibraryData = data.library || enemyLibraryData;
+      input.value = "";
+      enemyUploadStatus.textContent = "Calibration clips uploaded.";
+      renderEnemyLibrary();
+    }));
+  }
+  renderEnemyAnnotation();
+}
+
+async function refreshEnemyLibrary() {
+  const resp = await fetch("/api/enemy-drones", { cache: "no-store" });
+  if (!resp.ok) throw new Error(`enemy drone library ${resp.status}`);
+  enemyLibraryData = await resp.json();
+  renderEnemyLibrary();
+  const status = String(enemyLibraryData.model_status || "");
+  if ((status === "queued" || status === "training") && document.body.classList.contains("show-enemy")) {
+    setTimeout(() => runUi(refreshEnemyLibrary), 2500);
+  }
+  return enemyLibraryData;
+}
+
+async function uploadEnemyCalibration() {
+  const files = [...(enemyVideoUpload?.files || [])];
+  const name = String(enemyNameInput?.value || "").trim();
+  if (!files.length) throw new Error("Choose at least one enemy-drone calibration video.");
+  if (!name) throw new Error("Give this enemy drone a name before uploading.");
+  enemyUploadStatus.textContent = `Uploading ${files.length} calibration clip${files.length === 1 ? "" : "s"} for ${name}...`;
+  const data = await uploadVideos("/api/enemy-drone/upload", files, { name });
+  enemyLibraryData = data.library || enemyLibraryData;
+  enemyVideoUpload.value = "";
+  enemyNameInput.value = "";
+  enemyUploadStatus.textContent = `${name} added to the detector bank.`;
+  renderEnemyLibrary();
+}
+
+async function extractEnemyFrames(enemyId = "") {
+  const targetId = enemyId || selectedEnemyId;
+  if (!targetId) throw new Error("Choose an enemy drone profile first.");
+  setEnemyAnnotationStatus("Extracting calibration frames...");
+  const data = await postJson("/api/enemy-drone/extract-frames", {
+    enemy_id: targetId,
+    fps: 2,
+    max_frames_per_video: 180,
+    max_size: 960,
+  });
+  enemyLibraryData = data.library || enemyLibraryData;
+  selectedEnemyId = targetId;
+  const profile = (enemyLibraryData.enemies || []).find(enemy => enemy.id === targetId);
+  const firstFrame = (profile?.frames || [])[0];
+  selectedEnemyFrameId = firstFrame?.id || "";
+  enemyBoxDraft = firstFrame?.box ? { ...firstFrame.box } : null;
+  loadEnemyAnnotationImage(firstFrame);
+  setEnemyAnnotationStatus(`Extracted ${data.added || 0} new frames. Draw boxes and save labels.`);
+  renderEnemyLibrary();
+}
+
+async function renameEnemyDrone(enemyId) {
+  if (!enemyId) return;
+  const enemy = (enemyLibraryData.enemies || []).find(item => item.id === enemyId);
+  const nextName = prompt("Enemy drone name", enemy?.name || "Enemy Drone");
+  if (nextName === null) return;
+  const data = await postJson("/api/enemy-drone/rename", { enemy_id: enemyId, name: nextName });
+  enemyLibraryData = data.library || enemyLibraryData;
+  renderEnemyLibrary();
+}
+
+async function deleteEnemyDrone(enemyId) {
+  if (!enemyId) return;
+  const enemy = (enemyLibraryData.enemies || []).find(item => item.id === enemyId);
+  if (!confirm(`Delete ${enemy?.name || "this enemy drone"} and its calibration videos?`)) return;
+  const data = await postJson("/api/enemy-drone/delete", { enemy_id: enemyId });
+  enemyLibraryData = data.library || enemyLibraryData;
+  renderEnemyLibrary();
+}
+
+async function prepareEnemyYoloDataset(enemyId = "") {
+  const data = await postJson("/api/enemy-drone/prepare-yolo", { enemy_id: enemyId || "" });
+  enemyLibraryData = data.library || enemyLibraryData;
+  enemyUploadStatus.textContent = "YOLO dataset prepared from saved frame labels.";
+  renderEnemyLibrary();
+}
+
+async function trainEnemyYoloModel() {
+  const epochs = Math.max(1, Math.min(300, Number(enemyTrainEpochs?.value || 50)));
+  const imgsz = Math.max(160, Math.min(1600, Number(enemyTrainImgsz?.value || 640)));
+  if (enemyUploadStatus) enemyUploadStatus.textContent = "Queueing YOLO fine-tuning from labeled enemy-drone frames...";
+  if (enemyTrainModelButton) enemyTrainModelButton.disabled = true;
+  try {
+    const data = await postJson("/api/enemy-drone/train-yolo", {
+      epochs,
+      imgsz,
+      batch: 8,
+      device: "auto",
+      base_model: "yolov8n.pt",
+    });
+    enemyLibraryData = data.library || enemyLibraryData;
+    if (enemyUploadStatus) enemyUploadStatus.textContent = "YOLO fine-tuning queued. This can take a while on CPU.";
+    renderEnemyLibrary();
+  } finally {
+    if (enemyTrainModelButton) enemyTrainModelButton.disabled = false;
+  }
+}
+
+async function saveEnemyFrameLabel(status = "labeled") {
+  const profile = currentEnemyProfile();
+  const frame = currentEnemyFrame();
+  if (!profile || !frame) throw new Error("Choose a frame first.");
+  const box = status === "labeled" ? (enemyBoxDraft || frame.box) : null;
+  if (status === "labeled" && !box) throw new Error("Draw a bounding box around the drone first.");
+  const data = await postJson("/api/enemy-drone/label-frame", {
+    enemy_id: profile.id,
+    frame_id: frame.id,
+    status,
+    box,
+  });
+  enemyLibraryData = data.library || enemyLibraryData;
+  const updatedFrame = currentEnemyFrame();
+  enemyBoxDraft = updatedFrame?.box ? { ...updatedFrame.box } : null;
+  renderEnemyLibrary();
+}
+
+async function autoTrackEnemyLabels() {
+  const profile = currentEnemyProfile();
+  const frame = currentEnemyFrame();
+  if (!profile || !frame) throw new Error("Choose a frame first.");
+  const box = enemyBoxDraft || frame.box;
+  if (!box) throw new Error("Draw or select a bounding box before auto-tracking.");
+  setEnemyAnnotationStatus("Auto-tracking this enemy drone through the calibration clip...");
+  const data = await postJson("/api/enemy-drone/track-labels", {
+    enemy_id: profile.id,
+    frame_id: frame.id,
+    box,
+    direction: "both",
+    accept_threshold: 0.72,
+    review_threshold: 0.50,
+    search_scale: 3.0,
+    max_frames: 160,
+    overwrite: false,
+  });
+  enemyLibraryData = data.library || enemyLibraryData;
+  selectedEnemyId = profile.id;
+  selectedEnemyFrameId = frame.id;
+  const labeled = Number(data.labeled || 0);
+  const review = Number(data.review || 0);
+  const stopped = Number(data.stopped || 0);
+  setEnemyAnnotationStatus(`Auto-track finished: ${labeled} labeled, ${review} marked for review${stopped ? ", stopped at weak match" : ""}. Review orange frames before training.`);
+  renderEnemyLibrary();
+}
+
+function copyPreviousEnemyBox() {
+  const frames = currentEnemyFrames();
+  const index = frames.findIndex(frame => frame.id === selectedEnemyFrameId);
+  for (let i = index - 1; i >= 0; i -= 1) {
+    if (frames[i]?.box) {
+      enemyBoxDraft = { ...frames[i].box };
+      drawEnemyAnnotationCanvas();
+      setEnemyAnnotationStatus("Copied previous bounding box. Adjust it if needed, then save.");
+      return;
+    }
+  }
+  setEnemyAnnotationStatus("No previous labeled frame has a box to copy.");
 }
 
 function cardDescription(entry) {
@@ -1977,8 +4010,9 @@ function renderMapLibrary() {
     const active = activeReplay(entry);
     const isSelected = entry.id === (currentMapEntry?.id || mapLibraryData.selected_map_id);
     const hasReplay = replays.length > 0;
+    const patrolCount = patrolList(entry).length;
     const replayLabel = hasReplay
-      ? `${replays.length} path${replays.length === 1 ? "" : "s"}, ${active?.counts?.poses ?? counts.poses ?? 0} poses active`
+      ? `${replays.length} path${replays.length === 1 ? "" : "s"}, ${replayPoseCountText(active, counts)} active`
       : "upload drone video";
     const sourceCount = collectMapVideoSources(entry).length;
     const card = document.createElement("article");
@@ -2001,6 +4035,7 @@ function renderMapLibrary() {
           <dt>Map points</dt><dd>${counts.points ?? 0}</dd>
           <dt>Cameras</dt><dd>${counts.cameras ?? 0}</dd>
           <dt>Replay poses</dt><dd>${replayLabel}</dd>
+          <dt>Patrols</dt><dd>${patrolCount ? `${patrolCount} saved` : "none yet"}</dd>
           <dt>Created</dt><dd>${escapeHtml(formatDateTime(entry.created_at))}</dd>
           <dt>Updated</dt><dd>${escapeHtml(formatDateTime(entry.updated_at))}</dd>
           <dt>Video lib</dt><dd>${sourceCount} item${sourceCount === 1 ? "" : "s"}</dd>
@@ -2079,6 +4114,7 @@ function renderMapLibrary() {
       drawMapCardPreview(preview, (mapLibraryData.maps || []).find(m => m.id === mapId) || currentMapEntry);
     }, { passive: false });
   }
+  renderSavedPatrols();
   renderStartPreview();
 }
 
@@ -2103,10 +4139,9 @@ function renderReplayTabs() {
     btn.type = "button";
     btn.className = `replay-tab${replay.id === active?.id ? " active" : ""}`;
     btn.dataset.replayId = replay.id;
-    const poseCount = replay.counts?.poses ?? 0;
     btn.innerHTML = `
       <span>${replay.title || "Drone Path"}</span>
-      <small>${poseCount} pose${poseCount === 1 ? "" : "s"}</small>
+      <small>${replayPoseCountText(replay)}</small>
     `;
     btn.addEventListener("click", () => runUi(() => selectReplay(replay.id)));
     const rename = document.createElement("button");
@@ -2118,6 +4153,15 @@ function renderReplayTabs() {
       event.stopPropagation();
       runUi(() => renameReplay(replay.id));
     });
+    const enhance = document.createElement("button");
+    enhance.type = "button";
+    enhance.className = "replay-enhance-map";
+    enhance.title = "Use this drone path/video to enhance the selected 3D map";
+    enhance.textContent = "Add to Map";
+    enhance.addEventListener("click", event => {
+      event.stopPropagation();
+      runUi(() => enhanceMapFromReplay(replay.id));
+    });
     const del = document.createElement("button");
     del.type = "button";
     del.className = "replay-delete";
@@ -2128,6 +4172,7 @@ function renderReplayTabs() {
       runUi(() => deleteReplay(replay.id));
     });
     item.appendChild(btn);
+    item.appendChild(enhance);
     item.appendChild(rename);
     item.appendChild(del);
     replayTabList.appendChild(item);
@@ -2137,17 +4182,262 @@ function renderReplayTabs() {
   }
 }
 
+function makePatrolId() {
+  return `patrol_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function patrolTitle(patrol) {
+  return String(patrol?.title || "Untitled Patrol");
+}
+
+function normalizePatrolMode(value, loopFallback = true) {
+  const raw = String(value || "").trim().toLowerCase();
+  if (["back-and-forth", "back_and_forth", "back-forth", "pingpong", "ping-pong", "bounce"].includes(raw)) {
+    return "back-and-forth";
+  }
+  if (raw === "circle" || raw === "loop") return "circle";
+  return loopFallback ? "circle" : "back-and-forth";
+}
+
+function patrolModeFromPatrol(patrol) {
+  if (patrol?.patrol_mode || patrol?.mode) {
+    return normalizePatrolMode(patrol.patrol_mode || patrol.mode, patrol?.loop !== false);
+  }
+  return normalizePatrolMode(null, patrol?.loop !== false);
+}
+
+function patrolMode() {
+  return normalizePatrolMode(patrolModeSelect?.value, patrolLoopInput ? patrolLoopInput.checked : true);
+}
+
+function patrolModeLabel(mode = patrolMode()) {
+  return normalizePatrolMode(mode) === "back-and-forth" ? "back-and-forth" : "circle";
+}
+
+function savedPatrolDescription(patrol) {
+  const count = Array.isArray(patrol?.points) ? patrol.points.length : 0;
+  const speed = Number(patrol?.speed || 0.10);
+  const altitude = Number(patrol?.altitude_m || 1.0);
+  const scan = patrol?.scan_mode === "forward" ? "forward scan" : "left/right scan";
+  const mode = patrolModeLabel(patrolModeFromPatrol(patrol));
+  return `${count} point${count === 1 ? "" : "s"} · ${mode} · ${altitude.toFixed(1)} m · ${speed.toFixed(2)} m/s · ${scan}`;
+}
+
+function syncMapEntryInLibrary(entry) {
+  if (!entry?.id) return;
+  mapLibraryData.maps = (mapLibraryData.maps || []).map(map => map.id === entry.id ? entry : map);
+  currentMapEntry = selectedMap() || entry;
+}
+
+function currentPatrolDraftPayload() {
+  const name = String(patrolNameInput?.value || "").trim() || `Patrol ${patrolList(currentMapEntry).length + 1}`;
+  const mode = patrolMode();
+  return {
+    id: editingPatrolId || makePatrolId(),
+    title: name.slice(0, 80),
+    points: patrolPoints.map(point => ({
+      rxyz: point.rxyz.slice(0, 3),
+      rgb: point.rgb || null,
+    })),
+    speed: Number(patrolSpeedSelect?.value || 0.10),
+    altitude_m: Math.max(0, patrolAltitudeY() - (room?.floorY ?? 0)),
+    dwell_s: patrolDwellSeconds(),
+    scan_mode: patrolScanMode(),
+    patrol_mode: mode,
+    loop: mode === "circle",
+    created_at: patrolList(currentMapEntry).find(patrol => patrol.id === editingPatrolId)?.created_at || new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  };
+}
+
+function setPatrolControlsFromPatrol(patrol) {
+  if (patrolNameInput) patrolNameInput.value = patrolTitle(patrol);
+  if (patrolSpeedSelect && patrol?.speed != null) patrolSpeedSelect.value = String(patrol.speed);
+  if (patrolAltitudeInput && patrol?.altitude_m != null) patrolAltitudeInput.value = String(Number(patrol.altitude_m).toFixed(1));
+  if (patrolDwellSelect && patrol?.dwell_s != null) patrolDwellSelect.value = String(patrol.dwell_s);
+  if (patrolScanModeSelect && patrol?.scan_mode) patrolScanModeSelect.value = patrol.scan_mode;
+  const mode = patrolModeFromPatrol(patrol);
+  if (patrolModeSelect) patrolModeSelect.value = mode;
+  if (patrolLoopInput) patrolLoopInput.checked = mode === "circle";
+}
+
+function loadPatrolIntoEditor(patrol, options = {}) {
+  if (!patrol) return;
+  editingPatrolId = patrol.id || null;
+  activePatrolId = patrol.id || null;
+  patrolPoints = (patrol.points || [])
+    .filter(point => Array.isArray(point?.rxyz))
+    .map(point => ({ rxyz: point.rxyz.slice(0, 3), rgb: point.rgb || null }));
+  setPatrolControlsFromPatrol(patrol);
+  plannedPatrol = null;
+  renderPatrolCommands([]);
+  patrolSelecting = Boolean(options.selecting);
+  editPatrolButton?.classList.toggle("active", patrolSelecting);
+  patrolControlPanel?.classList.toggle("is-selecting", patrolSelecting);
+  invalidateStaticLayer();
+  renderSavedPatrols();
+  updatePatrolStatus(
+    options.selecting
+      ? `Adjusting "${patrolTitle(patrol)}": drag points or click map points to extend the patrol.`
+      : `Loaded "${patrolTitle(patrol)}". Validate to preview with current walls.`,
+    options.selecting ? "busy" : "",
+  );
+}
+
+function newPatrolDraft() {
+  editingPatrolId = null;
+  activePatrolId = null;
+  patrolPoints = [];
+  patrolPointSafetyIssues = new Map();
+  plannedPatrol = null;
+  patrolSelecting = true;
+  if (patrolNameInput) patrolNameInput.value = `Patrol ${patrolList(currentMapEntry).length + 1}`;
+  if (patrolModeSelect) patrolModeSelect.value = "circle";
+  if (patrolLoopInput) patrolLoopInput.checked = true;
+  renderPatrolCommands([]);
+  editPatrolButton?.classList.add("active");
+  patrolControlPanel?.classList.add("is-selecting");
+  invalidateStaticLayer();
+  renderSavedPatrols();
+  updatePatrolStatus("New patrol: click COLMAP points in order. ATLAS will later enter from the nearest point after live localization.", "busy");
+}
+
+async function persistPatrols(nextPatrols, statusMessage = "Saved patrols.") {
+  if (!currentMapEntry?.id) return null;
+  const data = await postJson("/api/map/patrols", {
+    map_id: currentMapEntry.id,
+    patrols: nextPatrols,
+  });
+  if (data.state?.library) mapLibraryData = data.state.library;
+  if (data.map) syncMapEntryInLibrary(data.map);
+  else currentMapEntry = selectedMap();
+  renderMapLibrary();
+  renderSavedPatrols();
+  uploadStatus.textContent = statusMessage;
+  return data.map || currentMapEntry;
+}
+
+async function savePatrolDraft() {
+  if (patrolPoints.length < 2) {
+    updatePatrolStatus("Add at least two patrol points before saving.", "error");
+    return;
+  }
+  const preview = validatePatrolPreview(false);
+  if (!preview) return;
+  const payload = currentPatrolDraftPayload();
+  const patrols = patrolList(currentMapEntry).filter(patrol => patrol.id !== payload.id);
+  patrols.push(payload);
+  editingPatrolId = payload.id;
+  activePatrolId = payload.id;
+  await persistPatrols(patrols, `Saved patrol: ${payload.title}`);
+  updatePatrolStatus(`Saved "${payload.title}". At flight time, ATLAS will replan from the live drone pose to the nearest patrol point.`, "busy");
+}
+
+async function deleteSavedPatrol(patrolId) {
+  const patrol = patrolList(currentMapEntry).find(item => item.id === patrolId);
+  if (!patrol) return;
+  if (!window.confirm(`Delete saved patrol "${patrolTitle(patrol)}"?`)) return;
+  const patrols = patrolList(currentMapEntry).filter(item => item.id !== patrolId);
+  if (editingPatrolId === patrolId) editingPatrolId = null;
+  if (activePatrolId === patrolId) activePatrolId = null;
+  await persistPatrols(patrols, `Deleted patrol: ${patrolTitle(patrol)}`);
+  if (editingPatrolId == null && activePatrolId == null) {
+    patrolPoints = [];
+    patrolPointSafetyIssues = new Map();
+    plannedPatrol = null;
+    renderPatrolCommands([]);
+    invalidateStaticLayer();
+    updatePatrolStatus();
+  }
+}
+
+function renderSavedPatrols() {
+  if (!savedPatrolList) return;
+  const patrols = patrolList(currentMapEntry);
+  if (!patrols.length) {
+    savedPatrolList.innerHTML = `<div class="saved-patrol-empty">No saved patrols yet. Press New Patrol, mark points on the clean map, then save.</div>`;
+    return;
+  }
+  savedPatrolList.innerHTML = "";
+  for (const patrol of patrols) {
+    const item = document.createElement("article");
+    item.className = `saved-patrol-item${patrol.id === activePatrolId ? " active" : ""}`;
+    item.innerHTML = `
+      <button type="button" class="saved-patrol-main" data-patrol-id="${patrol.id}">
+        <strong>${escapeHtml(patrolTitle(patrol))}</strong>
+        <span>${escapeHtml(savedPatrolDescription(patrol))}</span>
+      </button>
+      <div class="saved-patrol-actions">
+        <button type="button" data-action="play" data-patrol-id="${patrol.id}">Play</button>
+        <button type="button" data-action="adjust" data-patrol-id="${patrol.id}">Adjust</button>
+        <button type="button" class="danger-action" data-action="delete" data-patrol-id="${patrol.id}">Delete</button>
+      </div>
+    `;
+    item.querySelector(".saved-patrol-main")?.addEventListener("click", () => {
+      loadPatrolIntoEditor(patrol, { selecting: false });
+      validatePatrolPreview(false);
+    });
+    for (const button of item.querySelectorAll("[data-action]")) {
+      button.addEventListener("click", event => {
+        event.stopPropagation();
+        const action = button.dataset.action;
+        if (action === "adjust") {
+          loadPatrolIntoEditor(patrol, { selecting: true });
+        } else if (action === "delete") {
+          runUi(() => deleteSavedPatrol(patrol.id));
+        } else if (action === "play") {
+          runUi(() => executeSavedPatrol(patrol.id));
+        }
+      });
+    }
+    savedPatrolList.appendChild(item);
+  }
+}
+
+async function executeSavedPatrol(patrolId) {
+  const patrol = patrolList(currentMapEntry).find(item => item.id === patrolId);
+  if (!patrol) return;
+  loadPatrolIntoEditor(patrol, { selecting: false });
+  const lockReason = liveMovementLockReason();
+  if (lockReason) {
+    updatePatrolStatus(lockReason, "error");
+    setDjiCommandStatus(lockReason, "error");
+    updateFlightControlState();
+    return;
+  }
+  if (!firstLocalizationConfirmed) {
+    updatePatrolStatus("Start live localization, take off, and confirm the first TSolve pose before executing this patrol.", "error");
+    return;
+  }
+  if (!guidedMotionArmed()) {
+    updatePatrolStatus("Enable guided movement after confirming localization before executing a saved patrol.", "error");
+    setDjiCommandStatus("Guided movement is not armed. Keep controller ready, then enable guided movement.", "error");
+    updateFlightControlState();
+    return;
+  }
+  const livePatrol = validatePatrolPreview(true);
+  if (!livePatrol?.commands?.length) return;
+  const ok = window.confirm(
+    `Execute saved patrol "${patrolTitle(patrol)}"?\n\n` +
+    `ATLAS will first fly from the current localized drone pose to the nearest patrol point, then continue the ${patrolModeLabel(livePatrol.patrol_mode)} patrol with wall-aware detours.\n` +
+    `Keep the controller ready and use Hover Now if anything looks wrong.\n\nContinue?`
+  );
+  if (!ok) return;
+  await sendPatrolToBridge(livePatrol, patrolTitle(patrol));
+}
+
 function livePathCreationStage() {
   const msg = liveReplayStageDetail || liveReplayMessage || "TSolve online localization running";
   const processed = Number(poseStreamMeta?.processed_count ?? poseStreamMeta?.stream?.pose_count ?? livePoseStreamCount ?? 0);
+  const accepted = Number(poseStreamMeta?.accepted_count ?? poseStreamMeta?.stream?.accepted_pose_count ?? 0);
   const expected = Number(poseStreamMeta?.expected_count ?? poseStreamMeta?.stream?.expected_count ?? 0);
   const mapId = pendingLiveReplayMapId || poseStreamMeta?.stream?.map_id;
   const map = (mapLibraryData?.maps || []).find(m => m.id === mapId);
   const prefix = map && currentMapEntry?.id !== map.id ? `${map.title || "selected map"}: ` : "";
   if (expected > 0) {
-    return `${prefix}${msg} (${processed}/${expected} frames)`;
+    return `${prefix}${msg} (${accepted}/${processed}/${expected} accepted/processed/target)`;
   }
-  return `${prefix}${msg}`;
+  return `${prefix}${msg} (${accepted}/${processed} accepted/processed)`;
 }
 
 function createPendingReplayTab() {
@@ -2240,6 +4530,20 @@ async function renameReplay(replayId) {
   renderReplayTabs();
   await loadViewerData(false, currentMapEntry);
   uploadStatus.textContent = `Renamed drone path: ${cleaned}`;
+}
+
+async function enhanceMapFromReplay(replayId) {
+  if (!currentMapEntry?.id || !replayId) return;
+  const replay = replayList(currentMapEntry).find(r => r.id === replayId);
+  const pathTitle = replay?.title || "this drone path";
+  const mapTitle = currentMapEntry?.title || "this 3D map";
+  if (!window.confirm(`Add frames from "${pathTitle}" to "${mapTitle}" and rerun COLMAP? This improves the map offline and can take several minutes.`)) return;
+  uploadStatus.textContent = `Enhancing ${mapTitle} from drone path: ${pathTitle}`;
+  await postJson("/api/replay/enhance-map", {
+    map_id: currentMapEntry.id,
+    replay_id: replayId,
+  });
+  await pollStatus();
 }
 
 function drawMapCardPlaceholder(canvas, entry) {
@@ -2500,11 +4804,11 @@ async function refreshMapLibrary() {
 }
 
 function buildReplayDisplayPoses(roomPoses, floorY, options = {}) {
-  const out = filterReplayPoseTrack(roomPoses);
+  const out = filterReplayPoseTrack(roomPoses, options);
   if (options.applyLanding !== true) return out;
 
   const goodIdx = out
-    .map((p, i) => (p.success && p.rcenter ? i : -1))
+    .map((p, i) => (isRealPose(p) ? i : -1))
     .filter(i => i >= 0);
   if (goodIdx.length < 3) return out;
 
@@ -2525,7 +4829,7 @@ function buildReplayDisplayPoses(roomPoses, floorY, options = {}) {
     const landingCount = Math.min(7, Math.max(3, Math.floor(y.length * 0.22)));
     const landingStart = Math.max(0, y.length - landingCount);
     const startY = y[Math.max(0, landingStart - 1)];
-    const landY = floorY + 0.16;
+    const landY = floorY + 0.035;
     for (let i = landingStart; i < y.length; i++) {
       const u = (i - landingStart + 1) / landingCount;
       const eased = u * u * (3 - 2 * u);
@@ -2581,7 +4885,7 @@ function stablePathHeadingAt(good, i) {
 }
 
 function assignStablePathHeadings(roomPoses) {
-  const good = roomPoses.filter(p => p.success && p.rcenter);
+  const good = roomPoses.filter(p => isRealPose(p));
   for (let i = 0; i < good.length; i++) {
     const heading = stablePathHeadingAt(good, i);
     if (heading && norm(heading) > 1e-8) good[i].pathHeading = heading;
@@ -2592,7 +4896,7 @@ function closestPose() {
   if ((liveReplayInFlight || pendingLiveReplayOpen) && liveCurrentPoseOverride?.rcenter) {
     return liveCurrentPoseOverride;
   }
-  const good = room?.poses?.filter(p => p.success && p.rcenter) || [];
+  const good = room?.poses?.filter(p => isRealPose(p)) || [];
   if (!good.length) return null;
   const t = currentReplayClockTime(good);
   const timed = sortedTimedPoses(good);
@@ -2653,10 +4957,10 @@ function canConnectPath(a, b) {
   const tb = Number(b.time_sec);
   if (Number.isFinite(ta) && Number.isFinite(tb)) {
     const dt = Math.abs(tb - ta);
-    const maxStep = Math.min(5.0, Math.max(1.15, 1.65 * dt + 0.55));
+    const maxStep = Math.min(1.35, Math.max(0.42, 0.85 * dt + 0.28));
     return step <= maxStep;
   }
-  return step <= 1.8;
+  return step <= 0.75;
 }
 
 function drawPoint(rxyz, color, size = 2) {
@@ -2795,10 +5099,57 @@ function detourCandidatesForBarrier(barrier, routeY) {
   return candidates;
 }
 
+function obstacleBoxCorners(obstacle, clearance = 0) {
+  const bounds = normalizedObstacleBounds(obstacle, clearance);
+  if (!bounds) return [];
+  const min = bounds.min;
+  const max = bounds.max;
+  return [
+    [min[0], min[1], min[2]],
+    [max[0], min[1], min[2]],
+    [max[0], min[1], max[2]],
+    [min[0], min[1], max[2]],
+    [min[0], max[1], min[2]],
+    [max[0], max[1], min[2]],
+    [max[0], max[1], max[2]],
+    [min[0], max[1], max[2]],
+  ];
+}
+
+function detourCandidatesForObstacle(obstacle, routeY) {
+  const clearance = Number(obstacle.clearance_m || 0.35);
+  const expanded = normalizedObstacleBounds(obstacle, clearance + 0.45);
+  if (!expanded) return [];
+  if (routeY < expanded.min[1] || routeY > expanded.max[1]) return [];
+  const min = expanded.min;
+  const max = expanded.max;
+  const corners = [
+    [min[0], routeY, min[2]],
+    [max[0], routeY, min[2]],
+    [max[0], routeY, max[2]],
+    [min[0], routeY, max[2]],
+  ];
+  const center = [(min[0] + max[0]) * 0.5, routeY, (min[2] + max[2]) * 0.5];
+  return corners.flatMap(point => {
+    const away = normalize([point[0] - center[0], 0, point[2] - center[2]]);
+    const sideA = normalize([-away[2], 0, away[0]]);
+    return [
+      [point[0] + away[0] * 0.35, routeY, point[2] + away[2] * 0.35],
+      [point[0] + sideA[0] * 0.35, routeY, point[2] + sideA[2] * 0.35],
+      [point[0] - sideA[0] * 0.35, routeY, point[2] - sideA[2] * 0.35],
+    ];
+  });
+}
+
 function candidateRouteGraphNodes(routeY) {
   const nodes = [];
   for (const barrier of mapSafetyBarriers()) {
     for (const candidate of detourCandidatesForBarrier(barrier, routeY)) {
+      if (!nodes.some(p => Math.hypot(p[0] - candidate[0], p[2] - candidate[2]) < 0.08)) nodes.push(candidate);
+    }
+  }
+  for (const obstacle of mapSafetyObstacles()) {
+    for (const candidate of detourCandidatesForObstacle(obstacle, routeY)) {
       if (!nodes.some(p => Math.hypot(p[0] - candidate[0], p[2] - candidate[2]) < 0.08)) nodes.push(candidate);
     }
   }
@@ -2844,6 +5195,50 @@ function shortestSafeHorizontalRoute(start, goal, routeY) {
   return path.reverse();
 }
 
+function roomVerticalFlightLimits() {
+  const floor = room?.floorY ?? room?.bounds?.min?.[1] ?? 0;
+  const ceiling = room?.bounds?.max?.[1] ?? floor + 2.5;
+  return {
+    floor,
+    ceiling: Math.max(ceiling, floor + 0.8),
+  };
+}
+
+function routeWithVerticalObjectBypass(start, goal) {
+  const obstacles = mapSafetyObstacles();
+  if (!obstacles.length) return null;
+  const { floor, ceiling } = roomVerticalFlightLimits();
+  const yCandidates = [];
+  for (const obstacle of obstacles) {
+    const bounds = normalizedObstacleBounds(obstacle, 0);
+    if (!bounds) continue;
+    const clearance = Number(obstacle.clearance_m || 0.35);
+    const overY = bounds.max[1] + clearance + 0.22;
+    const underY = bounds.min[1] - clearance - 0.22;
+    if (overY < ceiling - 0.12) yCandidates.push({ y: overY, mode: "over" });
+    if (underY > floor + 0.35) yCandidates.push({ y: underY, mode: "under" });
+  }
+  yCandidates.sort((a, b) => Math.abs(a.y - start[1]) - Math.abs(b.y - start[1]));
+  const unique = [];
+  for (const candidate of yCandidates) {
+    if (!unique.some(existing => Math.abs(existing.y - candidate.y) < 0.08)) unique.push(candidate);
+  }
+  for (const candidate of unique.slice(0, 8)) {
+    const waypoints = [
+      start,
+      [start[0], candidate.y, start[2]],
+      [goal[0], candidate.y, goal[2]],
+      goal,
+    ].filter((point, index, arr) => index === 0 || !sameRoutePoint(point, arr[index - 1]));
+    const segments = routeSegmentsFromWaypoints(waypoints);
+    const safety = missionRouteSafetyCheck(segments);
+    if (!safety.blocked) {
+      return { waypoints, segments, safety, mode: candidate.mode };
+    }
+  }
+  return null;
+}
+
 function planWallAwareRoute(target = missionTarget?.rxyz, cur = closestPose()) {
   if (!target || !cur?.rcenter) {
     return { blocked: false, waypoints: [], segments: [], distance: null, safety: { blocked: false, nearest: null } };
@@ -2854,7 +5249,7 @@ function planWallAwareRoute(target = missionTarget?.rxyz, cur = closestPose()) {
   const baseWaypoints = [cur.rcenter, approach, target];
   const baseSegments = routeSegmentsFromWaypoints(baseWaypoints);
   const baseSafety = missionRouteSafetyCheck(baseSegments);
-  if (!baseSafety.blocked || !mapSafetyBarriers().length) {
+  if (!baseSafety.blocked || !safetyBlockerCount()) {
     return {
       blocked: baseSafety.blocked,
       detoured: false,
@@ -2886,6 +5281,27 @@ function planWallAwareRoute(target = missionTarget?.rxyz, cur = closestPose()) {
     }
   }
 
+  const verticalBypass = routeWithVerticalObjectBypass(cur.rcenter, approach);
+  if (verticalBypass?.waypoints?.length) {
+    const waypoints = sameRoutePoint(verticalBypass.waypoints[verticalBypass.waypoints.length - 1], target)
+      ? verticalBypass.waypoints
+      : verticalBypass.waypoints.concat([target]);
+    const segments = routeSegmentsFromWaypoints(waypoints);
+    const safety = missionRouteSafetyCheck(segments);
+    if (!safety.blocked) {
+      return {
+        blocked: false,
+        detoured: true,
+        vertical_bypass: verticalBypass.mode,
+        waypoints,
+        segments,
+        distance: routeLengthFromSegments(segments),
+        safety,
+        profile,
+      };
+    }
+  }
+
   return {
     blocked: true,
     detoured: false,
@@ -2894,18 +5310,349 @@ function planWallAwareRoute(target = missionTarget?.rxyz, cur = closestPose()) {
     distance: routeLengthFromSegments(baseSegments),
     safety: baseSafety,
     profile,
-    reason: baseSafety.reason || "No clear detour was found around the saved safety walls.",
+    reason: baseSafety.reason || "No clear detour was found around the saved safety barriers.",
   };
 }
 
 function missionCommandSpeed(speed = missionSpeedSelect?.value) {
-  const raw = Number(speed || 0.2);
-  return Math.max(0.05, Math.min(MISSION_AUTONOMY_SPEED_LIMIT_MPS, Number.isFinite(raw) ? raw : 0.2));
+  const raw = Number(speed || 0.10);
+  return Math.max(0.05, Math.min(MISSION_AUTONOMY_SPEED_LIMIT_MPS, Number.isFinite(raw) ? raw : 0.10));
+}
+
+function patrolCommandSpeed(speed = patrolSpeedSelect?.value) {
+  const raw = Number(speed || 0.10);
+  return Math.max(0.04, Math.min(PATROL_AUTONOMY_SPEED_LIMIT_MPS, Number.isFinite(raw) ? raw : 0.10));
+}
+
+function patrolAltitudeY() {
+  const floorY = room?.floorY ?? room?.bounds?.min?.[1] ?? 0;
+  const requested = Number(patrolAltitudeInput?.value || takeoffHeightInput?.value || 1.0);
+  const height = Math.max(0.3, Math.min(2.0, Number.isFinite(requested) ? requested : 1.0));
+  return floorY + height;
+}
+
+function patrolDwellSeconds() {
+  const dwell = Number(patrolDwellSelect?.value || 2.0);
+  return Math.max(0.8, Math.min(8, Number.isFinite(dwell) ? dwell : 2.0));
+}
+
+function patrolScanMode() {
+  return String(patrolScanModeSelect?.value || "yaw-sweep");
+}
+
+function patrolTargetPoint(point) {
+  if (!point?.rxyz) return null;
+  return [point.rxyz[0], patrolAltitudeY(), point.rxyz[2]];
+}
+
+function patrolLegRoute(start, end) {
+  if (!start || !end) return { blocked: true, waypoints: [], segments: [], reason: "missing patrol leg endpoint" };
+  const direct = [start, end];
+  const directSegments = routeSegmentsFromWaypoints(direct);
+  const directSafety = missionRouteSafetyCheck(directSegments);
+  if (!directSafety.blocked || !safetyBlockerCount()) {
+    return {
+      blocked: directSafety.blocked,
+      waypoints: direct,
+      segments: directSegments,
+      safety: directSafety,
+      detoured: false,
+      reason: directSafety.reason,
+    };
+  }
+  const horizontal = shortestSafeHorizontalRoute(start, end, start[1]);
+  if (horizontal?.length) {
+    const segments = routeSegmentsFromWaypoints(horizontal);
+    const safety = missionRouteSafetyCheck(segments);
+    if (!safety.blocked) {
+      return { blocked: false, waypoints: horizontal, segments, safety, detoured: true };
+    }
+  }
+  const verticalBypass = routeWithVerticalObjectBypass(start, end);
+  if (verticalBypass?.waypoints?.length) {
+    return {
+      blocked: false,
+      waypoints: verticalBypass.waypoints,
+      segments: verticalBypass.segments,
+      safety: verticalBypass.safety,
+      detoured: true,
+      vertical_bypass: verticalBypass.mode,
+    };
+  }
+  return {
+    blocked: true,
+    waypoints: direct,
+    segments: directSegments,
+    safety: directSafety,
+    detoured: false,
+    reason: directSafety.reason || "No clear detour was found around the saved safety barriers.",
+  };
+}
+
+function patrolBaseTargets() {
+  return patrolPoints.map(patrolTargetPoint).filter(Boolean);
+}
+
+function pushUniqueRoutePoint(sequence, point) {
+  if (!point) return;
+  if (!sequence.length || !sameRoutePoint(sequence[sequence.length - 1], point)) {
+    sequence.push(point);
+  }
+}
+
+function patrolSequenceTargets(targets, entryIndex = 0, mode = patrolMode()) {
+  const sequence = [];
+  const n = targets.length;
+  if (!n) return sequence;
+  const entry = Math.max(0, Math.min(n - 1, Number.isFinite(entryIndex) ? entryIndex : 0));
+  if (n === 1) return targets.slice();
+  if (patrolModeLabel(mode) === "back-and-forth") {
+    const forwardFirst = entry < n - 1;
+    if (forwardFirst) {
+      for (let i = entry; i < n; i++) pushUniqueRoutePoint(sequence, targets[i]);
+      for (let i = n - 2; i >= 0; i--) pushUniqueRoutePoint(sequence, targets[i]);
+      for (let i = 1; i <= entry; i++) pushUniqueRoutePoint(sequence, targets[i]);
+    } else {
+      for (let i = entry; i >= 0; i--) pushUniqueRoutePoint(sequence, targets[i]);
+      for (let i = 1; i < n; i++) pushUniqueRoutePoint(sequence, targets[i]);
+    }
+    return sequence;
+  }
+  for (let offset = 0; offset < n; offset++) {
+    pushUniqueRoutePoint(sequence, targets[(entry + offset) % n]);
+  }
+  pushUniqueRoutePoint(sequence, targets[entry]);
+  return sequence;
+}
+
+function chooseNearestPatrolEntry(start, targets) {
+  let best = null;
+  for (let i = 0; i < targets.length; i++) {
+    const leg = patrolLegRoute(start, targets[i]);
+    const distance = leg.blocked
+      ? norm(sub(targets[i], start)) + 1e6
+      : routeLengthFromSegments(leg.segments || routeSegmentsFromWaypoints(leg.waypoints || [start, targets[i]]));
+    if (!best || distance < best.distance) {
+      best = { index: i, leg, distance };
+    }
+  }
+  return best || { index: 0, leg: patrolLegRoute(start, targets[0]), distance: Infinity };
+}
+
+function planPatrolRoute(requireCurrentPose = false) {
+  const targets = patrolBaseTargets();
+  if (targets.length < 2) {
+    return { blocked: true, reason: "Add at least two patrol points.", route: targets, legs: [], arrival_indices: [] };
+  }
+  const cur = closestPose();
+  if (requireCurrentPose && !cur?.rcenter) {
+    return { blocked: true, reason: "No current TSolve pose yet. Start live localization first.", route: targets, legs: [], arrival_indices: [] };
+  }
+
+  const mode = patrolMode();
+  const loop = mode === "circle";
+  const route = [];
+  const legs = [];
+  const arrivalIndices = [];
+  let entryIndex = 0;
+  let firstLeg = null;
+  let orderedTargets = patrolSequenceTargets(targets, 0, mode);
+  let start = cur?.rcenter ? [cur.rcenter[0], patrolAltitudeY(), cur.rcenter[2]] : orderedTargets[0];
+  route.push(start);
+  if (cur?.rcenter) {
+    const entry = chooseNearestPatrolEntry(start, targets);
+    entryIndex = entry.index;
+    firstLeg = entry.leg;
+    orderedTargets = patrolSequenceTargets(targets, entryIndex, mode);
+  }
+  const sequence = cur?.rcenter ? orderedTargets : orderedTargets.slice(1);
+
+  for (let goalIndex = 0; goalIndex < sequence.length; goalIndex++) {
+    const goal = sequence[goalIndex];
+    const leg = goalIndex === 0 && firstLeg ? firstLeg : patrolLegRoute(start, goal);
+    legs.push(leg);
+    const waypoints = leg.waypoints || [start, goal];
+    for (let i = 1; i < waypoints.length; i++) {
+      if (!sameRoutePoint(route[route.length - 1], waypoints[i])) route.push(waypoints[i]);
+    }
+    arrivalIndices.push(route.length - 1);
+    if (leg.blocked) {
+      return {
+        blocked: true,
+        reason: leg.reason || leg.safety?.reason || "Patrol route is blocked by a safety barrier.",
+        route,
+        legs,
+        arrival_indices: arrivalIndices,
+        patrol_mode: mode,
+        loop,
+        pending_current_pose: !cur?.rcenter,
+        entry_index: entryIndex,
+      };
+    }
+    start = goal;
+  }
+
+  const segments = routeSegmentsFromWaypoints(route);
+  const safety = missionRouteSafetyCheck(segments);
+  return {
+    blocked: safety.blocked,
+    reason: safety.reason,
+    route,
+    legs,
+    route_segments: segments,
+    arrival_indices: arrivalIndices,
+    patrol_mode: mode,
+    loop,
+    entry_index: entryIndex,
+    safety,
+    detoured: legs.some(leg => leg.detoured),
+    distance: routeLengthFromSegments(segments),
+    pending_current_pose: !cur?.rcenter,
+  };
+}
+
+function updatePatrolStatus(message = null, tone = "") {
+  if (!patrolStatus) return;
+  patrolStatus.dataset.tone = tone;
+  if (message) {
+    patrolStatus.textContent = message;
+    updateFlightControlState();
+    return;
+  }
+  if (patrolSelecting) {
+    patrolStatus.textContent = `Editing patrol: click map points to add waypoints. ${patrolPoints.length} point${patrolPoints.length === 1 ? "" : "s"} selected.`;
+  } else if (plannedPatrol) {
+    const detour = plannedPatrol.detoured ? " Safety-barrier detour active." : "";
+    patrolStatus.textContent = `Patrol validated: ${patrolPoints.length} points, ${patrolModeLabel(plannedPatrol.patrol_mode)} mode, ${plannedPatrol.commands?.length || 0} guarded steps, ${patrolCommandSpeed(plannedPatrol.speed).toFixed(2)} m/s.${detour}`;
+  } else if (patrolPoints.length) {
+    const issues = updatePatrolPointSafetyIssues();
+    if (issues.size) {
+      const [index, issue] = issues.entries().next().value;
+      patrolStatus.dataset.tone = "error";
+      patrolStatus.textContent = `Patrol point ${index + 1} is too close to ${issue.label}. Move it farther away or reduce the saved clearance.`;
+    } else {
+      patrolStatus.textContent = `${patrolPoints.length} patrol point${patrolPoints.length === 1 ? "" : "s"} selected. Validate before saving.`;
+    }
+  } else {
+    patrolStatus.textContent = "Press Edit Patrol, then click 2 or more map points to create a stable scan route.";
+  }
+  updateFlightControlState();
+}
+
+function renderPatrolCommands(commands = plannedPatrol?.commands || []) {
+  if (!patrolCommandList) return;
+  if (!commands?.length) {
+    patrolCommandList.innerHTML = '<div class="mission-command-empty">Validate patrol to preview slow point-to-point and scan commands.</div>';
+    return;
+  }
+  const totalSeconds = commands.reduce((sum, command) => sum + (Number(command.duration_s) || 0), 0);
+  const rows = commands.map((command, index) => {
+    const duration = Number(command.duration_s);
+    const durationText = Number.isFinite(duration) && duration > 0 ? `${duration.toFixed(1)}s` : "gate";
+    return `
+      <article class="mission-command-item">
+        <span class="mission-command-index">${index + 1}</span>
+        <div>
+          <strong>${escapeHtml(command.title)}</strong>
+          <p>${escapeHtml(command.detail)}</p>
+          <em>${escapeHtml(command.safety || "guarded")} · ${escapeHtml(durationText)}</em>
+        </div>
+      </article>
+    `;
+  }).join("");
+  patrolCommandList.innerHTML = `
+    <div class="mission-command-summary">
+      <strong>Patrol command preview</strong>
+      <span>${commands.length} guarded steps · ${patrolModeLabel(plannedPatrol?.patrol_mode)} · ~${totalSeconds.toFixed(1)}s · TSolve-gated slow patrol</span>
+    </div>
+    ${rows}
+  `;
+}
+
+function validatePatrolPreview(requireCurrentPose = false) {
+  if (patrolPoints.length < 2) {
+    plannedPatrol = null;
+    renderPatrolCommands([]);
+    updatePatrolStatus("Add at least two patrol points.", "error");
+    return null;
+  }
+  const pointIssues = updatePatrolPointSafetyIssues();
+  if (pointIssues.size) {
+    const [index, issue] = pointIssues.entries().next().value;
+    plannedPatrol = null;
+    renderPatrolCommands([]);
+    updatePatrolStatus(
+      `Patrol point ${index + 1} is too close to ${issue.label}. ${issue.reason} Move it farther from obstacles or adjust the safety distance.`,
+      "error",
+    );
+    invalidateStaticLayer();
+    return null;
+  }
+  const plan = planPatrolRoute(requireCurrentPose);
+  if (plan.blocked) {
+    plannedPatrol = null;
+    renderPatrolCommands([]);
+    updatePatrolStatus(`Patrol blocked by a safety barrier. ${plan.reason || "Move points or adjust barriers."}`, "error");
+    return null;
+  }
+  plannedPatrol = {
+    type: "patrol",
+    points: patrolPoints.map(point => ({ rxyz: point.rxyz.slice(0, 3), rgb: point.rgb || null })),
+    route: plan.route,
+    route_segments: plan.route_segments,
+    arrival_indices: plan.arrival_indices,
+    legs: plan.legs,
+    patrol_mode: plan.patrol_mode,
+    loop: plan.loop,
+    detoured: plan.detoured,
+    distance: plan.distance,
+    speed: patrolCommandSpeed(),
+    requested_speed: Number(patrolSpeedSelect?.value || 0.10),
+    altitude_y: patrolAltitudeY(),
+    altitude_m: Math.max(0, patrolAltitudeY() - (room?.floorY ?? 0)),
+    dwell_s: patrolDwellSeconds(),
+    scan_mode: patrolScanMode(),
+    safety: plan.safety,
+    pending_current_pose: plan.pending_current_pose,
+    entry_index: plan.entry_index,
+    title: String(patrolNameInput?.value || "").trim() || "Room Patrol",
+    created_at: Date.now(),
+  };
+  plannedPatrol.commands = buildPatrolCommandPlan(plannedPatrol);
+  renderPatrolCommands(plannedPatrol.commands);
+  const currentGate = plan.pending_current_pose
+    ? "Saved/offline preview starts at point 1; live execution will enter at the nearest safe patrol point."
+    : `Live entry point: patrol point ${(plan.entry_index ?? 0) + 1}.`;
+  updatePatrolStatus(
+    `Patrol validated: ${patrolPoints.length} points, ${patrolModeLabel(plannedPatrol.patrol_mode)} mode, ${plannedPatrol.distance?.toFixed(2) || "pending"} map units, ${plannedPatrol.speed.toFixed(2)} m/s. ${currentGate}`,
+    "busy",
+  );
+  return plannedPatrol;
 }
 
 function routeHeadingDeg(a, b) {
   if (!a || !b) return 0;
   return Math.atan2(b[2] - a[2], b[0] - a[0]) * 180 / Math.PI;
+}
+
+function headingDegFromVector(heading) {
+  if (!heading || norm([heading[0] || 0, 0, heading[2] || 0]) < 1e-8) return null;
+  return Math.atan2(heading[2], heading[0]) * 180 / Math.PI;
+}
+
+function currentDroneHeadingDeg() {
+  const cur = closestPose();
+  if (!cur) return null;
+  const heading = headingForPose(cur);
+  const deg = headingDegFromVector(heading);
+  return Number.isFinite(deg) ? deg + selectedDroneHeadingTrimDeg() : null;
+}
+
+function signedHeadingDeltaDeg(fromDeg, toDeg) {
+  let delta = Number(toDeg) - Number(fromDeg || 0);
+  while (delta > 180) delta -= 360;
+  while (delta < -180) delta += 360;
+  return delta;
 }
 
 function formatCommandPoint(point) {
@@ -2928,12 +5675,14 @@ function buildMissionCommandPlan(mission = plannedMission) {
     },
   ];
 
+  let previousHeading = currentDroneHeadingDeg();
   for (let i = 1; i < mission.route.length; i++) {
     const a = mission.route[i - 1];
     const b = mission.route[i];
     const d = norm(sub(b, a));
     if (d <= 1e-5) continue;
     const heading = routeHeadingDeg(a, b);
+    const yawDelta = previousHeading == null ? 0 : signedHeadingDeltaDeg(previousHeading, heading);
     const isFinalVertical = Math.abs(a[0] - b[0]) < 1e-5
       && Math.abs(a[2] - b[2]) < 1e-5
       && Math.abs(a[1] - b[1]) > 1e-5;
@@ -2941,6 +5690,9 @@ function buildMissionCommandPlan(mission = plannedMission) {
       commands.push({
         type: profile === "horizontal-approach-then-land" ? "land" : "descend",
         title: profile === "horizontal-approach-then-land" ? "Land" : "Vertical descend",
+        from: a,
+        to: b,
+        distance: d,
         detail: profile === "horizontal-approach-then-land"
           ? `Land above destination ${formatCommandPoint(b)}.`
           : `Descend slowly to selected height at ${formatCommandPoint(b)}.`,
@@ -2953,18 +5705,30 @@ function buildMissionCommandPlan(mission = plannedMission) {
     commands.push({
       type: "yaw",
       title: `Yaw to segment ${i}`,
-      detail: `Face ${heading.toFixed(1)} degrees toward waypoint ${i}.`,
+      from: a,
+      to: b,
+      heading_deg: heading,
+      reference_heading_deg: previousHeading,
+      yaw_delta_deg: yawDelta,
+      detail: previousHeading == null
+        ? `Face ${heading.toFixed(1)} degrees toward waypoint ${i}. Current TSolve heading was unavailable.`
+        : `Turn ${yawDelta.toFixed(1)} degrees from current TSolve heading ${previousHeading.toFixed(1)} to face waypoint ${i}.`,
       duration_s: 1.0,
       safety: "slow-yaw",
     });
     commands.push({
       type: "cruise",
       title: `Slow cruise ${i}`,
+      from: a,
+      to: b,
+      heading_deg: heading,
+      speed_mps: speed,
       detail: `Move ${d.toFixed(2)} map units to ${formatCommandPoint(b)} at ${speed.toFixed(2)} m/s.`,
       distance: d,
       duration_s: d / speed,
       safety: speedCapped ? `speed capped from ${requestedSpeed.toFixed(2)} m/s` : "indoor-speed",
     });
+    previousHeading = heading;
     commands.push({
       type: "hover",
       title: "Hover and re-localize",
@@ -2974,6 +5738,252 @@ function buildMissionCommandPlan(mission = plannedMission) {
     });
   }
   return commands;
+}
+
+function buildPatrolCommandPlan(patrol = plannedPatrol) {
+  if (!patrol?.route?.length || patrol.route.length < 2) return [];
+  const speed = patrolCommandSpeed(patrol.speed);
+  const requestedSpeed = Number(patrol.requested_speed || patrol.speed || speed);
+  const speedCapped = Number.isFinite(requestedSpeed) && requestedSpeed > speed + 1e-6;
+  const arrivalSet = new Set((patrol.arrival_indices || []).map(Number));
+  const commands = [
+    {
+      type: "gate",
+      title: "Patrol gate",
+      detail: "Use only after takeoff, first TSolve R,t is visible, localization is confirmed, and the path is visually checked.",
+      safety: "manual-confirm",
+    },
+  ];
+
+  let previousHeading = currentDroneHeadingDeg();
+  let patrolStopIndex = 0;
+  for (let i = 1; i < patrol.route.length; i++) {
+    const a = patrol.route[i - 1];
+    const b = patrol.route[i];
+    const d = norm(sub(b, a));
+    if (d <= 1e-5) continue;
+    const heading = routeHeadingDeg(a, b);
+    const yawDelta = previousHeading == null ? 0 : signedHeadingDeltaDeg(previousHeading, heading);
+    commands.push({
+      type: "yaw",
+      title: `Patrol yaw ${i}`,
+      from: a,
+      to: b,
+      heading_deg: heading,
+      reference_heading_deg: previousHeading,
+      yaw_delta_deg: yawDelta,
+      detail: previousHeading == null
+        ? `Face ${heading.toFixed(1)} degrees toward patrol segment ${i}.`
+        : `Turn ${yawDelta.toFixed(1)} degrees to face patrol segment ${i}.`,
+      duration_s: 1.2,
+      safety: "slow-yaw",
+    });
+    commands.push({
+      type: "cruise",
+      title: `Patrol cruise ${i}`,
+      from: a,
+      to: b,
+      heading_deg: heading,
+      speed_mps: speed,
+      detail: `Move ${d.toFixed(2)} map units at ${speed.toFixed(2)} m/s.`,
+      distance: d,
+      duration_s: d / speed,
+      safety: speedCapped ? `speed capped from ${requestedSpeed.toFixed(2)} m/s` : "patrol-speed",
+    });
+    previousHeading = heading;
+    commands.push({
+      type: "hover",
+      title: "Hover and re-localize",
+      detail: "Stop, hold position, wait for a fresh TSolve R,t, and only then continue.",
+      duration_s: MISSION_RELOCALIZE_HOVER_SECONDS,
+      safety: "pose-check",
+    });
+
+    if (arrivalSet.has(i)) {
+      patrolStopIndex += 1;
+      commands.push({
+        type: "hover",
+        title: `Patrol point ${patrolStopIndex}`,
+        point_index: patrolStopIndex,
+        at: b,
+        detail: `Hold at patrol point ${patrolStopIndex} for ${Number(patrol.dwell_s || 2).toFixed(1)} seconds.`,
+        duration_s: Number(patrol.dwell_s || 2),
+        safety: "scan-hold",
+      });
+      if (patrol.scan_mode === "yaw-sweep") {
+        commands.push({
+          type: "yaw",
+          title: `Scan left ${patrolStopIndex}`,
+          at: b,
+          yaw_delta_deg: -PATROL_SCAN_YAW_DEG,
+          detail: `Slowly rotate gimbal/body view ${PATROL_SCAN_YAW_DEG} degrees left to scan the area.`,
+          duration_s: 1.4,
+          safety: "scan-yaw",
+        });
+        commands.push({
+          type: "hover",
+          title: `Left scan hold ${patrolStopIndex}`,
+          at: b,
+          detail: "Hold for visual scan and TSolve pose refresh.",
+          duration_s: Math.max(0.8, Number(patrol.dwell_s || 2) * 0.5),
+          safety: "scan-hold",
+        });
+        commands.push({
+          type: "yaw",
+          title: `Scan right ${patrolStopIndex}`,
+          at: b,
+          yaw_delta_deg: PATROL_SCAN_YAW_DEG * 2,
+          detail: `Sweep ${PATROL_SCAN_YAW_DEG} degrees right from forward to inspect the opposite side.`,
+          duration_s: 2.2,
+          safety: "scan-yaw",
+        });
+        commands.push({
+          type: "hover",
+          title: `Right scan hold ${patrolStopIndex}`,
+          at: b,
+          detail: "Hold for visual scan and TSolve pose refresh.",
+          duration_s: Math.max(0.8, Number(patrol.dwell_s || 2) * 0.5),
+          safety: "scan-hold",
+        });
+        commands.push({
+          type: "yaw",
+          title: `Return forward ${patrolStopIndex}`,
+          at: b,
+          yaw_delta_deg: -PATROL_SCAN_YAW_DEG,
+          detail: "Return to the patrol travel heading before continuing.",
+          duration_s: 1.4,
+          safety: "scan-yaw",
+        });
+      }
+    }
+  }
+  return commands;
+}
+
+async function sendPatrolToBridge(patrol = plannedPatrol, patrolName = "saved patrol") {
+  if (!patrol?.commands?.length) {
+    updatePatrolStatus("Patrol plan has no executable steps. Validate again before executing.", "error");
+    return;
+  }
+  const mode = patrolModeLabel(patrol.patrol_mode || (patrol.loop ? "circle" : "back-and-forth"));
+  const commandCount = patrol.commands.length;
+  activeExecutionPatrolRoute = {
+    title: patrolName,
+    route: (patrol.route || []).map(point => point.slice(0, 3)),
+    arrival_indices: (patrol.arrival_indices || []).map(Number),
+    patrol_mode: mode,
+    detoured: Boolean(patrol.detoured),
+    started_at: Date.now(),
+  };
+  invalidateStaticLayer();
+  render();
+  updatePatrolStatus(`Sending "${patrolName}" with ${commandCount} guarded steps to the live DJI bridge...`, "busy");
+  try {
+    const result = await sendDjiFlightCommand("mission", {
+      mission: {
+        guided_enabled: true,
+        patrol: true,
+        pose_max_age_seconds: 2.5,
+        pose_recovery_seconds: 45.0,
+        pulse_seconds: 0.30,
+        max_forward_rc: 0.040,
+        max_lateral_rc: 0.032,
+        allow_lateral_rc: true,
+        allow_axis_auto_calibration: true,
+        axis_probe_rc: 0.032,
+        axis_probe_seconds: 0.48,
+        max_yaw_rc: 0.020,
+        max_vertical_rc: 0.018,
+        max_step_seconds: 2.0,
+        max_cruise_seconds: 120.0,
+        arrival_radius_map_units: 0.30,
+        arrival_deadband_map_units: 0.18,
+        target_frame: "atlas_room",
+        map_id: currentMapEntry?.id || null,
+        map_title: currentMapEntry?.title || null,
+        replay_id: activeReplay(currentMapEntry)?.id || null,
+        patrol_id: editingPatrolId || activePatrolId || null,
+        patrol_title: patrolName,
+        entry_index: patrol.entry_index ?? 0,
+        points: patrol.points,
+        route: patrol.route,
+        route_segments: patrol.route_segments,
+        arrival_indices: patrol.arrival_indices,
+        patrol_mode: mode,
+        loop: mode === "circle",
+        speed: patrol.speed,
+        altitude_y: patrol.altitude_y,
+        altitude_m: patrol.altitude_m,
+        dwell_s: patrol.dwell_s,
+        scan_mode: patrol.scan_mode,
+        commands: patrol.commands,
+        safety_barriers: mapSafetyBarriers(),
+        safety_obstacles: mapSafetyObstacles(),
+        barrier_clearance_m: selectedBarrierClearance(),
+        obstacle_clearance_m: selectedObstacleClearance(),
+        heading_trim_deg: 0,
+        confirmed_at: new Date().toISOString(),
+      },
+    });
+    const bridgeMessage = result.result?.message || result.message || "Patrol packet queued.";
+    const pendingMessage = `${bridgeMessage} ${commandCount} guarded patrol steps are visible below.`;
+    updatePatrolStatus(pendingMessage, "busy");
+    setDjiCommandStatus(pendingMessage, "busy");
+  } catch (error) {
+    activeExecutionPatrolRoute = null;
+    invalidateStaticLayer();
+    updatePatrolStatus(`Patrol command failed: ${error.message}`, "error");
+    setDjiCommandStatus(`Patrol command failed: ${error.message}`, "error");
+  }
+}
+
+function buildPatrolReturnToStartPlan() {
+  const cur = closestPose();
+  const firstTarget = patrolPoints[0] ? patrolTargetPoint(patrolPoints[0]) : null;
+  if (!cur?.rcenter) return { error: "No current TSolve R,t pose is available for return planning." };
+  if (!firstTarget) return { error: "No patrol start point is defined." };
+  const start = [cur.rcenter[0], patrolAltitudeY(), cur.rcenter[2]];
+  const leg = patrolLegRoute(start, firstTarget);
+  if (leg.blocked) {
+    return { error: leg.reason || leg.safety?.reason || "Return path to patrol start is blocked." };
+  }
+  const route = leg.waypoints || [start, firstTarget];
+  const segments = routeSegmentsFromWaypoints(route);
+  const safety = missionRouteSafetyCheck(segments);
+  if (safety.blocked) {
+    return { error: safety.reason || "Return path violates the saved safety clearance." };
+  }
+  const plan = {
+    type: "patrol-return",
+    points: [{ rxyz: firstTarget }],
+    route,
+    route_segments: segments,
+    arrival_indices: [route.length - 1],
+    patrol_mode: "back-and-forth",
+    loop: false,
+    detoured: leg.detoured,
+    distance: routeLengthFromSegments(segments),
+    speed: patrolCommandSpeed(),
+    requested_speed: Number(patrolSpeedSelect?.value || 0.10),
+    altitude_y: patrolAltitudeY(),
+    altitude_m: Math.max(0, patrolAltitudeY() - (room?.floorY ?? 0)),
+    dwell_s: 2.0,
+    scan_mode: "none",
+    safety,
+    pending_current_pose: false,
+    entry_index: 0,
+    title: "Return to patrol start",
+    created_at: Date.now(),
+  };
+  plan.commands = buildPatrolCommandPlan(plan).concat([{
+    type: "hover",
+    title: "Manual landing gate",
+    at: firstTarget,
+    detail: "Hold over patrol start. Press Land only after visually confirming the landing area is clear.",
+    duration_s: 4.0,
+    safety: "manual-land-confirm",
+  }]);
+  return { plan };
 }
 
 function renderMissionCommands(commands = plannedMission?.commands || []) {
@@ -3045,7 +6055,7 @@ function updateMissionStatus(message = null) {
   const suffix = d == null
     ? "Preflight target saved; path will anchor after first live R,t."
     : `Planned path: horizontal approach above target, then ${profile?.targetLooksGround ? "land" : "descend"} (${d.toFixed(2)} map units).`;
-  const detoured = plannedMission?.detoured ? " Safety-wall detour active." : "";
+  const detoured = plannedMission?.detoured ? " Safety-barrier detour active." : "";
   const planned = plannedMission ? `${detoured} Preview ready; confirm localization before autonomous execution.` : "";
   targetStatus.textContent = `Destination selected. ${suffix}${planned}`;
   updateFlightControlState();
@@ -3086,6 +6096,62 @@ function missionTargetHit(clientX, clientY) {
   return dx * dx + dy * dy <= 28 * 28;
 }
 
+function patrolPointHitInfo(clientX, clientY) {
+  if (!patrolPoints.length || !patrolSelecting) return null;
+  const rect = canvas.getBoundingClientRect();
+  const sx = clientX - rect.left;
+  const sy = clientY - rect.top;
+  for (let i = patrolPoints.length - 1; i >= 0; i--) {
+    const point = patrolTargetPoint(patrolPoints[i]) || patrolPoints[i].rxyz;
+    if (!point) continue;
+    const [x, y] = project(point);
+    const deleteX = x + 14;
+    const deleteY = y - 14;
+    const ddx = deleteX - sx;
+    const ddy = deleteY - sy;
+    if (ddx * ddx + ddy * ddy <= 12 * 12) {
+      return { index: i, deleteHit: true };
+    }
+    const dx = x - sx;
+    const dy = y - sy;
+    if (dx * dx + dy * dy <= 24 * 24) {
+      return { index: i, deleteHit: false };
+    }
+  }
+  return null;
+}
+
+function patrolPointHit(clientX, clientY) {
+  const hit = patrolPointHitInfo(clientX, clientY);
+  return hit && !hit.deleteHit ? hit.index : -1;
+}
+
+function deletePatrolPoint(index) {
+  if (index < 0 || index >= patrolPoints.length) return;
+  patrolPoints.splice(index, 1);
+  patrolPointHover = null;
+  patrolDraggingIndex = -1;
+  patrolPointSafetyIssues = new Map();
+  plannedPatrol = null;
+  renderPatrolCommands([]);
+  updatePatrolStatus(`Deleted patrol point ${index + 1}. Validate again before saving or flying.`, patrolPoints.length >= 2 ? "busy" : "");
+  updateFlightControlState();
+  invalidateStaticLayer();
+}
+
+function updatePatrolPointHover(clientX, clientY) {
+  const next = patrolPointHitInfo(clientX, clientY);
+  const previousKey = patrolPointHover ? `${patrolPointHover.index}:${patrolPointHover.deleteHit}` : "";
+  const nextKey = next ? `${next.index}:${next.deleteHit}` : "";
+  if (previousKey !== nextKey) {
+    patrolPointHover = next;
+    markFastInteraction(120);
+  }
+  if (next) {
+    canvas.style.cursor = next.deleteHit ? "pointer" : "grab";
+  }
+}
+
 function updateMissionTargetFromPointer(clientX, clientY) {
   if (!missionTarget?.rxyz) return false;
   const next = screenToViewEditPlane(clientX, clientY, missionTarget.rxyz);
@@ -3094,6 +6160,21 @@ function updateMissionTargetFromPointer(clientX, clientY) {
   plannedMission = null;
   renderMissionCommands([]);
   updateMissionStatus();
+  return true;
+}
+
+function updatePatrolPointFromPointer(clientX, clientY) {
+  if (patrolDraggingIndex < 0 || !patrolPoints[patrolDraggingIndex]?.rxyz) return false;
+  const anchor = patrolTargetPoint(patrolPoints[patrolDraggingIndex]) || patrolPoints[patrolDraggingIndex].rxyz;
+  const next = screenToViewEditPlane(clientX, clientY, anchor);
+  if (!next) return false;
+  patrolPoints[patrolDraggingIndex] = {
+    ...patrolPoints[patrolDraggingIndex],
+    rxyz: [next[0], patrolPoints[patrolDraggingIndex].rxyz[1], next[2]],
+  };
+  plannedPatrol = null;
+  renderPatrolCommands([]);
+  updatePatrolStatus();
   return true;
 }
 
@@ -3135,6 +6216,106 @@ function drawMissionTarget(cur = null) {
   ctx.stroke();
   ctx.restore();
   drawLabel(target, "destination", "#ffe58c");
+}
+
+function drawPatrolPointMarker(rxyz, index, active = false, invalid = false) {
+  const [x, y] = project(rxyz);
+  const hover = patrolPointHover?.index === index;
+  ctx.save();
+  ctx.shadowColor = invalid
+    ? "rgba(255, 76, 108, 0.95)"
+    : (active ? "rgba(255, 232, 104, 0.95)" : "rgba(102, 219, 255, 0.72)");
+  ctx.shadowBlur = active ? 18 : 11;
+  ctx.fillStyle = invalid
+    ? "rgba(255, 54, 92, 0.78)"
+    : (active ? "rgba(255, 213, 73, 0.78)" : "rgba(50, 195, 255, 0.62)");
+  ctx.strokeStyle = invalid ? "rgba(255, 218, 226, 0.98)" : "rgba(225, 250, 255, 0.95)";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.arc(x, y, active ? 10 : 8, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+  ctx.fillStyle = "rgba(2, 11, 22, 0.92)";
+  ctx.font = "800 11px Inter, system-ui, sans-serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(String(index + 1), x, y + 0.5);
+  if (hover && patrolSelecting) {
+    const hx = x + 14;
+    const hy = y - 14;
+    ctx.shadowColor = "rgba(255, 78, 110, 0.95)";
+    ctx.shadowBlur = 12;
+    ctx.fillStyle = "rgba(101, 10, 31, 0.92)";
+    ctx.strokeStyle = "rgba(255, 218, 226, 0.98)";
+    ctx.lineWidth = 1.7;
+    ctx.beginPath();
+    ctx.arc(hx, hy, 9, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    ctx.strokeStyle = "rgba(255, 235, 240, 0.98)";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(hx - 3.5, hy - 3.5);
+    ctx.lineTo(hx + 3.5, hy + 3.5);
+    ctx.moveTo(hx + 3.5, hy - 3.5);
+    ctx.lineTo(hx - 3.5, hy + 3.5);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function drawPatrolScanSweep(rxyz) {
+  const [x, y] = project(rxyz);
+  ctx.save();
+  ctx.strokeStyle = "rgba(111, 225, 255, 0.34)";
+  ctx.lineWidth = 1.4;
+  ctx.setLineDash([4, 8]);
+  for (const angle of [-0.75, 0, 0.75]) {
+    const endpoint = [rxyz[0] + Math.cos(view.yaw + angle) * 0.55, rxyz[1], rxyz[2] + Math.sin(view.yaw + angle) * 0.55];
+    const [ex, ey] = project(endpoint);
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    ctx.lineTo(ex, ey);
+    ctx.stroke();
+  }
+  ctx.setLineDash([]);
+  ctx.restore();
+}
+
+function drawPatrolMission(cur = null) {
+  const previewTargets = patrolBaseTargets();
+  const activeRoute = activeExecutionPatrolRoute?.route?.length ? activeExecutionPatrolRoute.route : null;
+  if (activeRoute?.length >= 2) {
+    drawPolyline(activeRoute, "rgba(255, 142, 48, 0.96)", 3.4, [11, 5]);
+    const arrivals = new Set((activeExecutionPatrolRoute.arrival_indices || []).map(Number));
+    for (let i = 1; i < activeRoute.length - 1; i++) {
+      drawRouteMarker(activeRoute[i], arrivals.has(i) ? 9 : 5);
+    }
+    drawLabel(activeRoute[activeRoute.length - 1], activeExecutionPatrolRoute.title || "active patrol", "#ffd99c");
+  }
+  const route = plannedPatrol?.route?.length ? plannedPatrol.route : (activeRoute ? [] : previewTargets);
+  if (route.length >= 2) {
+    drawPolyline(route, plannedPatrol?.detoured ? "rgba(255, 220, 85, 0.86)" : "rgba(88, 211, 255, 0.84)", 2.4, [7, 7]);
+    if (plannedPatrol?.route?.length) {
+      for (let i = 1; i < plannedPatrol.route.length - 1; i++) {
+        drawRouteMarker(plannedPatrol.route[i], plannedPatrol.arrival_indices?.includes(i) ? 8 : 5);
+      }
+    }
+  } else if (cur?.rcenter && previewTargets.length === 1) {
+    drawLine([cur.rcenter[0], patrolAltitudeY(), cur.rcenter[2]], previewTargets[0], "rgba(88, 211, 255, 0.54)", 1.8, [5, 8]);
+  }
+  for (let i = 0; i < patrolPoints.length; i++) {
+    const target = patrolTargetPoint(patrolPoints[i]);
+    if (!target) continue;
+    const issue = patrolPointSafetyIssues.get(i) || pointSafetyIssue(target);
+    drawPatrolScanSweep(target);
+    drawPatrolPointMarker(target, i, patrolDraggingIndex === i, Boolean(issue));
+    if (issue) drawLabel(target, "too close", "#ff9eb4");
+  }
+  if (patrolPoints.length) {
+    const lastTarget = patrolTargetPoint(patrolPoints[patrolPoints.length - 1]);
+    if (lastTarget) drawLabel(lastTarget, patrolSelecting ? "add next patrol point" : "patrol", "#8eeeff");
+  }
 }
 
 function barrierCenter(corners) {
@@ -3306,18 +6487,20 @@ function drawBarrierTransformHandles(barrier, corners, center) {
   ctx.restore();
 }
 
-function drawBarrierPanelFill(corners) {
+function drawBarrierPanelFill(corners, barrier = null) {
   const projected = corners.map(p => project(p));
+  const color = sanitizeHexColor(barrier?.color, "#cfd8df");
+  const opacity = Math.max(0.05, Math.min(0.95, Number(barrier?.opacity ?? 0.24)));
   ctx.save();
   ctx.beginPath();
   ctx.moveTo(projected[0][0], projected[0][1]);
   for (let i = 1; i < projected.length; i++) ctx.lineTo(projected[i][0], projected[i][1]);
   ctx.closePath();
-  ctx.shadowColor = "rgba(220, 230, 240, 0.07)";
+  ctx.shadowColor = rgbaFromHex(color, Math.min(0.28, opacity + 0.08));
   ctx.shadowBlur = 8;
-  ctx.fillStyle = "rgba(128, 134, 142, 0.12)";
-  ctx.strokeStyle = "rgba(224, 230, 238, 0.40)";
-  ctx.lineWidth = 1.7;
+  ctx.fillStyle = rgbaFromHex(color, opacity);
+  ctx.strokeStyle = rgbaFromHex(color, Math.min(0.88, opacity + 0.36));
+  ctx.lineWidth = barrier?.id === selectedBarrierId ? 2.4 : 1.7;
   ctx.fill();
   ctx.stroke();
   ctx.restore();
@@ -3329,8 +6512,8 @@ function drawBarrierNameOnWall(barrier, center) {
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
   ctx.font = "800 24px Inter, system-ui, sans-serif";
-  ctx.fillStyle = "rgba(238, 242, 246, 0.32)";
-  ctx.strokeStyle = "rgba(4, 8, 12, 0.34)";
+  ctx.fillStyle = "rgba(238, 242, 246, 0.08)";
+  ctx.strokeStyle = "rgba(4, 8, 12, 0.10)";
   ctx.lineWidth = 4;
   ctx.strokeText(barrier.label || "WALL", x, y);
   ctx.fillText(barrier.label || "WALL", x, y);
@@ -3345,13 +6528,16 @@ function drawSafetyBarriers() {
     const corners = barrier.corners || [];
     if (corners.length < 4) continue;
     const edges = [[0, 1], [1, 2], [2, 3], [3, 0]];
-    drawBarrierPanelFill(corners);
-    drawLine(corners[0], corners[1], "rgba(235, 240, 245, 0.55)", 2.5);
+    const color = sanitizeHexColor(barrier.color, "#cfd8df");
+    const opacity = Math.max(0.05, Math.min(0.95, Number(barrier.opacity ?? 0.24)));
+    const selected = barrier.id === selectedBarrierId;
+    drawBarrierPanelFill(corners, barrier);
+    drawLine(corners[0], corners[1], rgbaFromHex(color, selected ? 0.92 : Math.min(0.85, opacity + 0.42)), selected ? 3.2 : 2.5);
     for (const [aIdx, bIdx] of edges.slice(1)) {
-      drawLine(corners[aIdx], corners[bIdx], "rgba(188, 198, 208, 0.44)", 1.6);
+      drawLine(corners[aIdx], corners[bIdx], rgbaFromHex(color, selected ? 0.78 : Math.min(0.72, opacity + 0.30)), selected ? 2.1 : 1.6);
     }
-    drawLine(corners[0], corners[2], "rgba(230, 236, 242, 0.12)", 0.8, [5, 7]);
-    drawLine(corners[1], corners[3], "rgba(230, 236, 242, 0.12)", 0.8, [5, 7]);
+    drawLine(corners[0], corners[2], rgbaFromHex(color, Math.min(0.32, opacity + 0.08)), 0.8, [5, 7]);
+    drawLine(corners[1], corners[3], rgbaFromHex(color, Math.min(0.32, opacity + 0.08)), 0.8, [5, 7]);
 
     const mid = barrierCenter(corners);
     drawBarrierNameOnWall(barrier, mid);
@@ -3390,6 +6576,227 @@ function drawSafetyBarriers() {
     ctx.stroke();
     ctx.restore();
     drawLabel(a, "wall start", "#ffc3d1");
+  }
+}
+
+function drawObstacleFace(corners, face, fill, stroke = "rgba(136, 226, 255, 0.42)") {
+  const projected = face.map(index => project(corners[index]));
+  ctx.save();
+  ctx.beginPath();
+  ctx.moveTo(projected[0][0], projected[0][1]);
+  for (let i = 1; i < projected.length; i++) ctx.lineTo(projected[i][0], projected[i][1]);
+  ctx.closePath();
+  ctx.fillStyle = fill;
+  ctx.strokeStyle = stroke;
+  ctx.lineWidth = 1.1;
+  ctx.fill();
+  ctx.stroke();
+  ctx.restore();
+}
+
+function obstacleCenter(obstacle) {
+  const bounds = normalizedObstacleBounds(obstacle, 0);
+  if (!bounds) return null;
+  return [
+    (bounds.min[0] + bounds.max[0]) * 0.5,
+    (bounds.min[1] + bounds.max[1]) * 0.5,
+    (bounds.min[2] + bounds.max[2]) * 0.5,
+  ];
+}
+
+function convexHullXZ(points) {
+  const clean = (points || [])
+    .map(asVec3)
+    .filter(Boolean)
+    .sort((a, b) => (a[0] - b[0]) || (a[2] - b[2]));
+  const unique = [];
+  for (const point of clean) {
+    if (!unique.some(existing => Math.hypot(existing[0] - point[0], existing[2] - point[2]) < 1e-5)) {
+      unique.push(point);
+    }
+  }
+  if (unique.length <= 2) return unique;
+  const cross = (o, a, b) => (a[0] - o[0]) * (b[2] - o[2]) - (a[2] - o[2]) * (b[0] - o[0]);
+  const lower = [];
+  for (const point of unique) {
+    while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], point) <= 0) lower.pop();
+    lower.push(point);
+  }
+  const upper = [];
+  for (let i = unique.length - 1; i >= 0; i--) {
+    const point = unique[i];
+    while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], point) <= 0) upper.pop();
+    upper.push(point);
+  }
+  lower.pop();
+  upper.pop();
+  return lower.concat(upper);
+}
+
+function obstacleHullPrism(obstacle) {
+  const bounds = normalizedObstacleBounds(obstacle, 0);
+  if (!bounds) return null;
+  let hull = convexHullXZ(obstacle.points || []);
+  if (hull.length < 3) {
+    const corners = obstacleBoxCorners(obstacle, 0);
+    if (corners.length < 8) return null;
+    hull = [corners[0], corners[1], corners[2], corners[3]];
+  }
+  const floorY = bounds.min[1];
+  const topY = bounds.max[1];
+  const bottom = hull.map(point => [point[0], floorY, point[2]]);
+  const top = hull.map(point => [point[0], topY, point[2]]);
+  return { bottom, top };
+}
+
+function drawPolygonFace(points, fill, stroke = "rgba(136, 226, 255, 0.42)", lineWidth = 1.1) {
+  if (!points?.length) return;
+  const projected = points.map(point => project(point));
+  ctx.save();
+  ctx.beginPath();
+  ctx.moveTo(projected[0][0], projected[0][1]);
+  for (let i = 1; i < projected.length; i++) ctx.lineTo(projected[i][0], projected[i][1]);
+  ctx.closePath();
+  ctx.fillStyle = fill;
+  ctx.strokeStyle = stroke;
+  ctx.lineWidth = lineWidth;
+  ctx.fill();
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawObstaclePointHandle(point, obstacleId, pointIndex, draft = false) {
+  const [x, y] = project(point);
+  const hover = obstaclePointHover
+    && obstaclePointHover.obstacleId === obstacleId
+    && obstaclePointHover.pointIndex === pointIndex;
+  const active = obstaclePointDrag
+    && obstaclePointDrag.obstacleId === obstacleId
+    && obstaclePointDrag.pointIndex === pointIndex;
+  ctx.save();
+  ctx.shadowColor = active ? "rgba(255, 228, 94, 0.95)" : (hover ? "rgba(255, 126, 148, 0.85)" : "rgba(120, 230, 255, 0.42)");
+  ctx.shadowBlur = active ? 16 : (hover ? 12 : 6);
+  ctx.fillStyle = draft ? "rgba(111, 238, 255, 0.82)" : "rgba(218, 232, 240, 0.76)";
+  ctx.strokeStyle = hover ? "rgba(255, 118, 145, 0.95)" : "rgba(226, 250, 255, 0.86)";
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.arc(x, y, active ? 6.5 : 5, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+  if (hover) {
+    ctx.shadowColor = "rgba(255, 70, 110, 0.9)";
+    ctx.shadowBlur = 10;
+    ctx.strokeStyle = "rgba(255, 92, 128, 0.98)";
+    ctx.lineWidth = 2.4;
+    ctx.beginPath();
+    ctx.moveTo(x + 8, y - 18);
+    ctx.lineTo(x + 20, y - 6);
+    ctx.moveTo(x + 20, y - 18);
+    ctx.lineTo(x + 8, y - 6);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function obstacleRotateHandlePoint(obstacle, center = obstacleCenter(obstacle)) {
+  if (!center) return null;
+  const points = obstacle?.points || [];
+  const radius = points.reduce(
+    (best, point) => Math.max(best, Math.hypot(point[0] - center[0], point[2] - center[2])),
+    Math.max(0.28, Math.min(1.4, (room?.bounds?.radius || 2) * 0.10)),
+  );
+  const offset = Math.max(0.24, Math.min(1.4, radius + (room?.bounds?.radius || 2) * 0.045));
+  return [center[0], center[1], center[2] + offset];
+}
+
+function drawObstacleTransformHandles(obstacle, center) {
+  if (safetyBarrierMode !== "obstacles" || obstacle.draft || !center) return;
+  const moveActive = obstacleTransformDrag?.obstacleId === obstacle.id && obstacleTransformDrag?.type === "move";
+  const rotateActive = obstacleTransformDrag?.obstacleId === obstacle.id && obstacleTransformDrag?.type === "rotate";
+  const moveHover = obstacleTransformHover?.obstacleId === obstacle.id && obstacleTransformHover?.type === "move";
+  const rotateHover = obstacleTransformHover?.obstacleId === obstacle.id && obstacleTransformHover?.type === "rotate";
+  const selected = obstacle.id === selectedObstacleId;
+  if (!selected && !moveActive && !rotateActive && !moveHover && !rotateHover) return;
+  const rotateHandle = obstacleRotateHandlePoint(obstacle, center);
+  const [cx, cy] = project(center);
+  const [rx, ry] = rotateHandle ? project(rotateHandle) : [cx, cy];
+
+  ctx.save();
+  if (view.mode !== "side" && rotateHandle) {
+    ctx.strokeStyle = rotateActive || rotateHover ? "rgba(180, 238, 255, 0.96)" : "rgba(140, 205, 226, 0.58)";
+    ctx.lineWidth = rotateActive || rotateHover ? 2.2 : 1.4;
+    ctx.setLineDash([4, 5]);
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    ctx.lineTo(rx, ry);
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
+  ctx.shadowColor = moveActive || moveHover ? "rgba(180, 238, 255, 0.95)" : "rgba(116, 211, 244, 0.72)";
+  ctx.shadowBlur = moveActive || moveHover ? 18 : 10;
+  ctx.fillStyle = moveActive || moveHover ? "rgba(224, 250, 255, 0.96)" : "rgba(120, 214, 244, 0.86)";
+  ctx.strokeStyle = "rgba(236, 252, 255, 0.96)";
+  ctx.lineWidth = 1.8;
+  ctx.beginPath();
+  ctx.arc(cx, cy, 7.5, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+
+  if (view.mode !== "side" && rotateHandle) {
+    ctx.shadowColor = rotateActive || rotateHover ? "rgba(180, 238, 255, 0.96)" : "rgba(116, 211, 244, 0.70)";
+    ctx.shadowBlur = rotateActive || rotateHover ? 18 : 10;
+    ctx.fillStyle = rotateActive || rotateHover ? "rgba(224, 250, 255, 0.96)" : "rgba(82, 172, 205, 0.88)";
+    ctx.beginPath();
+    ctx.moveTo(rx, ry - 8);
+    ctx.lineTo(rx + 8, ry);
+    ctx.lineTo(rx, ry + 8);
+    ctx.lineTo(rx - 8, ry);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function drawSafetyObstacles() {
+  const obstacles = mapSafetyObstacles();
+  const draft = obstacleDraft?.points?.length
+    ? [{
+        id: "draft_obstacle",
+        label: "New Object",
+        points: obstacleDraft.points,
+        bounds: obstacleBoundsFromPoints(obstacleDraft.points, 0),
+        clearance_m: selectedObstacleClearance(),
+        color: selectedObstacleColor(),
+        opacity: selectedObstacleOpacity(),
+        draft: true,
+      }]
+    : [];
+  for (const obstacle of obstacles.concat(draft)) {
+    const prism = obstacleHullPrism(obstacle);
+    if (!prism) continue;
+    const color = sanitizeHexColor(obstacle.color, obstacle.draft ? "#86dfff" : "#cfd8df");
+    const opacity = Math.max(0.05, Math.min(0.95, Number(obstacle.opacity ?? 0.24)));
+    const fill = rgbaFromHex(color, obstacle.draft ? Math.min(0.68, opacity + 0.10) : opacity);
+    const stroke = rgbaFromHex(color, obstacle.draft ? 0.90 : Math.min(0.92, opacity + 0.34));
+    drawPolygonFace(prism.bottom, fill, stroke, obstacle.draft ? 1.6 : 1.1);
+    drawPolygonFace(prism.top, rgbaFromHex(color, Math.min(0.72, opacity + 0.08)), stroke, obstacle.draft ? 1.7 : 1.2);
+    for (let i = 0; i < prism.bottom.length; i++) {
+      const j = (i + 1) % prism.bottom.length;
+      drawPolygonFace([prism.bottom[i], prism.bottom[j], prism.top[j], prism.top[i]], fill, stroke, obstacle.draft ? 1.4 : 1.0);
+      drawLine(prism.bottom[i], prism.bottom[j], stroke, obstacle.draft ? 1.6 : 1.0);
+      drawLine(prism.top[i], prism.top[j], stroke, obstacle.draft ? 1.8 : 1.2);
+      drawLine(prism.bottom[i], prism.top[i], stroke, obstacle.draft ? 1.3 : 0.9);
+    }
+    for (let i = 0; i < (obstacle.points || []).length; i++) {
+      drawObstaclePointHandle(obstacle.points[i], obstacle.id, i, Boolean(obstacle.draft));
+    }
+    const center = obstacleCenter(obstacle);
+    if (center) {
+      drawLabel(center, obstacle.label || "object", obstacle.draft ? "#a9f7ff" : "#d8e3ea");
+      drawObstacleTransformHandles(obstacle, center);
+    }
   }
 }
 
@@ -3444,6 +6851,292 @@ function barrierTransformHit(clientX, clientY) {
   return null;
 }
 
+function editableObstacleItems() {
+  const items = mapSafetyObstacles().map(obstacle => ({ ...obstacle, draft: false }));
+  if (obstacleDraft?.points?.length) {
+    items.push({
+      id: "draft_obstacle",
+      label: "New Object",
+      points: obstacleDraft.points,
+      bounds: obstacleBoundsFromPoints(obstacleDraft.points, 0),
+      clearance_m: selectedObstacleClearance(),
+      color: selectedObstacleColor(),
+      opacity: selectedObstacleOpacity(),
+      draft: true,
+    });
+  }
+  return items;
+}
+
+function obstaclePointHit(clientX, clientY) {
+  if (safetyBarrierMode !== "obstacles") return null;
+  const rect = canvas.getBoundingClientRect();
+  const sx = clientX - rect.left;
+  const sy = clientY - rect.top;
+  const items = editableObstacleItems();
+  for (let oi = items.length - 1; oi >= 0; oi--) {
+    const obstacle = items[oi];
+    const points = obstacle.points || [];
+    for (let pi = points.length - 1; pi >= 0; pi--) {
+      const [x, y] = project(points[pi]);
+      const xDx = (x + 14) - sx;
+      const xDy = (y - 12) - sy;
+      if (xDx * xDx + xDy * xDy <= 11 * 11) {
+        return { obstacleId: obstacle.id, pointIndex: pi, draft: Boolean(obstacle.draft), deleteHit: true };
+      }
+      const dx = x - sx;
+      const dy = y - sy;
+      if (dx * dx + dy * dy <= 18 * 18) {
+        return { obstacleId: obstacle.id, pointIndex: pi, draft: Boolean(obstacle.draft), deleteHit: false };
+      }
+    }
+  }
+  return null;
+}
+
+function obstacleTransformHit(clientX, clientY) {
+  if (safetyBarrierMode !== "obstacles" || obstacleEditing) return null;
+  const rect = canvas.getBoundingClientRect();
+  const sx = clientX - rect.left;
+  const sy = clientY - rect.top;
+  const obstacles = mapSafetyObstacles();
+  for (let oi = obstacles.length - 1; oi >= 0; oi--) {
+    const obstacle = obstacles[oi];
+    const center = obstacleCenter(obstacle);
+    if (!center) continue;
+    const rotateHandle = obstacleRotateHandlePoint(obstacle, center);
+    if (view.mode !== "side" && rotateHandle) {
+      const [rx, ry] = project(rotateHandle);
+      const rdx = rx - sx;
+      const rdy = ry - sy;
+      if (rdx * rdx + rdy * rdy <= 20 * 20) {
+        return { type: "rotate", obstacleId: obstacle.id };
+      }
+    }
+    const [cx, cy] = project(center);
+    const cdx = cx - sx;
+    const cdy = cy - sy;
+    if (cdx * cdx + cdy * cdy <= 22 * 22) {
+      return { type: "move", obstacleId: obstacle.id };
+    }
+  }
+  return null;
+}
+
+function obstacleHitKey(hit) {
+  if (!hit) return "";
+  return `${hit.obstacleId}:${hit.pointIndex}:${hit.deleteHit ? "delete" : "drag"}`;
+}
+
+function obstacleTransformKey(hit) {
+  if (!hit) return "";
+  return `${hit.type}:${hit.obstacleId}`;
+}
+
+function updateObstaclePointHover(clientX, clientY) {
+  if (safetyBarrierMode !== "obstacles" || obstaclePointDrag || obstacleTransformDrag) {
+    if (obstaclePointHover || obstacleTransformHover) {
+      obstaclePointHover = null;
+      obstacleTransformHover = null;
+      markFastInteraction(90);
+    }
+    return;
+  }
+  const hit = obstaclePointHit(clientX, clientY);
+  const transform = hit ? null : obstacleTransformHit(clientX, clientY);
+  if (
+    obstacleHitKey(hit) !== obstacleHitKey(obstaclePointHover)
+    || obstacleTransformKey(transform) !== obstacleTransformKey(obstacleTransformHover)
+  ) {
+    obstaclePointHover = hit;
+    obstacleTransformHover = transform;
+    markFastInteraction(90);
+  }
+  if (hit) canvas.style.cursor = hit.deleteHit ? "pointer" : "grab";
+  else if (transform) canvas.style.cursor = "grab";
+  else if (!barrierCornerHover && !barrierTransformHover) canvas.style.cursor = missionSelecting || patrolSelecting ? "crosshair" : "";
+}
+
+function replaceObstacleInCurrentMap(obstacleId, updater) {
+  const next = mapSafetyObstacles().map(obstacle => (
+    obstacle.id === obstacleId ? obstaclePayloadForSave(updater(obstacle)) : obstaclePayloadForSave(obstacle)
+  )).filter(Boolean);
+  if (currentMapEntry) currentMapEntry.safety_obstacles = next;
+  const libEntry = (mapLibraryData.maps || []).find(m => m.id === currentMapEntry?.id);
+  if (libEntry) libEntry.safety_obstacles = next;
+  plannedMission = null;
+  plannedPatrol = null;
+  renderMissionCommands([]);
+  renderPatrolCommands([]);
+  invalidateStaticLayer();
+  return next;
+}
+
+function deleteObstaclePoint(hit) {
+  if (!hit) return false;
+  if (hit.draft) {
+    if (!obstacleDraft?.points?.length) return false;
+    obstacleDraft.points.splice(hit.pointIndex, 1);
+    obstacleDraft.bounds = obstacleBoundsFromPoints(obstacleDraft.points, 0);
+    obstaclePointHover = null;
+    updateObstacleControls();
+    updateObstacleStatus();
+    invalidateStaticLayer();
+    return true;
+  }
+  const obstacles = mapSafetyObstacles();
+  const obstacle = obstacles.find(candidate => candidate.id === hit.obstacleId);
+  if (!obstacle) return false;
+  const nextPoints = obstacle.points.filter((_, index) => index !== hit.pointIndex);
+  if (nextPoints.length < 2) {
+    const ok = window.confirm(`${obstacle.label} needs at least two points. Delete the whole object?`);
+    if (!ok) return false;
+    saveSafetyObstacles(obstacles.filter(candidate => candidate.id !== hit.obstacleId));
+    selectedObstacleId = null;
+    obstaclePointHover = null;
+    return true;
+  }
+  const next = obstacles.map(candidate => (
+    candidate.id === hit.obstacleId
+      ? obstaclePayloadForSave({ ...candidate, points: nextPoints, bounds: obstacleBoundsFromPoints(nextPoints, 0) })
+      : obstaclePayloadForSave(candidate)
+  )).filter(Boolean);
+  saveSafetyObstacles(next);
+  obstaclePointHover = null;
+  return true;
+}
+
+function updateObstaclePointFromPointer(clientX, clientY) {
+  if (!obstaclePointDrag) return false;
+  const source = obstaclePointDrag.draft
+    ? obstacleDraft
+    : mapSafetyObstacles().find(obstacle => obstacle.id === obstaclePointDrag.obstacleId);
+  const anchor = source?.points?.[obstaclePointDrag.pointIndex];
+  if (!anchor) return false;
+  const nextPoint = screenToViewEditPlane(clientX, clientY, anchor);
+  if (!nextPoint) return false;
+  obstacleDragMoved = true;
+  if (obstaclePointDrag.draft) {
+    obstacleDraft.points[obstaclePointDrag.pointIndex] = nextPoint;
+    obstacleDraft.bounds = obstacleBoundsFromPoints(obstacleDraft.points, 0);
+  } else {
+    replaceObstacleInCurrentMap(obstaclePointDrag.obstacleId, obstacle => {
+      const points = obstacle.points.map((point, index) => index === obstaclePointDrag.pointIndex ? nextPoint : point);
+      return { ...obstacle, points, bounds: obstacleBoundsFromPoints(points, 0) };
+    });
+  }
+  updateObstacleStatus("Object point adjusted. Drag more points or save is applied on release.", "busy");
+  return true;
+}
+
+function saveDraggedObstaclePoint() {
+  if (!obstaclePointDrag) return;
+  const hit = obstaclePointDrag;
+  obstaclePointDrag = null;
+  obstaclePointHover = null;
+  obstacleClickSuppress = true;
+  if (hit.draft) {
+    updateObstacleControls();
+    updateObstacleStatus();
+    invalidateStaticLayer();
+    return;
+  }
+  if (obstacleDragMoved) {
+    saveSafetyObstacles(mapSafetyObstacles());
+    obstacleDragMoved = false;
+  } else {
+    setSelectedObstacle(hit.obstacleId);
+  }
+}
+
+function startObstacleTransformDrag(hit, clientX, clientY) {
+  const obstacle = mapSafetyObstacles().find(candidate => candidate.id === hit.obstacleId);
+  const points = (obstacle?.points || []).map(point => point.slice(0, 3));
+  const center = obstacleCenter(obstacle);
+  if (!obstacle || points.length < 2 || !center) return false;
+  if (hit.type === "move") {
+    const pointer = screenToViewEditPlane(clientX, clientY, center);
+    if (!pointer) return false;
+    obstacleTransformDrag = {
+      type: "move",
+      obstacleId: hit.obstacleId,
+      startPoints: points,
+      center,
+      startPointer: pointer,
+    };
+    obstacleDragMoved = false;
+    return true;
+  }
+  const rotateHandle = obstacleRotateHandlePoint(obstacle, center);
+  const pointer = screenToViewEditPlane(clientX, clientY, rotateHandle || center) || rotateHandle;
+  if (!pointer) return false;
+  obstacleTransformDrag = {
+    type: "rotate",
+    obstacleId: hit.obstacleId,
+    startPoints: points,
+    center,
+    startAngle: Math.atan2(pointer[2] - center[2], pointer[0] - center[0]),
+  };
+  obstacleDragMoved = false;
+  return true;
+}
+
+function updateObstacleTransformFromPointer(clientX, clientY) {
+  if (!obstacleTransformDrag) return false;
+  const drag = obstacleTransformDrag;
+  let nextPoints = drag.startPoints.map(point => point.slice(0, 3));
+  if (drag.type === "move") {
+    const pointer = screenToViewEditPlane(clientX, clientY, drag.center);
+    if (!pointer) return false;
+    const delta = [
+      pointer[0] - drag.startPointer[0],
+      pointer[1] - drag.startPointer[1],
+      pointer[2] - drag.startPointer[2],
+    ];
+    nextPoints = nextPoints.map(point => [point[0] + delta[0], point[1] + delta[1], point[2] + delta[2]]);
+  } else if (drag.type === "rotate") {
+    const pointer = screenToViewEditPlane(clientX, clientY, obstacleRotateHandlePoint({ points: drag.startPoints }, drag.center) || drag.center);
+    if (!pointer) return false;
+    const angle = Math.atan2(pointer[2] - drag.center[2], pointer[0] - drag.center[0]);
+    const delta = angle - drag.startAngle;
+    const cos = Math.cos(delta);
+    const sin = Math.sin(delta);
+    nextPoints = nextPoints.map(point => {
+      const dx = point[0] - drag.center[0];
+      const dz = point[2] - drag.center[2];
+      return [
+        drag.center[0] + cos * dx - sin * dz,
+        point[1],
+        drag.center[2] + sin * dx + cos * dz,
+      ];
+    });
+  }
+  replaceObstacleInCurrentMap(drag.obstacleId, obstacle => ({
+    ...obstacle,
+    points: nextPoints,
+    bounds: obstacleBoundsFromPoints(nextPoints, 0),
+  }));
+  obstacleDragMoved = true;
+  updateObstacleStatus(`${drag.type === "move" ? "Object moved" : "Object rotated"}. Release to save.`, "busy");
+  updateMissionStatus();
+  return true;
+}
+
+function saveDraggedObstacleTransform() {
+  if (!obstacleTransformDrag) return;
+  const hit = obstacleTransformDrag;
+  obstacleTransformDrag = null;
+  obstacleTransformHover = null;
+  obstacleClickSuppress = true;
+  if (obstacleDragMoved) {
+    obstacleDragMoved = false;
+    selectedObstacleId = hit.obstacleId;
+    saveSafetyObstacles(mapSafetyObstacles());
+  } else {
+    setSelectedObstacle(hit.obstacleId);
+  }
+}
+
 function hitKey(hit) {
   if (!hit) return "";
   return `${hit.type || "corner"}:${hit.barrierId}:${hit.cornerIndex ?? ""}`;
@@ -3467,7 +7160,7 @@ function updateBarrierHover(clientX, clientY) {
 function clearBarrierHover() {
   barrierCornerHover = null;
   barrierTransformHover = null;
-  canvas.style.cursor = missionSelecting ? "crosshair" : "";
+  canvas.style.cursor = missionSelecting || patrolSelecting ? "crosshair" : "";
 }
 
 function barrierPayloadForSave(barrier) {
@@ -3482,6 +7175,9 @@ function barrierPayloadForSave(barrier) {
     corners,
     height_m: Math.max(0.25, Math.min(8, Math.max(...ys) - Math.min(...ys) || barrier.height_m || 1.8)),
     clearance_m: barrier.clearance_m,
+    color: sanitizeHexColor(barrier.color || selectedBarrierColor(), "#cfd8df"),
+    opacity: Math.max(0.05, Math.min(0.95, Number(barrier.opacity ?? selectedBarrierOpacity()))),
+    created_at: barrier.created_at,
   };
 }
 
@@ -3496,7 +7192,9 @@ function replaceBarrierInCurrentMap(barrierId, updater) {
   const libEntry = (mapLibraryData.maps || []).find(m => m.id === currentMapEntry?.id);
   if (libEntry) libEntry.safety_barriers = next;
   plannedMission = null;
+  plannedPatrol = null;
   renderMissionCommands([]);
+  renderPatrolCommands([]);
   invalidateStaticLayer();
   return next;
 }
@@ -3724,6 +7422,52 @@ function saveDraggedBarrierTransform() {
 }
 
 function drawGrid() {
+  const box = room?.structureBox;
+  if (box?.bottom?.length === 4) {
+    const bottom = box.bottom;
+    const floorY = bottom.reduce((sum, p) => sum + p[1], 0) / bottom.length;
+    const u0 = bottom[0];
+    const u1 = bottom[1];
+    const v1 = bottom[3];
+    const uSpan = norm(sub(u1, u0));
+    const vSpan = norm(sub(v1, u0));
+    const step = Math.max(0.25, Math.pow(10, Math.floor(Math.log10(Math.max(uSpan, vSpan) / 8))));
+    const uCount = Math.max(2, Math.ceil(uSpan / step));
+    const vCount = Math.max(2, Math.ceil(vSpan / step));
+
+    for (let i = 0; i <= uCount; i++) {
+      const t = i / uCount;
+      const a = lerpVec(bottom[0], bottom[1], t);
+      const b = lerpVec(bottom[3], bottom[2], t);
+      a[1] = floorY;
+      b[1] = floorY;
+      const major = i % 5 === 0 || i === uCount;
+      drawLine(a, b, major ? "rgba(75,205,255,0.16)" : "rgba(75,205,255,0.07)", major ? 1.2 : 0.8);
+    }
+    for (let i = 0; i <= vCount; i++) {
+      const t = i / vCount;
+      const a = lerpVec(bottom[0], bottom[3], t);
+      const b = lerpVec(bottom[1], bottom[2], t);
+      a[1] = floorY;
+      b[1] = floorY;
+      const major = i % 5 === 0 || i === vCount;
+      drawLine(a, b, major ? "rgba(75,205,255,0.16)" : "rgba(75,205,255,0.07)", major ? 1.2 : 0.8);
+    }
+
+    const xStart = lerpVec(bottom[0], bottom[3], 0.08);
+    const xEnd = lerpVec(bottom[1], bottom[2], 0.08);
+    const zStart = lerpVec(bottom[0], bottom[1], 0.08);
+    const zEnd = lerpVec(bottom[3], bottom[2], 0.08);
+    xStart[1] = floorY; xEnd[1] = floorY;
+    zStart[1] = floorY; zEnd[1] = floorY;
+    drawLine(xStart, xEnd, "rgba(255,105,140,0.82)", 2);
+    drawLine(zStart, zEnd, "rgba(91,169,255,0.82)", 2);
+    drawLine(bottom[0], [bottom[0][0], floorY + Math.max(0.2, (room.bounds.max[1] - room.bounds.min[1]) * 0.2), bottom[0][2]], "rgba(105,218,255,0.82)", 2);
+    drawLabel(lerpVec(xStart, xEnd, 0.72), "room X", "#ff9db5");
+    drawLabel(lerpVec(zStart, zEnd, 0.72), "room Z", "#95c7ff");
+    return;
+  }
+
   const b = room.bounds;
   const floorY = room.floorY;
   const sx = b.max[0] - b.min[0];
@@ -3751,20 +7495,24 @@ function drawGrid() {
 }
 
 function drawRoomStructure() {
+  const box = room?.structureBox;
   const b = room?.structureBounds || room?.bounds;
-  if (!b) return;
-  const floorY = Math.max(room.floorY, b.min[1]);
-  const ceilingY = Math.max(floorY + 0.24, b.max[1]);
-
-  const x0 = b.min[0], x1 = b.max[0];
-  const z0 = b.min[2], z1 = b.max[2];
-  const bottom = [
-    [x0, floorY, z0],
-    [x1, floorY, z0],
-    [x1, floorY, z1],
-    [x0, floorY, z1],
-  ];
-  const top = bottom.map(p => [p[0], ceilingY, p[2]]);
+  if (!box && !b) return;
+  let bottom = box?.bottom;
+  let top = box?.top;
+  if (!bottom || !top) {
+    const floorY = Math.max(room.floorY, b.min[1]);
+    const ceilingY = Math.max(floorY + 0.24, b.max[1]);
+    const x0 = b.min[0], x1 = b.max[0];
+    const z0 = b.min[2], z1 = b.max[2];
+    bottom = [
+      [x0, floorY, z0],
+      [x1, floorY, z0],
+      [x1, floorY, z1],
+      [x0, floorY, z1],
+    ];
+    top = bottom.map(p => [p[0], ceilingY, p[2]]);
+  }
   const floorLine = "rgba(65, 190, 255, 0.34)";
   const topLine = "rgba(198, 245, 255, 0.58)";
   const cornerLine = "rgba(120, 220, 255, 0.42)";
@@ -3880,7 +7628,7 @@ function drawRouteMarker(rxyz, radius = 6) {
 }
 
 function liveAcquisitionPoint() {
-  const good = room?.poses?.filter(p => p.success && p.rcenter) || [];
+  const good = room?.poses?.filter(p => isRealPose(p)) || [];
   if (good.length) return good[good.length - 1].rcenter;
   if (room?.mapCameras?.length) {
     const sorted = [...room.mapCameras].sort((a, b) => (a.name || "").localeCompare(b.name || ""));
@@ -3956,7 +7704,7 @@ function routeColorForHeight(rxyz, alpha = 1) {
 }
 
 function drawPath() {
-  const good = room.poses.filter(p => p.success && p.rcenter);
+  const good = room.poses.filter(p => isRealPose(p));
   for (let i = 1; i < good.length; i++) {
     if (canConnectPath(good[i - 1], good[i])) {
       const mid = lerpVec(good[i - 1].rcenter, good[i].rcenter, 0.5);
@@ -3987,6 +7735,17 @@ function drawPath() {
       drawLabel(landGround, "land", "#d8fff2");
     }
   }
+}
+
+function isPatrolPlanningMode() {
+  return Boolean(
+    patrolSelecting ||
+    editingPatrolId ||
+    activePatrolId ||
+    patrolPoints.length ||
+    plannedPatrol ||
+    activeExecutionPatrolRoute
+  );
 }
 
 function pointOnPolyline(points, u) {
@@ -4045,10 +7804,10 @@ function partialPolyline(points, u) {
 }
 
 function headingForPose(cur) {
-  if (cur?.rheading && norm(cur.rheading) > 1e-8) return cur.rheading;
   if (cur?.rotationHeading && norm(cur.rotationHeading) > 1e-8) return cur.rotationHeading;
+  if (cur?.rheading && norm(cur.rheading) > 1e-8) return cur.rheading;
   if (cur?.pathHeading && norm(cur.pathHeading) > 1e-8) return cur.pathHeading;
-  const good = room.poses.filter(p => p.success && p.rcenter);
+  const good = room.poses.filter(p => isRealPose(p));
   const idx = good.findIndex(p => p.instance_id === cur.instance_id);
   if (idx >= 0) {
     const prev = good[Math.max(0, idx - 1)]?.rcenter;
@@ -4078,7 +7837,7 @@ function rotateHorizontalHeading(heading, yaw) {
 }
 
 function droneVisualHeading(heading) {
-  return normalize(rotateHorizontalHeading(heading, DRONE_VISUAL_YAW_OFFSET));
+  return normalize(rotateHorizontalHeading(heading, DRONE_VISUAL_YAW_OFFSET + selectedDroneHeadingTrimRad()));
 }
 
 function drawDroneIcon(rxyz, heading = [1, 0, 0]) {
@@ -4358,6 +8117,7 @@ function buildStaticLayerKey() {
     axis.z.toFixed(3),
     view.showPoints ? "points" : "frame",
     view.showCameras ? "cameras" : "no-cameras",
+    isPatrolPlanningMode() ? "patrol-plan" : "replay-route",
     isFastInteraction() ? "fast" : "full",
   ].join("|");
 }
@@ -4384,7 +8144,7 @@ function drawStaticLayer(rect, dpr) {
         drawPoints();
       }
       if (view.showCameras) drawMapCameras();
-      drawPath();
+      if (!isPatrolPlanningMode()) drawPath();
     } finally {
       ctx = liveCtx;
     }
@@ -4504,7 +8264,7 @@ function renderStartPreview() {
     pctx.fillRect(x - 0.7, y - 0.7, 1.4, 1.4);
   }
 
-  const good = room.poses.filter(p => p.success && p.rcenter);
+  const good = room.poses.filter(p => isRealPose(p));
   if (good.length > 1) {
     pctx.strokeStyle = "rgba(255,64,92,0.18)";
     pctx.lineWidth = 9;
@@ -4648,10 +8408,17 @@ function render() {
 
   drawStaticLayer(rect, dpr);
   drawSafetyBarriers();
+  drawSafetyObstacles();
+  drawPatrolMission(cur);
   drawMissionTarget(cur);
 
+  if (replayFramePlaybackEnabled) {
+    const framePose = replayFramePoseAt(currentReplayClockTime(room?.poses || []));
+    if (framePose) updateReplayFrameViewForPose(framePose);
+  }
+
   if (cur && cur.rcenter) {
-    updateReplayFrameViewForPose(cur);
+    if (!replayFramePlaybackEnabled) updateReplayFrameViewForPose(cur);
     drawRouteMarker(cur.rcenter, 12);
     if (window.directDroneOverlayInstalled === false && !window.directDroneModelReady) {
       drawDroneIcon(cur.rcenter, headingForPose(cur));
@@ -4680,8 +8447,7 @@ function render() {
 }
 
 async function loadViewerData(resetView = false, entry = null) {
-  pathPlaybackActive = false;
-  replayFramePlaybackEnabled = false;
+  stopPoseClockPlayback();
   currentMapEntry = entry || selectedMap() || currentMapEntry || {
     id: "default_demo",
     asset_base: "public",
@@ -4712,11 +8478,16 @@ async function loadViewerData(resetView = false, entry = null) {
   const sourceLine = mapSourceLine();
   const activeReplayLine = replay ? `Active drone path: ${replay.title || "Drone Path"}<br>` : "Active drone path: none<br>";
   const quality = room.poseQuality || {};
-  const accepted = Number(quality.accepted ?? poses.filter(p => p.success).length ?? 0);
-  const rejected = Number(quality.rejected ?? 0);
+  const accepted = Number(quality.accepted ?? poses.filter(p => p.success && !p.held_pose).length ?? 0);
+  const held = Number(replay?.counts?.held ?? poses.filter(p => p.held_pose).length ?? 0);
+  const failed = Number(replay?.counts?.failed ?? poses.filter(p => p.success === false).length ?? 0);
+  const frameCount = Number(replay?.counts?.frames ?? poses.length ?? 0);
+  const qualityNotes = [held ? `${held} held` : "", failed ? `${failed} failed` : ""].filter(Boolean).join(", ");
   const replayLine = liveReplayInFlight
     ? `Live TSolve initializing${accepted ? `: ${accepted} accepted` : ""}`
-    : (poses.length ? `${accepted}/${poses.length} live TSolve R,t updates` : "No TSolve live replay yet");
+    : (poses.length
+      ? `${accepted}/${frameCount || poses.length} real TSolve R,t updates${qualityNotes ? ` (${qualityNotes})` : ""}`
+      : "No TSolve live replay yet");
   const streamLine = liveReplayInFlight
     ? "Live replay processing: waiting for exported R,t stream"
     : (poses.length ? "MP4 stream replay drives pose time" : "Upload drone video to localize online");
@@ -4730,7 +8501,7 @@ async function loadViewerData(resetView = false, entry = null) {
     video.removeAttribute("src");
     video.load();
     lastReplayFrameUrl = "";
-    const firstPose = sortedTimedPoses(poses)[0] || poses.find(p => p?.success && (p.rcenter || p.center)) || poses[0];
+    const firstPose = firstPlayableReplayPose();
     if (!updateReplayFrameViewForPose(firstPose, { force: true })) {
       setLiveFrameMode(true);
       setLiveFrameStatus("Saved live path has poses, but its query-frame image could not be resolved.", true);
@@ -4753,23 +8524,31 @@ async function loadViewerData(resetView = false, entry = null) {
   }
   if (resetView) setView("iso");
   renderReplayTabs();
+  renderSavedPatrols();
   renderBarrierList();
+  renderObstacleList();
   renderStartPreview();
 }
 
 async function init() {
   await refreshMapLibrary();
+  await refreshEnemyLibrary();
   await loadViewerData(true);
   renderStarted = true;
   updateNavState();
   setupLiveControlDrag();
+  setLiveControlPinned(storedLiveControlPinned());
   updateFlightControlState();
+  updatePatrolStatus();
   renderBarrierList();
+  renderObstacleList();
+  renderSavedPatrols();
   render();
 }
 
 function screenTitle(screen) {
   if (screen === "modal") return "Create Map";
+  if (screen === "enemy") return "Enemy Drone Lab";
   return "";
 }
 
@@ -4784,11 +8563,12 @@ function rememberScreen(target) {
 
 function showDemo(options = {}) {
   if (options.push !== false) rememberScreen("demo");
-  document.body.classList.remove("show-start");
+  document.body.classList.remove("show-start", "show-enemy");
   document.body.classList.add("show-demo");
   mapModal?.classList.add("hidden");
   demoApp?.setAttribute("aria-hidden", "false");
   startPage?.setAttribute("aria-hidden", "true");
+  enemyPage?.setAttribute("aria-hidden", "true");
   currentScreen = "demo";
   updateNavState();
   setView("iso");
@@ -4805,15 +8585,30 @@ function showDemo(options = {}) {
 function showLibrary(options = {}) {
   if (options.push !== false) rememberScreen("start");
   video.pause();
-  document.body.classList.remove("show-demo");
+  document.body.classList.remove("show-demo", "show-enemy");
   document.body.classList.add("show-start");
   mapModal?.classList.add("hidden");
   demoApp?.setAttribute("aria-hidden", "true");
   startPage?.setAttribute("aria-hidden", "false");
+  enemyPage?.setAttribute("aria-hidden", "true");
   currentScreen = "start";
   updateNavState();
   renderMapLibrary();
   renderStartPreview();
+}
+
+function showEnemyLab(options = {}) {
+  if (options.push !== false) rememberScreen("enemy");
+  video.pause();
+  document.body.classList.remove("show-start", "show-demo");
+  document.body.classList.add("show-enemy");
+  mapModal?.classList.add("hidden");
+  demoApp?.setAttribute("aria-hidden", "true");
+  startPage?.setAttribute("aria-hidden", "true");
+  enemyPage?.setAttribute("aria-hidden", "false");
+  currentScreen = "enemy";
+  updateNavState();
+  runUi(refreshEnemyLibrary);
 }
 
 async function selectMap(mapId, openAfter = false) {
@@ -4821,8 +8616,20 @@ async function selectMap(mapId, openAfter = false) {
   if (data.state?.library) mapLibraryData = data.state.library;
   else await refreshMapLibrary();
   currentMapEntry = selectedMap();
+  patrolPoints = [];
+  patrolPointSafetyIssues = new Map();
+  plannedPatrol = null;
+  activeExecutionPatrolRoute = null;
+  patrolSelecting = false;
+  patrolDraggingIndex = -1;
+  editingPatrolId = null;
+  activePatrolId = null;
+  renderPatrolCommands([]);
+  editPatrolButton?.classList.remove("active");
+  patrolControlPanel?.classList.remove("is-selecting");
   renderMapLibrary();
   renderReplayTabs();
+  renderSavedPatrols();
   await loadViewerData(false, currentMapEntry);
   uploadStatus.textContent = `Selected map: ${currentMapEntry?.title || mapId}`;
   if (openAfter) showDemo();
@@ -4889,6 +8696,8 @@ async function renameMap(mapId) {
 canvas.addEventListener("mousedown", e => {
   const cornerHit = barrierCornerHit(e.clientX, e.clientY);
   if (cornerHit) {
+    setSelectedBarrier(cornerHit.barrierId);
+    pushWallUndoSnapshot();
     barrierCornerDrag = cornerHit;
     barrierCornerHover = cornerHit;
     barrierTransformHover = null;
@@ -4902,6 +8711,8 @@ canvas.addEventListener("mousedown", e => {
   }
   const transformHit = barrierTransformHit(e.clientX, e.clientY);
   if (transformHit && startBarrierTransformDrag(transformHit, e.clientX, e.clientY)) {
+    setSelectedBarrier(transformHit.barrierId);
+    pushWallUndoSnapshot();
     barrierCornerHover = null;
     barrierTransformHover = transformHit;
     dragging = false;
@@ -4916,9 +8727,66 @@ canvas.addEventListener("mousedown", e => {
     );
     return;
   }
+  const obstacleHit = obstaclePointHit(e.clientX, e.clientY);
+  if (obstacleHit?.deleteHit) {
+    obstacleClickSuppress = true;
+    if (!obstacleHit.draft) pushObstacleUndoSnapshot();
+    deleteObstaclePoint(obstacleHit);
+    markFastInteraction(140);
+    return;
+  }
+  if (obstacleHit) {
+    setSelectedObstacle(obstacleHit.obstacleId === "draft_obstacle" ? null : obstacleHit.obstacleId);
+    if (!obstacleHit.draft) pushObstacleUndoSnapshot();
+    obstaclePointDrag = obstacleHit;
+    obstaclePointHover = obstacleHit;
+    obstacleDragMoved = false;
+    dragging = false;
+    missionDraggingTarget = false;
+    canvas.style.cursor = "grabbing";
+    markFastInteraction(120);
+    updateObstacleStatus("Drag this object point. Top view edits X/Z; side views edit visible horizontal/height plane.", "busy");
+    return;
+  }
+  const obstacleTransformHitResult = obstacleTransformHit(e.clientX, e.clientY);
+  if (obstacleTransformHitResult && startObstacleTransformDrag(obstacleTransformHitResult, e.clientX, e.clientY)) {
+    setSelectedObstacle(obstacleTransformHitResult.obstacleId);
+    pushObstacleUndoSnapshot();
+    obstaclePointHover = null;
+    obstacleTransformHover = obstacleTransformHitResult;
+    dragging = false;
+    missionDraggingTarget = false;
+    canvas.style.cursor = "grabbing";
+    markFastInteraction(120);
+    updateObstacleStatus(
+      obstacleTransformHitResult.type === "move"
+        ? "Drag the center handle to move this object."
+        : "Drag the diamond handle to rotate this object around the vertical axis.",
+      "busy",
+    );
+    return;
+  }
   if (barrierEditing) {
     dragging = false;
     markFastInteraction(120);
+    return;
+  }
+  const patrolHit = patrolPointHitInfo(e.clientX, e.clientY);
+  if (patrolHit?.deleteHit) {
+    deletePatrolPoint(patrolHit.index);
+    patrolDragMoved = true;
+    dragging = false;
+    missionDraggingTarget = false;
+    markFastInteraction(160);
+    return;
+  }
+  if (patrolHit && patrolHit.index >= 0) {
+    patrolDraggingIndex = patrolHit.index;
+    patrolDragMoved = false;
+    dragging = false;
+    missionDraggingTarget = false;
+    markFastInteraction(120);
+    updatePatrolStatus(`Drag patrol point ${patrolHit.index + 1}. Top view edits X/Z; side views edit horizontal/height view plane.`, "busy");
     return;
   }
   if (missionTargetHit(e.clientX, e.clientY)) {
@@ -4940,12 +8808,24 @@ window.addEventListener("mouseup", () => {
   if (barrierTransformDrag) {
     saveDraggedBarrierTransform();
   }
+  if (obstaclePointDrag) {
+    saveDraggedObstaclePoint();
+  }
+  if (obstacleTransformDrag) {
+    saveDraggedObstacleTransform();
+  }
   if (missionDraggingTarget) {
     missionDraggingTarget = false;
     updateMissionStatus();
   }
+  if (patrolDraggingIndex >= 0) {
+    patrolDraggingIndex = -1;
+    updatePatrolStatus();
+  }
   dragging = false;
-  canvas.style.cursor = barrierCornerHover || barrierTransformHover ? "grab" : (missionSelecting ? "crosshair" : "");
+  canvas.style.cursor = barrierCornerHover || barrierTransformHover || obstaclePointHover || obstacleTransformHover || patrolPointHover
+    ? "grab"
+    : (missionSelecting || patrolSelecting ? "crosshair" : "");
   markFastInteraction(160);
 });
 window.addEventListener("mousemove", e => {
@@ -4959,13 +8839,31 @@ window.addEventListener("mousemove", e => {
     updateBarrierTransformFromPointer(e.clientX, e.clientY);
     return;
   }
+  if (obstaclePointDrag) {
+    markFastInteraction(120);
+    updateObstaclePointFromPointer(e.clientX, e.clientY);
+    return;
+  }
+  if (obstacleTransformDrag) {
+    markFastInteraction(120);
+    updateObstacleTransformFromPointer(e.clientX, e.clientY);
+    return;
+  }
   if (missionDraggingTarget) {
     missionDragMoved = true;
     markFastInteraction(120);
     updateMissionTargetFromPointer(e.clientX, e.clientY);
     return;
   }
+  if (patrolDraggingIndex >= 0) {
+    patrolDragMoved = true;
+    markFastInteraction(120);
+    updatePatrolPointFromPointer(e.clientX, e.clientY);
+    return;
+  }
   updateBarrierHover(e.clientX, e.clientY);
+  updateObstaclePointHover(e.clientX, e.clientY);
+  updatePatrolPointHover(e.clientX, e.clientY);
   if (!dragging) return;
   markFastInteraction(220);
   view.yaw += (e.clientX - last.x) * 0.006;
@@ -4975,6 +8873,11 @@ window.addEventListener("mousemove", e => {
 });
 canvas.addEventListener("mouseleave", () => {
   if (!barrierCornerDrag && !barrierTransformDrag) clearBarrierHover();
+  if (!obstaclePointDrag && !obstacleTransformDrag) {
+    obstaclePointHover = null;
+    obstacleTransformHover = null;
+  }
+  if (patrolDraggingIndex < 0) patrolPointHover = null;
 });
 canvas.addEventListener("wheel", e => {
   e.preventDefault();
@@ -4987,12 +8890,33 @@ canvas.addEventListener("click", e => {
     barrierClickSuppress = false;
     return;
   }
+  if (obstacleClickSuppress) {
+    obstacleClickSuppress = false;
+    return;
+  }
   if (barrierDragMoved) {
     barrierDragMoved = false;
     return;
   }
+  if (obstacleDragMoved) {
+    obstacleDragMoved = false;
+    return;
+  }
   if (missionDragMoved) {
     missionDragMoved = false;
+    return;
+  }
+  if (patrolDragMoved) {
+    patrolDragMoved = false;
+    return;
+  }
+  if (obstacleEditing) {
+    const picked = nearestVisibleMapPoint(e.clientX, e.clientY);
+    if (!picked?.rxyz) {
+      updateObstacleStatus("No visible map point under the cursor. Pick a point on the object surface.", "error");
+      return;
+    }
+    addObstacleFromPickedPoint(picked);
     return;
   }
   if (barrierEditing) {
@@ -5002,6 +8926,19 @@ canvas.addEventListener("click", e => {
       return;
     }
     addBarrierFromPickedPoint(picked);
+    return;
+  }
+  if (patrolSelecting) {
+    const picked = nearestVisibleMapPoint(e.clientX, e.clientY);
+    if (!picked?.rxyz) {
+      updatePatrolStatus("No visible map point under the cursor. Try a denser point area.", "error");
+      return;
+    }
+    patrolPoints.push({ rxyz: picked.rxyz, rgb: picked.rgb || null });
+    plannedPatrol = null;
+    renderPatrolCommands([]);
+    updatePatrolStatus();
+    updateFlightControlState();
     return;
   }
   if (!missionSelecting) return;
@@ -5023,6 +8960,56 @@ document.querySelector(".map-card.selected")?.addEventListener("dblclick", showD
 document.getElementById("back-library").addEventListener("click", showLibrary);
 navBack?.addEventListener("click", goBack);
 atlasHome?.addEventListener("click", goHome);
+enemyLabButton?.addEventListener("click", () => showEnemyLab());
+enemyRefreshButton?.addEventListener("click", () => runUi(refreshEnemyLibrary));
+enemyUploadSubmit?.addEventListener("click", () => runUi(uploadEnemyCalibration));
+enemyPrepareAllButton?.addEventListener("click", () => runUi(() => prepareEnemyYoloDataset("")));
+enemyTrainModelButton?.addEventListener("click", () => runUi(trainEnemyYoloModel));
+enemyVideoUpload?.addEventListener("change", () => {
+  const files = [...(enemyVideoUpload.files || [])];
+  if (!enemyUploadStatus) return;
+  enemyUploadStatus.textContent = files.length
+    ? `${files.length} calibration video${files.length === 1 ? "" : "s"} selected.`
+    : "No upload selected.";
+});
+enemyAnnotationProfile?.addEventListener("change", () => {
+  selectEnemyProfile(enemyAnnotationProfile.value);
+});
+enemyExtractFramesButton?.addEventListener("click", () => runUi(() => extractEnemyFrames(selectedEnemyId)));
+enemySaveBoxButton?.addEventListener("click", () => runUi(() => saveEnemyFrameLabel("labeled")));
+enemyTrackBoxButton?.addEventListener("click", () => runUi(autoTrackEnemyLabels));
+enemySkipFrameButton?.addEventListener("click", () => runUi(() => saveEnemyFrameLabel("skipped")));
+enemyClearBoxButton?.addEventListener("click", () => {
+  enemyBoxDraft = null;
+  drawEnemyAnnotationCanvas();
+});
+enemyConfirmLockButton?.addEventListener("click", () => runUi(confirmEnemyLockOn));
+enemyClearAlertButton?.addEventListener("click", clearEnemyAlert);
+enemyCopyPrevBoxButton?.addEventListener("click", copyPreviousEnemyBox);
+enemyAnnotationCanvas?.addEventListener("pointerdown", event => {
+  const start = enemyNormalizedPoint(enemyCanvasPoint(event));
+  if (!start) return;
+  enemyBoxDrag = { start, end: start };
+  enemyAnnotationCanvas.setPointerCapture(event.pointerId);
+});
+enemyAnnotationCanvas?.addEventListener("pointermove", event => {
+  if (!enemyBoxDrag) return;
+  const end = enemyNormalizedPoint(enemyCanvasPoint(event));
+  if (!end) return;
+  enemyBoxDrag.end = end;
+  enemyBoxDraft = enemyBoxFromCorners(enemyBoxDrag.start, end);
+  drawEnemyAnnotationCanvas();
+});
+enemyAnnotationCanvas?.addEventListener("pointerup", event => {
+  if (enemyAnnotationCanvas.hasPointerCapture(event.pointerId)) {
+    enemyAnnotationCanvas.releasePointerCapture(event.pointerId);
+  }
+  enemyBoxDrag = null;
+  drawEnemyAnnotationCanvas();
+});
+enemyAnnotationCanvas?.addEventListener("pointercancel", () => {
+  enemyBoxDrag = null;
+});
 document.getElementById("start").addEventListener("click", event => {
   event.preventDefault();
   playCurrentReplay();
@@ -5054,9 +9041,16 @@ document.getElementById("flip-z")?.addEventListener("click", () => runUi(async (
 selectTargetButton?.addEventListener("click", () => {
   barrierEditing = false;
   barrierDraft = null;
+  obstacleEditing = false;
+  obstacleDraft = null;
+  patrolSelecting = false;
   addBarrierButton?.classList.remove("active");
+  addObstacleButton?.classList.remove("active");
+  editPatrolButton?.classList.remove("active");
+  patrolControlPanel?.classList.remove("is-selecting");
   if (cancelBarrierButton) cancelBarrierButton.disabled = true;
   updateBarrierStatus();
+  updateObstacleStatus();
   missionSelecting = !missionSelecting;
   selectTargetButton.classList.toggle("active", missionSelecting);
   updateMissionStatus();
@@ -5070,7 +9064,7 @@ clearTargetButton?.addEventListener("click", () => {
   updateMissionStatus();
 });
 planMissionButton?.addEventListener("click", planMissionPreview);
-startMissionButton?.addEventListener("click", () => {
+startMissionButton?.addEventListener("click", async () => {
   if (!firstLocalizationConfirmed) {
     updateMissionStatus("Confirm the first TSolve localization before confirming a mission.");
     return;
@@ -5083,6 +9077,19 @@ startMissionButton?.addEventListener("click", () => {
     updateMissionStatus("Select a destination before starting guided patrol.");
     return;
   }
+  const lockReason = liveMovementLockReason();
+  if (lockReason) {
+    updateMissionStatus(lockReason);
+    setDjiCommandStatus(lockReason, "error");
+    updateFlightControlState();
+    return;
+  }
+  if (!guidedMotionArmed()) {
+    updateMissionStatus("Enable guided movement after confirming the first TSolve pose before sending movement commands.");
+    setDjiCommandStatus("Guided movement is not armed. Confirm localization, then enable guided movement.", "error");
+    updateFlightControlState();
+    return;
+  }
   planMissionPreview();
   const safety = plannedMission?.route_segments?.length
     ? missionRouteSafetyCheck(plannedMission.route_segments)
@@ -5090,14 +9097,160 @@ startMissionButton?.addEventListener("click", () => {
   if (safety.blocked) {
     plannedMission = null;
     renderMissionCommands([]);
-    updateMissionStatus(`Mission blocked by safety wall. ${safety.reason}`);
+    updateMissionStatus(`Mission blocked by a safety barrier. ${safety.reason}`);
     updateFlightControlState();
     return;
   }
   plannedMission.commands = buildMissionCommandPlan(plannedMission);
   renderMissionCommands(plannedMission.commands);
   const commandCount = plannedMission.commands?.length || 0;
-  updateMissionStatus(`Mission command plan confirmed: ${commandCount} slow guarded steps are visible below. Takeoff, land, and hover are live; lateral autonomous movement remains locked until the TSolve-to-RC follower is calibrated indoors.`);
+  if (!commandCount) {
+    updateMissionStatus("Mission plan has no executable steps. Re-plan after selecting a destination.");
+    return;
+  }
+  const speed = missionCommandSpeed(plannedMission.speed || missionSpeedSelect?.value);
+  const ok = window.confirm(
+    `Send a guarded indoor mission to the DJI bridge?\n\n` +
+    `ATLAS will send very small yaw/forward/vertical pulses only while fresh TSolve poses keep arriving.\n` +
+    `Patrol speed: ${speed.toFixed(2)} m/s.\n` +
+    `Keep the physical controller ready. Hover Now remains available.\n\nContinue?`
+  );
+  if (!ok) return;
+  updateMissionStatus(`Mission confirmed. Sending ${commandCount} guarded steps to the live DJI bridge...`);
+  try {
+    const result = await sendDjiFlightCommand("mission", {
+      mission: {
+        guided_enabled: true,
+        pose_max_age_seconds: 2.5,
+        pose_recovery_seconds: 45.0,
+        pulse_seconds: 0.30,
+        max_forward_rc: 0.042,
+        max_lateral_rc: 0.032,
+        allow_lateral_rc: true,
+        allow_axis_auto_calibration: true,
+        axis_probe_rc: 0.032,
+        axis_probe_seconds: 0.48,
+        max_yaw_rc: 0.020,
+        max_vertical_rc: 0.022,
+        max_step_seconds: 2.4,
+        max_cruise_seconds: 120.0,
+        arrival_radius_map_units: 0.34,
+        arrival_deadband_map_units: 0.16,
+        map_id: currentMapEntry?.id || null,
+        map_title: currentMapEntry?.title || null,
+        replay_id: activeReplay(currentMapEntry)?.id || null,
+        target: plannedMission.target,
+        approach: plannedMission.approach,
+        route: plannedMission.route,
+        route_segments: plannedMission.route_segments,
+        speed: plannedMission.speed,
+        profile: plannedMission.profile,
+        commands: plannedMission.commands,
+        safety_barriers: mapSafetyBarriers(),
+        safety_obstacles: mapSafetyObstacles(),
+        barrier_clearance_m: selectedBarrierClearance(),
+        heading_trim_deg: 0,
+        confirmed_at: new Date().toISOString(),
+      },
+    });
+    const bridgeMessage = result.result?.message || result.message || "Mission packet queued.";
+    const pendingMessage = `${bridgeMessage} ${commandCount} guarded steps are visible below. Waiting for DJI bridge acknowledgement.`;
+    updateMissionStatus(pendingMessage);
+    setDjiCommandStatus(pendingMessage, "busy");
+  } catch (error) {
+    updateMissionStatus(`Mission command failed: ${error.message}`);
+    setDjiCommandStatus(`Mission command failed: ${error.message}`, "error");
+  }
+});
+editPatrolButton?.addEventListener("click", () => {
+  barrierEditing = false;
+  barrierDraft = null;
+  obstacleEditing = false;
+  obstacleDraft = null;
+  missionSelecting = false;
+  addBarrierButton?.classList.remove("active");
+  addObstacleButton?.classList.remove("active");
+  selectTargetButton?.classList.remove("active");
+  if (cancelBarrierButton) cancelBarrierButton.disabled = true;
+  patrolSelecting = !patrolSelecting;
+  editPatrolButton.classList.toggle("active", patrolSelecting);
+  patrolControlPanel?.classList.toggle("is-selecting", patrolSelecting);
+  updateBarrierStatus();
+  updateObstacleStatus();
+  updateMissionStatus();
+  updatePatrolStatus();
+  invalidateStaticLayer();
+});
+newPatrolButton?.addEventListener("click", () => {
+  barrierEditing = false;
+  barrierDraft = null;
+  obstacleEditing = false;
+  obstacleDraft = null;
+  missionSelecting = false;
+  addBarrierButton?.classList.remove("active");
+  addObstacleButton?.classList.remove("active");
+  selectTargetButton?.classList.remove("active");
+  if (cancelBarrierButton) cancelBarrierButton.disabled = true;
+  newPatrolDraft();
+});
+clearPatrolButton?.addEventListener("click", () => {
+  patrolPoints = [];
+  patrolPointSafetyIssues = new Map();
+  plannedPatrol = null;
+  editingPatrolId = null;
+  activePatrolId = null;
+  patrolSelecting = false;
+  patrolDraggingIndex = -1;
+  editPatrolButton?.classList.remove("active");
+  patrolControlPanel?.classList.remove("is-selecting");
+  renderPatrolCommands([]);
+  renderSavedPatrols();
+  invalidateStaticLayer();
+  updatePatrolStatus();
+});
+validatePatrolButton?.addEventListener("click", () => {
+  validatePatrolPreview(false);
+});
+startPatrolButton?.addEventListener("click", async () => {
+  await savePatrolDraft();
+});
+stopPatrolButton?.addEventListener("click", async () => {
+  if (!liveLocalizationStarted()) {
+    updatePatrolStatus("Start live localization before using Stop Patrol.", "error");
+    return;
+  }
+  try {
+    setDjiCommandStatus("Sending immediate hover before return planning...", "busy");
+    await sendDjiFlightCommand("hover", { patrol_stop: true, emergency_stop: true });
+  } catch (error) {
+    setDjiCommandStatus(`Stop hover failed: ${error.message || error}`, "error");
+    return;
+  }
+
+  const { plan, error } = buildPatrolReturnToStartPlan();
+  if (error) {
+    updatePatrolStatus(`Drone is holding. Return-to-start was not sent: ${error}`, "error");
+    setDjiCommandStatus(`Drone is holding. Return-to-start was not sent: ${error}`, "error");
+    return;
+  }
+  const ok = window.confirm(
+    `Patrol stopped and hover was sent.\n\nReturn to patrol start using a slow guarded path?\n\n` +
+    `Distance: ${plan.distance.toFixed(2)} map units\n` +
+    `Landing will NOT be automatic. Press Land only after confirming the drone is above a safe landing area.`,
+  );
+  if (!ok) {
+    updatePatrolStatus("Drone is holding. Return-to-start was cancelled by user confirmation.", "busy");
+    return;
+  }
+  await sendPatrolToBridge(plan, "return to patrol start");
+});
+[patrolSpeedSelect, patrolAltitudeInput, patrolDwellSelect, patrolScanModeSelect, patrolModeSelect, patrolLoopInput].forEach(control => {
+  control?.addEventListener("change", () => {
+    plannedPatrol = null;
+    renderPatrolCommands([]);
+    if (patrolPoints.length >= 2) validatePatrolPreview(false);
+    else updatePatrolStatus();
+  });
 });
 addBarrierButton?.addEventListener("click", () => {
   if (barrierUnsaved) {
@@ -5107,14 +9260,24 @@ addBarrierButton?.addEventListener("click", () => {
   barrierEditing = true;
   barrierAdjusting = false;
   barrierDraft = null;
+  obstacleEditing = false;
+  obstacleDraft = null;
   missionSelecting = false;
+  patrolSelecting = false;
   plannedMission = null;
+  plannedPatrol = null;
   renderMissionCommands([]);
+  renderPatrolCommands([]);
   selectTargetButton?.classList.remove("active");
+  editPatrolButton?.classList.remove("active");
+  patrolControlPanel?.classList.remove("is-selecting");
   addBarrierButton.classList.add("active");
+  addObstacleButton?.classList.remove("active");
   if (cancelBarrierButton) cancelBarrierButton.disabled = false;
   updateBarrierAdjustControls();
+  updateObstacleControls();
   updateBarrierStatus();
+  updateObstacleStatus();
   updateMissionStatus();
 });
 adjustWallsButton?.addEventListener("click", () => {
@@ -5144,6 +9307,7 @@ saveWallAdjustmentsButton?.addEventListener("click", () => {
   if (!barrierUnsaved) return;
   saveSafetyBarriers(mapSafetyBarriers().map(barrierPayloadForSave));
 });
+undoWallEditButton?.addEventListener("click", undoWallEdit);
 cancelBarrierButton?.addEventListener("click", () => {
   if (barrierUnsaved) {
     barrierUnsaved = false;
@@ -5167,9 +9331,141 @@ cancelBarrierButton?.addEventListener("click", () => {
 clearBarriersButton?.addEventListener("click", () => {
   if (!mapSafetyBarriers().length) return;
   if (!window.confirm("Clear all manual safety walls for this 3D map?")) return;
+  pushWallUndoSnapshot();
   plannedMission = null;
+  plannedPatrol = null;
   renderMissionCommands([]);
+  renderPatrolCommands([]);
   saveSafetyBarriers([]);
+});
+barrierClearanceInput?.addEventListener("change", () => {
+  if (!selectedBarrierId) return;
+  pushWallUndoSnapshot();
+  updateSelectedBarrierPatch({ clearance_m: selectedBarrierClearance() });
+});
+barrierColorInput?.addEventListener("change", () => {
+  if (!selectedBarrierId) return;
+  pushWallUndoSnapshot();
+  updateSelectedBarrierPatch({ color: selectedBarrierColor() });
+});
+barrierOpacityInput?.addEventListener("input", () => {
+  if (!selectedBarrierId) return;
+  updateSelectedBarrierPatch({ opacity: selectedBarrierOpacity() }, false);
+});
+barrierOpacityInput?.addEventListener("change", () => {
+  if (!selectedBarrierId) return;
+  pushWallUndoSnapshot();
+  updateSelectedBarrierPatch({ opacity: selectedBarrierOpacity() }, true);
+});
+safetyTabWallsButton?.addEventListener("click", () => setSafetyBarrierMode("walls"));
+safetyTabObstaclesButton?.addEventListener("click", () => setSafetyBarrierMode("obstacles"));
+addObstacleButton?.addEventListener("click", () => {
+  setSafetyBarrierMode("obstacles");
+  obstacleEditing = true;
+  obstacleDraft = {
+    id: `obstacle_${Date.now().toString(36)}`,
+    label: `Obstacle ${mapSafetyObstacles().length + 1}`,
+    points: [],
+    clearance_m: selectedObstacleClearance(),
+    color: selectedObstacleColor(),
+    opacity: selectedObstacleOpacity(),
+  };
+  barrierEditing = false;
+  barrierDraft = null;
+  barrierAdjusting = false;
+  missionSelecting = false;
+  patrolSelecting = false;
+  plannedMission = null;
+  plannedPatrol = null;
+  renderMissionCommands([]);
+  renderPatrolCommands([]);
+  selectTargetButton?.classList.remove("active");
+  editPatrolButton?.classList.remove("active");
+  addBarrierButton?.classList.remove("active");
+  patrolControlPanel?.classList.remove("is-selecting");
+  updateObstacleControls();
+  updateObstacleStatus();
+  updateBarrierStatus();
+  updateMissionStatus();
+});
+finishObstacleButton?.addEventListener("click", finishObstacleDraft);
+undoObstacleEditButton?.addEventListener("click", undoObstacleEdit);
+cancelObstacleButton?.addEventListener("click", () => {
+  obstacleEditing = false;
+  obstacleDraft = null;
+  updateObstacleControls();
+  updateObstacleStatus();
+  invalidateStaticLayer();
+});
+clearObstaclesButton?.addEventListener("click", () => {
+  if (!mapSafetyObstacles().length) return;
+  if (!window.confirm("Clear all finite safety objects for this 3D map?")) return;
+  pushObstacleUndoSnapshot();
+  plannedMission = null;
+  plannedPatrol = null;
+  renderMissionCommands([]);
+  renderPatrolCommands([]);
+  saveSafetyObstacles([]);
+});
+obstacleClearanceInput?.addEventListener("change", () => {
+  if (obstacleDraft) {
+    obstacleDraft.clearance_m = selectedObstacleClearance();
+    updateObstacleStatus();
+    invalidateStaticLayer();
+    return;
+  }
+  if (selectedObstacleId) {
+    pushObstacleUndoSnapshot();
+    updateSelectedObstaclePatch({ clearance_m: selectedObstacleClearance() });
+  }
+});
+obstacleColorInput?.addEventListener("change", () => {
+  if (obstacleDraft) {
+    obstacleDraft.color = selectedObstacleColor();
+    invalidateStaticLayer();
+    return;
+  }
+  if (selectedObstacleId) {
+    pushObstacleUndoSnapshot();
+    updateSelectedObstaclePatch({ color: selectedObstacleColor() });
+  }
+});
+obstacleOpacityInput?.addEventListener("input", () => {
+  if (obstacleDraft) {
+    obstacleDraft.opacity = selectedObstacleOpacity();
+    invalidateStaticLayer();
+    return;
+  }
+  if (selectedObstacleId) updateSelectedObstaclePatch({ opacity: selectedObstacleOpacity() }, false);
+});
+obstacleOpacityInput?.addEventListener("change", () => {
+  if (obstacleDraft) {
+    obstacleDraft.opacity = selectedObstacleOpacity();
+    invalidateStaticLayer();
+    return;
+  }
+  if (selectedObstacleId) {
+    pushObstacleUndoSnapshot();
+    updateSelectedObstaclePatch({ opacity: selectedObstacleOpacity() }, true);
+  }
+});
+clearObstaclePointsButton?.addEventListener("click", () => {
+  if (obstacleDraft) {
+    obstacleDraft.points = [];
+    obstacleDraft.bounds = null;
+    updateObstacleControls();
+    updateObstacleStatus();
+    invalidateStaticLayer();
+    return;
+  }
+  if (!selectedObstacleId) return;
+  const obstacle = mapSafetyObstacles().find(candidate => candidate.id === selectedObstacleId);
+  if (!obstacle) return;
+  if (!window.confirm(`Clear all points from ${obstacle.label}? This removes the object.`)) return;
+  pushObstacleUndoSnapshot();
+  const next = mapSafetyObstacles().filter(candidate => candidate.id !== selectedObstacleId);
+  selectedObstacleId = null;
+  saveSafetyObstacles(next);
 });
 djiTakeoffButton?.addEventListener("click", async () => {
   if (!liveLocalizationStarted()) {
@@ -5202,6 +9498,27 @@ djiLandButton?.addEventListener("click", async () => {
     setDjiCommandStatus(`Land failed: ${err.message || err}`, "error");
   }
 });
+djiEmergencyHoverButton?.addEventListener("click", async () => {
+  if (!liveLocalizationStarted()) {
+    setDjiCommandStatus("Start live localization first so hover is routed through the live bridge.", "error");
+    return;
+  }
+  try {
+    setDjiCommandStatus("Sending emergency hover...", "busy");
+    await sendDjiFlightCommand("hover", { emergency_stop: true });
+    setDjiCommandStatus("Emergency hover sent. Mission movement should pause immediately.", "ok");
+  } catch (err) {
+    setDjiCommandStatus(`Hover failed: ${err.message || err}`, "error");
+  }
+});
+guidedMotionEnable?.addEventListener("change", () => {
+  if (guidedMotionEnable.checked) {
+    setDjiCommandStatus("Guided movement armed. Confirm Mission will send tiny TSolve-gated pulses.", "busy");
+  } else {
+    setDjiCommandStatus("Guided movement disarmed. Mission commands are locked.", "");
+  }
+  updateFlightControlState();
+});
 confirmLocalizationButton?.addEventListener("click", () => {
   if (!firstConfirmedPoseReady()) {
     updateFlightControlState();
@@ -5214,6 +9531,8 @@ confirmLocalizationButton?.addEventListener("click", () => {
   } else {
     updateMissionStatus("Localization confirmed. Pick a COLMAP point destination.");
   }
+  if (patrolPoints.length >= 2) validatePatrolPreview(false);
+  else updatePatrolStatus();
   updateFlightControlState();
 });
 togglePointsButton?.addEventListener("click", () => {
@@ -5246,9 +9565,12 @@ function openMapModal(options = {}) {
 
 function closeMapModal(options = {}) {
   mapModal?.classList.add("hidden");
-  const fallback = document.body.classList.contains("show-demo") ? "demo" : "start";
+  const fallback = document.body.classList.contains("show-demo")
+    ? "demo"
+    : (document.body.classList.contains("show-enemy") ? "enemy" : "start");
   const target = options.pop === false ? fallback : (screenHistory.pop() || fallback);
   if (target === "demo") showDemo({ push: false });
+  else if (target === "enemy") showEnemyLab({ push: false });
   else showLibrary({ push: false });
 }
 
@@ -5256,6 +9578,7 @@ function goBack() {
   const target = screenHistory.pop();
   if (target === "demo") showDemo({ push: false });
   else if (target === "modal") openMapModal({ push: false });
+  else if (target === "enemy") showEnemyLab({ push: false });
   else showLibrary({ push: false });
 }
 
@@ -5273,6 +9596,7 @@ function setupLiveControlDrag() {
   let suppressClick = false;
   handle.addEventListener("pointerdown", event => {
     if (event.button !== 0) return;
+    if (liveControlIsPinned()) return;
     if (event.target.closest("button, input, select, label")) return;
     const panelRect = panel.getBoundingClientRect();
     const fixed = getComputedStyle(panel).position === "fixed";
@@ -5373,13 +9697,16 @@ function setDjiLiveText(state, meta) {
 async function pollDjiLivePreview() {
   if (!djiLiveFeed && !djiLiveFeedSide) return;
   try {
-    const resp = await fetch(`public/live_dji/status.json?t=${Date.now()}`, { cache: "no-store" });
-    if (!resp.ok) {
-      setDjiLiveText("offline", "No DJI bridge status yet.");
-      return;
-    }
-    const status = await resp.json();
-    const frames = Number(status.frames_saved || 0);
+	    const resp = await fetch(`public/live_dji/status.json?t=${Date.now()}`, { cache: "no-store" });
+	    if (!resp.ok) {
+	      latestDjiLiveStatus = null;
+	      setDjiLiveText("offline", "No DJI bridge status yet.");
+	      updateFlightControlState();
+	      return;
+	    }
+	    const status = await resp.json();
+	    latestDjiLiveStatus = status;
+	    const frames = Number(status.frames_saved || 0);
     const updated = Number(status.updated_at || 0);
     const age = updated ? Math.max(0, Date.now() / 1000 - updated) : null;
     const state = status.status || "unknown";
@@ -5404,13 +9731,79 @@ async function pollDjiLivePreview() {
       ? `${frames} frames · ${status.latest_frame || "latest"}${ageText}`
       : (status.message || "Waiting for first DJI frame.");
     setDjiLiveText(state, `${status.session || "DJI session"} · ${frameText}`);
-    if (["stopped", "cancelled", "error"].includes(String(state).toLowerCase()) && liveFrameMode && !liveReplayInFlight) {
-      setLiveFrameMode(false);
+    const control = status.last_control;
+    if (control && control.id) {
+      const result = control.result || {};
+      const controlStatusKey = JSON.stringify({
+        id: control.id,
+        ok: control.ok,
+        status: control.status || "",
+        error: control.error || "",
+        updated_at: control.updated_at || "",
+        aborted: result.aborted || false,
+        abort_reason: result.abort_reason || "",
+        executed_count: Array.isArray(result.executed) ? result.executed.length : 0,
+        skipped_count: Array.isArray(result.skipped) ? result.skipped.length : 0,
+        pulses: Number(result.executed_pulses || 0),
+      });
+      if (controlStatusKey !== lastDjiControlStatusKey) {
+        lastDjiControlStatusKey = controlStatusKey;
+        lastDjiControlStatusId = control.id;
+        if (pendingDjiControlAck?.id === control.id) pendingDjiControlAck = null;
+      if (control.command === "mission") {
+        if (control.status === "running") {
+          const runningMessage = control.message || "Mission accepted by DJI bridge and is executing.";
+          setDjiCommandStatus(runningMessage, "busy");
+          updateMissionStatus(runningMessage);
+        } else {
+          const result = control.result || {};
+	          const skipped = Array.isArray(result.skipped) ? result.skipped.length : 0;
+	          const executed = Array.isArray(result.executed) ? result.executed.length : 0;
+	          const aborted = result.aborted ? ` Aborted: ${result.abort_reason || "safety gate stopped the mission"}.` : "";
+	          const pulses = Number(result.executed_pulses || 0);
+	          const rcCounts = result.rc_summary?.pulse_counts || {};
+	          const rcText = result.rc_summary
+	            ? ` RC pulses: forward ${Number(rcCounts.forward || 0)}, yaw ${Number(rcCounts.yaw || 0)}, vertical ${Number(rcCounts.vertical || 0)}.`
+	            : "";
+	          const settings = result.guided_settings || {};
+	          const settingText = settings.max_forward_rc
+	            ? ` Max RC fwd ${Number(settings.max_forward_rc).toFixed(2)}, yaw ${Number(settings.max_yaw_rc || 0).toFixed(2)}.`
+	            : "";
+	          const failedReason = control.ok === false
+	            ? (control.error || result.abort_reason || result.message || "mission did not execute")
+	            : "";
+	          const missionMessage = failedReason
+	            ? `Mission did not execute: ${failedReason}.`
+	            : result.physical_motion_locked
+	            ? `Mission reached bridge: ${executed} hover hold(s) executed; ${skipped} yaw/cruise/landing step(s) are safety-locked until closed-loop TSolve flight is enabled.`
+	            : `Mission reached bridge: ${executed} guarded step(s), ${pulses} RC pulse(s) executed.${rcText}${settingText}${aborted}`;
+          setDjiCommandStatus(missionMessage, failedReason || result.physical_motion_locked || result.aborted ? "busy" : "ok");
+          updateMissionStatus(missionMessage);
+        }
+      } else if (control.ok === false) {
+        setDjiCommandStatus(`${control.command || "Command"} failed: ${control.error || "unknown error"}`, "error");
+      } else {
+        setDjiCommandStatus(`${control.command || "Command"} completed on DJI bridge.`, "ok");
+      }
+      }
     }
-  } catch (error) {
-    setDjiLiveText("offline", "Live DJI status is not reachable.");
-  }
-}
+	    updateFlightControlState();
+	    if (
+      ["stopped", "cancelled", "error"].includes(String(state).toLowerCase()) &&
+      liveFrameMode &&
+      !liveReplayInFlight &&
+      !replayFramePlaybackEnabled &&
+      !replayUsesCapturedFrames()
+    ) {
+      setLiveFrameMode(false);
+      stopPoseClockPlayback();
+    }
+	  } catch (error) {
+	    latestDjiLiveStatus = null;
+	    setDjiLiveText("offline", "Live DJI status is not reachable.");
+	    updateFlightControlState();
+	  }
+	}
 
 function updateLivePoseStats(stream, payload) {
   if (!stats || !scene || !room) return;
@@ -5508,10 +9901,11 @@ async function pollStatus() {
       const stream = state.drone?.live_stream || {};
       if (stream.map_id) pendingLiveReplayMapId = stream.map_id;
       const poseCount = Number(stream.pose_count ?? livePoseStreamCount ?? 0);
+      const acceptedPoseCount = Number(stream.accepted_pose_count ?? 0);
       const expectedCount = Number(stream.expected_count ?? poseStreamMeta?.expected_count ?? 0);
       liveReplayStageDetail = expectedCount > 0
-        ? `${liveReplayMessage || "TSolve online localization running"} · ${poseCount}/${expectedCount} R,t updates`
-        : (liveReplayMessage || "TSolve online localization running");
+        ? `${liveReplayMessage || "TSolve online localization running"} · ${acceptedPoseCount}/${poseCount}/${expectedCount} accepted/processed/target`
+        : `${liveReplayMessage || "TSolve online localization running"} · ${acceptedPoseCount}/${poseCount} accepted/processed`;
     } else if (state.drone?.status === "done") {
       liveReplayStageDetail = state.drone?.message || "Live TSolve path ready";
     } else if (state.drone?.status === "error") {
@@ -5568,7 +9962,6 @@ async function pollStatus() {
       renderReplayTabs();
       renderStartPreview();
       if (droneDoneNow && pendingLiveReplayOpen && poses.length) {
-        if (state.drone?.live_stream?.live_atlas) setLiveFrameMode(false);
         if (state.drone?.live_stream?.live_atlas) liveAtlasPreviewActive = false;
         liveReplayInFlight = false;
         liveCurrentPoseOverride = null;
@@ -5608,8 +10001,50 @@ async function pollStatus() {
   }
 }
 
+async function pollEnemyLiveDetections() {
+  if (!enemyLiveDetectorState && !enemyLiveDetection) return;
+  try {
+    const resp = await fetch(`public/live_dji/enemy_detections.json?t=${Date.now()}`, { cache: "no-store" });
+    if (!resp.ok) {
+      if (enemyLiveDetectorState) enemyLiveDetectorState.textContent = "No detector status yet.";
+      if (enemyLiveDetection) {
+        enemyLiveDetection.textContent = enemyLibraryData.selected_model
+          ? "Waiting for the live bridge to start enemy detection."
+          : "Train a YOLO model in Enemy Drone Lab before patrol detection.";
+        enemyLiveDetection.dataset.tone = "";
+      }
+      return;
+    }
+    const payload = await resp.json();
+    const status = String(payload.status || "unknown").replaceAll("_", " ");
+    if (enemyLiveDetectorState) enemyLiveDetectorState.textContent = status;
+    const detections = Array.isArray(payload.detections) ? payload.detections : [];
+    if (enemyLiveDetection) {
+      if (payload.status === "detected" && detections.length) {
+        const best = detections.slice().sort((a, b) => Number(b.confidence || 0) - Number(a.confidence || 0))[0];
+        enemyLiveDetection.textContent = `${detections.length} target candidate${detections.length === 1 ? "" : "s"} · ${best.class_name || "enemy drone"} ${(Number(best.confidence || 0) * 100).toFixed(0)}%`;
+        enemyLiveDetection.dataset.tone = "alert";
+        const guardedBest = bestEnemyDetection(detections);
+        if (guardedBest) await pauseForEnemyDetection(payload, guardedBest);
+      } else if (payload.status === "clear" || payload.status === "ready") {
+        enemyLiveDetection.textContent = payload.message || "No enemy drone detected.";
+        enemyLiveDetection.dataset.tone = "ok";
+        if (!enemyAlertState.active) updateEnemyResponseControls();
+      } else {
+        enemyLiveDetection.textContent = payload.message || "Enemy detector is not active.";
+        enemyLiveDetection.dataset.tone = payload.status === "error" ? "error" : "";
+        if (!enemyAlertState.active) updateEnemyResponseControls();
+      }
+    }
+  } catch {
+    if (enemyLiveDetectorState) enemyLiveDetectorState.textContent = "Detector status unavailable.";
+  }
+}
+
 setInterval(pollDjiLivePreview, 1000);
 pollDjiLivePreview();
+setInterval(pollEnemyLiveDetections, 1000);
+pollEnemyLiveDetections();
 
 document.getElementById("create-map").addEventListener("click", openMapModal);
 document.getElementById("close-map-modal").addEventListener("click", closeMapModal);
@@ -5669,8 +10104,43 @@ demoDroneUpload?.addEventListener("change", event => runUi(async () => {
 }));
 startLiveAtlasButton?.addEventListener("click", () => runUi(startLiveAtlas));
 stopLiveAtlasButton?.addEventListener("click", () => runUi(stopLiveAtlas));
+liveAtlasPhoneIp?.addEventListener("change", () => rememberPhoneIp(liveAtlasPhoneIp.value));
+savePhoneIpButton?.addEventListener("click", () => {
+  rememberPhoneIp(liveAtlasPhoneIp?.value);
+  updateLiveControlSummary();
+});
+phoneIpSelect?.addEventListener("change", () => {
+  if (liveAtlasPhoneIp) liveAtlasPhoneIp.value = phoneIpSelect.value;
+  rememberPhoneIp(phoneIpSelect.value);
+});
 liveAtlasFps?.addEventListener("change", updateLiveControlSummary);
+pinLiveControlButton?.addEventListener("click", event => {
+  event.preventDefault();
+  event.stopPropagation();
+  setLiveControlPinned(!liveControlIsPinned());
+});
+liveLocalizationControl?.addEventListener("toggle", () => {
+  syncLiveControlCollapsedState();
+  if (renderStarted) render();
+});
+droneHeadingTrimSelect?.addEventListener("change", () => {
+  try {
+    localStorage.setItem(DRONE_HEADING_TRIM_STORAGE_KEY, String(selectedDroneHeadingTrimDeg()));
+  } catch {
+    // Heading trim still works for this session when local storage is blocked.
+  }
+  if (plannedMission) {
+    plannedMission.commands = buildMissionCommandPlan(plannedMission);
+    renderMissionCommands(plannedMission.commands);
+  }
+  if (plannedPatrol) {
+    plannedPatrol.commands = buildPatrolCommandPlan(plannedPatrol);
+    renderPatrolCommands(plannedPatrol.commands);
+  }
+});
 window.addEventListener("resize", renderStartPreview);
+renderPhoneIpOptions();
+renderDroneHeadingTrim();
 updateLiveControlSummary();
 setInterval(pollStatus, 2000);
 setInterval(() => {
@@ -5678,12 +10148,15 @@ setInterval(() => {
 }, 500);
 
 window.TSOLVE_VIEWER = {
-  getCurrentPose: () => closestPose(),
+  getCurrentPose: () => currentRenderedPose || closestPose(),
   getHeadingForPose: pose => headingForPose(pose),
   projectRoomPoint: rxyz => project(rxyz),
+  projectRoomPointToViewport: rxyz => projectToViewport(rxyz),
   getRoom: () => room,
   getView: () => view,
   getDroneModel: () => droneModel,
+  getDroneHeadingTrimRad: () => selectedDroneHeadingTrimRad(),
+  useDroneYawSmoothing: () => Boolean(liveReplayInFlight || pendingLiveReplayOpen || liveAtlasPreviewActive),
 };
 
 init().catch(err => {

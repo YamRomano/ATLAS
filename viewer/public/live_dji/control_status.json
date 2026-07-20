@@ -1,0 +1,7 @@
+{
+  "ok": false,
+  "id": "2a684e7a64394ed9b9b9e75ee9a09358",
+  "command": "mission",
+  "error": "another DJI command is already running",
+  "updated_at": 1784549112.1157892
+}

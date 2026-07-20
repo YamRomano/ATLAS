@@ -1,0 +1,11 @@
+{
+  "mode": "dji_live_tsolve_partial",
+  "replay_id": "dji_live_20260719_111806_109a51",
+  "frame_source": "/Users/yamromano/Documents/PythonF4/PythonF4/drone_phase1_replay_demo_20260706/viewer/public/live_dji_sessions/atlas_dji_live_20260719_111806_109a51/query_frames",
+  "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260719_111806_109a51/query_frames",
+  "expected_count": 0,
+  "processed_count": 0,
+  "complete": false,
+  "updated_at": 1784449086.297871,
+  "poses": []
+}

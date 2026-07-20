@@ -1,0 +1,86 @@
+{
+  "frames": "drone_phase1_replay_demo_20260706/data/map_frames",
+  "colmap_root": "drone_phase1_replay_demo_20260706/results/maps/demo_replay_20260706_153019_b7c9f6/colmap",
+  "asset_dir": "drone_phase1_replay_demo_20260706/viewer/public/maps/demo_replay_20260706_153019_b7c9f6",
+  "matcher": "historical",
+  "frame_bank": {
+    "frame_file_count": 550,
+    "unique_frame_hash_count": 386,
+    "duplicate_file_count": 164,
+    "duplicate_group_count": 164,
+    "duplicate_examples": [
+      [
+        "enhance_113913_000000.jpg",
+        "enhance_1f034e85_000000.jpg"
+      ],
+      [
+        "enhance_113913_000001.jpg",
+        "enhance_1f034e85_000001.jpg"
+      ],
+      [
+        "enhance_113913_000002.jpg",
+        "enhance_1f034e85_000002.jpg"
+      ],
+      [
+        "enhance_113913_000003.jpg",
+        "enhance_1f034e85_000003.jpg"
+      ],
+      [
+        "enhance_113913_000004.jpg",
+        "enhance_1f034e85_000004.jpg"
+      ],
+      [
+        "enhance_113913_000005.jpg",
+        "enhance_1f034e85_000005.jpg"
+      ],
+      [
+        "enhance_113913_000006.jpg",
+        "enhance_1f034e85_000006.jpg"
+      ],
+      [
+        "enhance_113913_000007.jpg",
+        "enhance_1f034e85_000007.jpg"
+      ]
+    ],
+    "prefix_counts": {
+      "enhance_113913": 164,
+      "enhance_144025": 222,
+      "enhance_1f034e85": 164
+    }
+  },
+  "chosen_model": {
+    "registered_images": 528,
+    "points3D": 150234,
+    "median_points2d_to_3d": 1300.0,
+    "registered_prefixes": {
+      "enhance_113913": {
+        "registered_images": 153,
+        "median_points2d_to_3d": 1084
+      },
+      "enhance_144025": {
+        "registered_images": 222,
+        "median_points2d_to_3d": 1703.0
+      },
+      "enhance_1f034e85": {
+        "registered_images": 153,
+        "median_points2d_to_3d": 1073
+      }
+    }
+  },
+  "sparse_components": [
+    {
+      "component": "0",
+      "registered_images": 528,
+      "points3D_bin_bytes": 13613526
+    },
+    {
+      "component": "1",
+      "registered_images": 3,
+      "points3D_bin_bytes": 5736
+    }
+  ],
+  "notes": [
+    "164 duplicate frame files detected; duplicates can bias COLMAP.",
+    "2 sparse components were created; ATLAS uses the largest component."
+  ]
+}

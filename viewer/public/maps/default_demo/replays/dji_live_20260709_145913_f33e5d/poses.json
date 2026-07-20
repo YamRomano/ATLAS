@@ -1,0 +1,14 @@
+{
+  "mode": "dji_live_tsolve_replay",
+  "replay_id": "dji_live_20260709_145913_f33e5d",
+  "frame_source": null,
+  "expected_count": 33,
+  "processed_count": 0,
+  "complete": true,
+  "updated_at": 1783598406.8111,
+  "poses": [],
+  "description": "TSolve R,t estimates produced from DJI MSDK live frames.",
+  "accepted_count": 0,
+  "held_count": 0,
+  "failed_count": 0
+}

@@ -1,0 +1,1445 @@
+{
+  "mode": "simulated_live_tsolve_replay",
+  "frame_source": "/Users/yamromano/Documents/PythonF4/PythonF4/drone_phase1_replay_demo_20260706/data/app_uploads/drone_upload_a897165c.MP4",
+  "description": "Timestamped TSolve R,t estimates produced from uploaded drone-video frames.",
+  "poses": [
+    {
+      "instance_id": "instance_000",
+      "success": true,
+      "time_sec": 0.0,
+      "image_name": "query/query_000000.jpg",
+      "R": [
+        [
+          -0.9720799432319515,
+          0.09102579668338458,
+          -0.21627502931295967
+        ],
+        [
+          0.0670088704351154,
+          0.9909968867181657,
+          0.11590936889619244
+        ],
+        [
+          0.22487862337086723,
+          0.09818082731907915,
+          -0.9694277332002449
+        ]
+      ],
+      "t": [
+        -1.8588208632390941,
+        -1.164391860213119,
+        6.287018558720196
+      ],
+      "center": [
+        -3.142713974511193,
+        0.7058446748936561,
+        5.82775753894858
+      ],
+      "objective": 4.27307186006769,
+      "total_ms": 847.8207499999994,
+      "stages_ms": {
+        "input_load_ms": 0.9527079999998023,
+        "solver_init_ms": 0.30883300000006386,
+        "equation_build_ms": 0.0,
+        "ysolve_direct_c_coeff_ms": 0.10900000000013677,
+        "ysolve_branch_select_ms": 331.5640000000002,
+        "ysolve_static_action_double_ms": 10.669666000000078,
+        "ysolve_linear_form_select_ms": 3.485666999999637,
+        "ysolve_static_root_total_ms": 498.54083299999985,
+        "ysolve_static_root_eig_ms": 23.723999969661236,
+        "ysolve_static_root_newton_ms": 3.1349998898804188,
+        "ysolve_static_root_ctypes_overhead_ms": 42.97441614045816,
+        "pose_scoring_ms": 12.776915999999972,
+        "candidate_count": 45.0,
+        "polynomial_solver_total_ms": 509.31949900000006
+      },
+      "colmap_reference": {
+        "image_name": "query/query_000000.jpg",
+        "R": [
+          [
+            -0.9730843953544047,
+            0.09070232034993875,
+            -0.21184864550166396
+          ],
+          [
+            0.06849541645775142,
+            0.9915774379460585,
+            0.10992070997136871
+          ],
+          [
+            0.22003440058779852,
+            0.0924514663997692,
+            -0.9711012248568635
+          ]
+        ],
+        "t": [
+          -1.8336842823892368,
+          -1.213588389773317,
+          6.44401918239412
+        ],
+        "center": [
+          -3.1191102172081564,
+          0.7739272625338464,
+          6.002729886939097
+        ],
+        "registered_points": 221
+      }
+    },
+    {
+      "instance_id": "instance_001",
+      "success": true,
+      "time_sec": 0.9996168773139282,
+      "image_name": "query/query_000001.jpg",
+      "R": [
+        [
+          -0.9722411476366616,
+          0.09087736321625209,
+          -0.21561181715529523
+        ],
+        [
+          0.0668529715290268,
+          0.9909704026869065,
+          0.11622538963707296
+        ],
+        [
+          0.2242271862194373,
+          0.09858481553166129,
+          -0.9695376233580119
+        ]
+      ],
+      "t": [
+        -1.8351302068848574,
+        -1.1575725556118368,
+        6.274203741375347
+      ],
+      "center": [
+        -3.1136489839973973,
+        0.6953507174826167,
+        5.821940146563151
+      ],
+      "objective": 4.165418009746863,
+      "total_ms": 73.46412500000011,
+      "stages_ms": {
+        "input_load_ms": 0.23287500000002126,
+        "solver_init_ms": 0.052457999999866445,
+        "equation_build_ms": 0.0,
+        "ysolve_direct_c_coeff_ms": 0.03645800000029453,
+        "ysolve_branch_select_ms": 3.097749999999344,
+        "ysolve_static_action_double_ms": 2.9232920000001883,
+        "ysolve_linear_form_select_ms": 1.376166000000012,
+        "ysolve_static_root_total_ms": 57.77812499999957,
+        "ysolve_static_root_eig_ms": 13.894000090658665,
+        "ysolve_static_root_newton_ms": 1.5159999020397663,
+        "ysolve_static_root_ctypes_overhead_ms": 36.794959007301564,
+        "pose_scoring_ms": 10.87491599999968,
+        "candidate_count": 47.0,
+        "polynomial_solver_total_ms": 60.73787500000005
+      },
+      "colmap_reference": null
+    },
+    {
+      "instance_id": "instance_002",
+      "success": true,
+      "time_sec": 1.9992337546278565,
+      "image_name": "query/query_000002.jpg",
+      "R": [
+        [
+          -0.9723059490980877,
+          0.09076764177969385,
+          -0.21536568100377668
+        ],
+        [
+          0.06683784921085639,
+          0.9910075249263408,
+          0.1159171577128891
+        ],
+        [
+          0.22395053753303235,
+          0.09831236313465949,
+          -0.9696292260413486
+        ]
+      ],
+      "t": [
+        -1.844340071675681,
+        -1.1747189980691652,
+        6.294995442413288
+      ],
+      "center": [
+        -3.1245147456886277,
+        0.7126858878407059,
+        5.842774090589537
+      ],
+      "objective": 4.112953779444852,
+      "total_ms": 66.58216699999997,
+      "stages_ms": {
+        "input_load_ms": 0.282290999999546,
+        "solver_init_ms": 0.04899999999974369,
+        "equation_build_ms": 0.0,
+        "ysolve_direct_c_coeff_ms": 0.030749999999635236,
+        "ysolve_branch_select_ms": 3.0543749999996095,
+        "ysolve_static_action_double_ms": 2.8954580000002395,
+        "ysolve_linear_form_select_ms": 1.3842499999991986,
+        "ysolve_static_root_total_ms": 51.077125000000834,
+        "ysolve_static_root_eig_ms": 13.936000177636743,
+        "ysolve_static_root_newton_ms": 1.4940002001821995,
+        "ysolve_static_root_ctypes_overhead_ms": 30.13920762218092,
+        "pose_scoring_ms": 10.676208000000464,
+        "candidate_count": 46.0,
+        "polynomial_solver_total_ms": 54.00333300000071
+      },
+      "colmap_reference": null
+    },
+    {
+      "instance_id": "instance_003",
+      "success": true,
+      "time_sec": 2.9988506319417847,
+      "image_name": "query/query_000003.jpg",
+      "R": [
+        [
+          -0.9725211431958318,
+          0.0896003457162108,
+          -0.21488230286509846
+        ],
+        [
+          0.06585950713708809,
+          0.9911546934881905,
+          0.11521674746316712
+        ],
+        [
+          0.22330506343729029,
+          0.09789868039900687,
+          -0.9698199302032315
+        ]
+      ],
+      "t": [
+        -1.864834794965298,
+        -1.1399951527151468,
+        6.287701094598344
+      ],
+      "center": [
+        -3.1425872395785297,
+        0.6814437485953452,
+        5.828564375116657
+      ],
+      "objective": 4.100737333847443,
+      "total_ms": 73.7884580000001,
+      "stages_ms": {
+        "input_load_ms": 0.24520799999994125,
+        "solver_init_ms": 0.04474999999981577,
+        "equation_build_ms": 0.0,
+        "ysolve_direct_c_coeff_ms": 0.029749999999495458,
+        "ysolve_branch_select_ms": 3.1783750000000666,
+        "ysolve_static_action_double_ms": 3.0208750000007,
+        "ysolve_linear_form_select_ms": 1.40441600000063,
+        "ysolve_static_root_total_ms": 57.43620799999949,
+        "ysolve_static_root_eig_ms": 14.22800007276237,
+        "ysolve_static_root_newton_ms": 1.8029999919235706,
+        "ysolve_static_root_ctypes_overhead_ms": 35.68758293531449,
+        "pose_scoring_ms": 11.415874999999964,
+        "candidate_count": 49.0,
+        "polynomial_solver_total_ms": 60.486832999999685
+      },
+      "colmap_reference": null
+    },
+    {
+      "instance_id": "instance_004",
+      "success": true,
+      "time_sec": 3.998467509255713,
+      "image_name": "query/query_000004.jpg",
+      "R": [
+        [
+          -0.9725177060412857,
+          0.08923507445800233,
+          -0.21504979172896294
+        ],
+        [
+          0.06551939132186971,
+          0.9912021349510056,
+          0.11500233488664655
+        ],
+        [
+          0.22342005459897119,
+          0.09775187545537672,
+          -0.9698082542688269
+        ]
+      ],
+      "t": [
+        -1.8018743107503798,
+        -1.1469885562779913,
+        6.294807813873399
+      ],
+      "center": [
+        -3.0835909846708236,
+        0.6823586245936037,
+        5.849170243741927
+      ],
+      "objective": 4.247410825364719,
+      "total_ms": 70.32724999999917,
+      "stages_ms": {
+        "input_load_ms": 0.2489590000003261,
+        "solver_init_ms": 0.04024999999963086,
+        "equation_build_ms": 0.0,
+        "ysolve_direct_c_coeff_ms": 0.027666000000259316,
+        "ysolve_branch_select_ms": 3.174417000000318,
+        "ysolve_static_action_double_ms": 3.0216660000004225,
+        "ysolve_linear_form_select_ms": 1.3298329999997804,
+        "ysolve_static_root_total_ms": 54.771084000000414,
+        "ysolve_static_root_eig_ms": 13.96399992518127,
+        "ysolve_static_root_newton_ms": 1.524999737739563,
+        "ysolve_static_root_ctypes_overhead_ms": 33.62929233707934,
+        "pose_scoring_ms": 10.703750000001122,
+        "candidate_count": 47.0,
+        "polynomial_solver_total_ms": 57.820416000001096
+      },
+      "colmap_reference": null
+    },
+    {
+      "instance_id": "instance_005",
+      "success": true,
+      "time_sec": 4.998084386569641,
+      "image_name": "query/query_000005.jpg",
+      "R": [
+        [
+          -0.9723602822983102,
+          0.08984054350830993,
+          -0.21550906744469622
+        ],
+        [
+          0.06594919249293908,
+          0.9911030156385672,
+          0.11560932662059639
+        ],
+        [
+          0.22397809138011787,
+          0.09820126849623656,
+          -0.9696341193705231
+        ]
+      ],
+      "t": [
+        -1.7708173190002148,
+        -1.1310200212223442,
+        6.181120196177048
+      ],
+      "center": [
+        -3.0317180752396604,
+        0.6730547001816763,
+        5.742554312158761
+      ],
+      "objective": 4.305034186013193,
+      "total_ms": 78.64175000000095,
+      "stages_ms": {
+        "input_load_ms": 0.20579199999914977,
+        "solver_init_ms": 0.04716599999987636,
+        "equation_build_ms": 0.0,
+        "ysolve_direct_c_coeff_ms": 0.029083999999457433,
+        "ysolve_branch_select_ms": 3.0330830000000475,
+        "ysolve_static_action_double_ms": 2.8578750000001207,
+        "ysolve_linear_form_select_ms": 1.343750000000199,
+        "ysolve_static_root_total_ms": 62.08983400000001,
+        "ysolve_static_root_eig_ms": 14.46500001475215,
+        "ysolve_static_root_newton_ms": 1.749000046402216,
+        "ysolve_static_root_ctypes_overhead_ms": 39.96512493884552,
+        "pose_scoring_ms": 11.883124999998884,
+        "candidate_count": 51.0,
+        "polynomial_solver_total_ms": 64.97679299999959
+      },
+      "colmap_reference": null
+    },
+    {
+      "instance_id": "instance_006",
+      "success": true,
+      "time_sec": 5.997701263883569,
+      "image_name": "query/query_000006.jpg",
+      "R": [
+        [
+          -0.9724446777624872,
+          0.08989167795477826,
+          -0.21510656644065332
+        ],
+        [
+          0.06606394658316325,
+          0.9911060375250119,
+          0.11551786590535336
+        ],
+        [
+          0.22357751151059382,
+          0.09812394517111857,
+          -0.9697343903001409
+        ]
+      ],
+      "t": [
+        -1.765982885067843,
+        -1.1464455407547374,
+        5.9431464166395385
+      ],
+      "center": [
+        -2.9703358270143103,
+        0.7118312887835482,
+        5.515833894249203
+      ],
+      "objective": 4.526904962858498,
+      "total_ms": 73.72045900000046,
+      "stages_ms": {
+        "input_load_ms": 0.23425000000010243,
+        "solver_init_ms": 0.04075000000014484,
+        "equation_build_ms": 0.0,
+        "ysolve_direct_c_coeff_ms": 0.027667000001230235,
+        "ysolve_branch_select_ms": 3.2054170000002102,
+        "ysolve_static_action_double_ms": 3.054750000000439,
+        "ysolve_linear_form_select_ms": 1.37141599999957,
+        "ysolve_static_root_total_ms": 56.46437499999912,
+        "ysolve_static_root_eig_ms": 14.355999883264303,
+        "ysolve_static_root_newton_ms": 1.7449997831135988,
+        "ysolve_static_root_ctypes_overhead_ms": 34.623542333621415,
+        "pose_scoring_ms": 12.327834000000593,
+        "candidate_count": 53.0,
+        "polynomial_solver_total_ms": 59.54679200000079
+      },
+      "colmap_reference": null
+    },
+    {
+      "instance_id": "instance_007",
+      "success": true,
+      "time_sec": 6.997318141197497,
+      "image_name": "query/query_000007.jpg",
+      "R": [
+        [
+          -0.9724340211622593,
+          0.08896349564568062,
+          -0.21554018402307215
+        ],
+        [
+          0.06522261490900597,
+          0.9912369892935087,
+          0.11487054261546947
+        ],
+        [
+          0.2238706881005871,
+          0.09764592924869853,
+          -0.9697150032409152
+        ]
+      ],
+      "t": [
+        -1.8000909345544573,
+        -1.1407963060218487,
+        5.644513788273976
+      ],
+      "center": [
+        -2.9397051335633875,
+        0.7397780837832143,
+        5.21662166588381
+      ],
+      "objective": 4.518920439146279,
+      "total_ms": 74.40449999999998,
+      "stages_ms": {
+        "input_load_ms": 0.21541699999971797,
+        "solver_init_ms": 0.03874999999986528,
+        "equation_build_ms": 0.0,
+        "ysolve_direct_c_coeff_ms": 0.026499999998819135,
+        "ysolve_branch_select_ms": 3.2143330000007353,
+        "ysolve_static_action_double_ms": 3.059000000000367,
+        "ysolve_linear_form_select_ms": 1.3557080000001775,
+        "ysolve_static_root_total_ms": 58.36837500000058,
+        "ysolve_static_root_eig_ms": 14.327999902889132,
+        "ysolve_static_root_newton_ms": 1.569000305607915,
+        "ysolve_static_root_ctypes_overhead_ms": 36.492999791502,
+        "pose_scoring_ms": 11.164083000000602,
+        "candidate_count": 48.0,
+        "polynomial_solver_total_ms": 61.45387499999977
+      },
+      "colmap_reference": null
+    },
+    {
+      "instance_id": "instance_008",
+      "success": true,
+      "time_sec": 7.996935018511426,
+      "image_name": "query/query_000008.jpg",
+      "R": [
+        [
+          -0.9723999973502402,
+          0.08897508731072207,
+          -0.21568884762848178
+        ],
+        [
+          0.06523306402356155,
+          0.9912432683629819,
+          0.11481041016898877
+        ],
+        [
+          0.22401538454166708,
+          0.0975715981375877,
+          -0.9696890690966493
+        ]
+      ],
+      "t": [
+        -1.7996830201228675,
+        -1.1496783824604968,
+        5.671891905191023
+      ],
+      "center": [
+        -2.9456057666893343,
+        0.7463223535903301,
+        5.243795071507366
+      ],
+      "objective": 4.520745738099313,
+      "total_ms": 75.16570800000011,
+      "stages_ms": {
+        "input_load_ms": 0.20124999999993065,
+        "solver_init_ms": 0.04133399999872722,
+        "equation_build_ms": 0.0,
+        "ysolve_direct_c_coeff_ms": 0.028083000000123093,
+        "ysolve_branch_select_ms": 3.2839169999991924,
+        "ysolve_static_action_double_ms": 3.123500000000945,
+        "ysolve_linear_form_select_ms": 1.3966249999999292,
+        "ysolve_static_root_total_ms": 59.544208000000154,
+        "ysolve_static_root_eig_ms": 14.10599984228611,
+        "ysolve_static_root_newton_ms": 1.4490000903606415,
+        "ysolve_static_root_ctypes_overhead_ms": 37.9552500673519,
+        "pose_scoring_ms": 10.654084000000452,
+        "candidate_count": 45.0,
+        "polynomial_solver_total_ms": 62.69579100000122
+      },
+      "colmap_reference": null
+    },
+    {
+      "instance_id": "instance_009",
+      "success": true,
+      "time_sec": 8.996551895825354,
+      "image_name": "query/query_000009.jpg",
+      "R": [
+        [
+          -0.9721368990245599,
+          0.08943189999183879,
+          -0.21668360532989678
+        ],
+        [
+          0.06559226460357015,
+          0.9912172914952578,
+          0.11483003032735249
+        ],
+        [
+          0.22505000417482324,
+          0.09741774122127446,
+          -0.9694649448619878
+        ]
+      ],
+      "t": [
+        -1.7209893451092115,
+        -1.1351584663389238,
+        5.703942053268225
+      ],
+      "center": [
+        -2.8822518136186552,
+        0.7234348965347771,
+        5.2872119732511
+      ],
+      "objective": 4.615678401996105,
+      "total_ms": 89.48870899999939,
+      "stages_ms": {
+        "input_load_ms": 0.2579169999989972,
+        "solver_init_ms": 0.046457999999915955,
+        "equation_build_ms": 0.0,
+        "ysolve_direct_c_coeff_ms": 0.028916999999850646,
+        "ysolve_branch_select_ms": 3.217749999999242,
+        "ysolve_static_action_double_ms": 3.051790999998971,
+        "ysolve_linear_form_select_ms": 1.3543750000000188,
+        "ysolve_static_root_total_ms": 72.69025000000084,
+        "ysolve_static_root_eig_ms": 14.346000039950013,
+        "ysolve_static_root_newton_ms": 1.647999742999673,
+        "ysolve_static_root_ctypes_overhead_ms": 50.82120821704983,
+        "pose_scoring_ms": 11.879250000001562,
+        "candidate_count": 50.0,
+        "polynomial_solver_total_ms": 75.77095799999967
+      },
+      "colmap_reference": null
+    },
+    {
+      "instance_id": "instance_010",
+      "success": true,
+      "time_sec": 9.996168773139281,
+      "image_name": "query/query_000010.jpg",
+      "R": [
+        [
+          -0.9719837762074954,
+          0.09004987182851998,
+          -0.21711416207397688
+        ],
+        [
+          0.06610247376714687,
+          0.9911455779928435,
+          0.11515600803734174
+        ],
+        [
+          0.22556152542329028,
+          0.09757798834214496,
+          -0.9693299409591241
+        ]
+      ],
+      "t": [
+        -1.6308638507263866,
+        -1.1032624543525416,
+        5.827427260806842
+      ],
+      "center": [
+        -2.8266882089030707,
+        0.6717241544050229,
+        5.421663384315006
+      ],
+      "objective": 4.72073733143183,
+      "total_ms": 85.1677500000001,
+      "stages_ms": {
+        "input_load_ms": 0.3099159999990775,
+        "solver_init_ms": 0.044374999999874376,
+        "equation_build_ms": 0.0,
+        "ysolve_direct_c_coeff_ms": 0.030416999999616223,
+        "ysolve_branch_select_ms": 3.221915999999325,
+        "ysolve_static_action_double_ms": 3.0577079999982715,
+        "ysolve_linear_form_select_ms": 1.3320419999995892,
+        "ysolve_static_root_total_ms": 68.96470900000118,
+        "ysolve_static_root_eig_ms": 14.783000107854605,
+        "ysolve_static_root_newton_ms": 2.0810000132769346,
+        "ysolve_static_root_ctypes_overhead_ms": 46.30541687886769,
+        "pose_scoring_ms": 11.240041999998951,
+        "candidate_count": 47.0,
+        "polynomial_solver_total_ms": 72.05283399999907
+      },
+      "colmap_reference": null
+    },
+    {
+      "instance_id": "instance_011",
+      "success": true,
+      "time_sec": 10.995785650453211,
+      "image_name": "query/query_000011.jpg",
+      "R": [
+        [
+          -0.9692887113106705,
+          0.09740933193946033,
+          -0.2258114615709485
+        ],
+        [
+          0.0715889249599109,
+          0.9902067324624086,
+          0.11985680126385953
+        ],
+        [
+          0.23527520045424288,
+          0.10001024466137509,
+          -0.9667696369942469
+        ]
+      ],
+      "t": [
+        -0.9453718559344653,
+        -1.0729755102783864,
+        5.980972474204865
+      ],
+      "center": [
+        -2.2466996024388117,
+        0.5563970945077121,
+        5.697350199739443
+      ],
+      "objective": 6.3445775458521885,
+      "total_ms": 85.87999999999951,
+      "stages_ms": {
+        "input_load_ms": 0.29616700000012486,
+        "solver_init_ms": 0.03491700000068931,
+        "equation_build_ms": 0.0,
+        "ysolve_direct_c_coeff_ms": 0.02712499999901752,
+        "ysolve_branch_select_ms": 3.2102920000003365,
+        "ysolve_static_action_double_ms": 3.0628749999994653,
+        "ysolve_linear_form_select_ms": 1.3034579999988694,
+        "ysolve_static_root_total_ms": 71.4156250000002,
+        "ysolve_static_root_eig_ms": 13.347000116482377,
+        "ysolve_static_root_newton_ms": 1.1159998830407858,
+        "ysolve_static_root_ctypes_overhead_ms": 51.30129200047584,
+        "pose_scoring_ms": 9.56237499999979,
+        "candidate_count": 41.0,
+        "polynomial_solver_total_ms": 74.50562499999869
+      },
+      "colmap_reference": null
+    },
+    {
+      "instance_id": "instance_012",
+      "success": true,
+      "time_sec": 11.995402527767139,
+      "image_name": "query/query_000012.jpg",
+      "R": [
+        [
+          -0.9690087517480812,
+          0.09654612321594182,
+          -0.22737828640307364
+        ],
+        [
+          0.07127627964483792,
+          0.9905881047900447,
+          0.11685417668384367
+        ],
+        [
+          0.23652004353884445,
+          0.09702604155813153,
+          -0.9667699913960628
+        ]
+      ],
+      "t": [
+        -0.8071594634549547,
+        -1.062584424069546,
+        6.115630463702248
+      ],
+      "center": [
+        -2.1528767031302456,
+        0.5371361923067586,
+        5.853044903152233
+      ],
+      "objective": 6.846783348012439,
+      "total_ms": 61.97670899999963,
+      "stages_ms": {
+        "input_load_ms": 0.24945800000075735,
+        "solver_init_ms": 0.0391249999989185,
+        "equation_build_ms": 0.0,
+        "ysolve_direct_c_coeff_ms": 0.02666600000011954,
+        "ysolve_branch_select_ms": 3.2376670000004992,
+        "ysolve_static_action_double_ms": 3.0772079999987767,
+        "ysolve_linear_form_select_ms": 1.3225830000003214,
+        "ysolve_static_root_total_ms": 47.10270799999883,
+        "ysolve_static_root_eig_ms": 13.590999878942966,
+        "ysolve_static_root_newton_ms": 1.083999639376998,
+        "ysolve_static_root_ctypes_overhead_ms": 26.92020848168042,
+        "pose_scoring_ms": 9.97945900000019,
+        "candidate_count": 42.0,
+        "polynomial_solver_total_ms": 50.206581999997724
+      },
+      "colmap_reference": null
+    },
+    {
+      "instance_id": "instance_013",
+      "success": true,
+      "time_sec": 12.995019405081067,
+      "image_name": "query/query_000013.jpg",
+      "R": [
+        [
+          -0.9717639379673635,
+          0.09230595620398076,
+          -0.21715077553495157
+        ],
+        [
+          0.06874357860899298,
+          0.9911365312510889,
+          0.11367804018186041
+        ],
+        [
+          0.2257192266205769,
+          0.09554049857954612,
+          -0.9694961804282576
+        ]
+      ],
+      "t": [
+        -1.4626621259480304,
+        -1.0470939840666134,
+        6.287365035465465
+      ],
+      "center": [
+        -2.7685604931088075,
+        0.5721275351606702,
+        5.8969897638416375
+      ],
+      "objective": 3.823469039931854,
+      "total_ms": 55.48383400000034,
+      "stages_ms": {
+        "input_load_ms": 0.26012500000049954,
+        "solver_init_ms": 0.042833000000186416,
+        "equation_build_ms": 0.0,
+        "ysolve_direct_c_coeff_ms": 0.03012500000032503,
+        "ysolve_branch_select_ms": 3.2176249999995576,
+        "ysolve_static_action_double_ms": 3.0600829999993806,
+        "ysolve_linear_form_select_ms": 1.3367499999983323,
+        "ysolve_static_root_total_ms": 39.93375000000121,
+        "ysolve_static_root_eig_ms": 13.376000104472041,
+        "ysolve_static_root_newton_ms": 0.8410003501921892,
+        "ysolve_static_root_ctypes_overhead_ms": 20.024374545334567,
+        "pose_scoring_ms": 10.637208999998649,
+        "candidate_count": 44.0,
+        "polynomial_solver_total_ms": 43.02395800000092
+      },
+      "colmap_reference": null
+    },
+    {
+      "instance_id": "instance_014",
+      "success": true,
+      "time_sec": 13.994636282394994,
+      "image_name": "query/query_000014.jpg",
+      "R": [
+        [
+          -0.9720311981668053,
+          0.09171154440048089,
+          -0.21620439961777735
+        ],
+        [
+          0.06824638108924914,
+          0.9911777135342199,
+          0.1136185357294166
+        ],
+        [
+          0.22471711385345336,
+          0.09568559356953565,
+          -0.9697146414923412
+        ]
+      ],
+      "t": [
+        -1.7232967899942138,
+        -1.0290212287835496,
+        6.415547768011496
+      ],
+      "center": [
+        -3.0465546468631035,
+        0.5641136225387229,
+        5.965582141239188
+      ],
+      "objective": 3.055730456151807,
+      "total_ms": 61.61433299999963,
+      "stages_ms": {
+        "input_load_ms": 0.4591250000007818,
+        "solver_init_ms": 0.08395799999938447,
+        "equation_build_ms": 0.0,
+        "ysolve_direct_c_coeff_ms": 0.06679200000014873,
+        "ysolve_branch_select_ms": 3.5703750000006806,
+        "ysolve_static_action_double_ms": 3.2553340000003317,
+        "ysolve_linear_form_select_ms": 1.8200000000003769,
+        "ysolve_static_root_total_ms": 44.60100000000011,
+        "ysolve_static_root_eig_ms": 13.531000120565295,
+        "ysolve_static_root_newton_ms": 0.9439999703317881,
+        "ysolve_static_root_ctypes_overhead_ms": 23.768374909101553,
+        "pose_scoring_ms": 10.990458000000203,
+        "candidate_count": 46.0,
+        "polynomial_solver_total_ms": 47.92312600000059
+      },
+      "colmap_reference": null
+    },
+    {
+      "instance_id": "instance_015",
+      "success": true,
+      "time_sec": 14.994253159708922,
+      "image_name": "query/query_000015.jpg",
+      "R": [
+        [
+          -0.97114436023942,
+          0.0946992512069138,
+          -0.21888509176281892
+        ],
+        [
+          0.0706473629896095,
+          0.9908237394584484,
+          0.11522702559812784
+        ],
+        [
+          0.2277884581750844,
+          0.09643842152600327,
+          -0.9689231389412635
+        ]
+      ],
+      "t": [
+        -1.1209300315484148,
+        -1.010048962990025,
+        6.472542329595633
+      ],
+      "center": [
+        -2.4915980203671615,
+        0.48272995966243865,
+        6.142426095820639
+      ],
+      "objective": 5.208037425903343,
+      "total_ms": 58.32533300000087,
+      "stages_ms": {
+        "input_load_ms": 0.2539580000000541,
+        "solver_init_ms": 0.03954099999958771,
+        "equation_build_ms": 0.0,
+        "ysolve_direct_c_coeff_ms": 0.02854100000071469,
+        "ysolve_branch_select_ms": 3.2385409999999837,
+        "ysolve_static_action_double_ms": 3.0594590000010413,
+        "ysolve_linear_form_select_ms": 1.3506670000005272,
+        "ysolve_static_root_total_ms": 42.00170799999903,
+        "ysolve_static_root_eig_ms": 13.486000010743737,
+        "ysolve_static_root_newton_ms": 1.1569997295737267,
+        "ysolve_static_root_ctypes_overhead_ms": 21.786250259683726,
+        "pose_scoring_ms": 11.387833000000569,
+        "candidate_count": 48.0,
+        "polynomial_solver_total_ms": 45.08970800000078
+      },
+      "colmap_reference": null
+    },
+    {
+      "instance_id": "instance_016",
+      "success": true,
+      "time_sec": 23.990805055534278,
+      "image_name": "query/query_000024.jpg",
+      "R": [
+        [
+          -0.9734024629332856,
+          0.09038035666243424,
+          -0.21052086900111627
+        ],
+        [
+          0.06801518690025643,
+          0.9914713313402204,
+          0.11116894117231768
+        ],
+        [
+          0.21877289481637613,
+          0.09389350488730422,
+          -0.9712478727048213
+        ]
+      ],
+      "t": [
+        -1.9151004191755696,
+        -1.0070056098235523,
+        5.670343368248548
+      ],
+      "center": [
+        -3.036189223302887,
+        0.639096238808955,
+        5.216088076846718
+      ],
+      "objective": 2.9330570708122528,
+      "total_ms": 60.74783400000072,
+      "stages_ms": {
+        "input_load_ms": 0.28579199999967386,
+        "solver_init_ms": 0.1289999999993796,
+        "equation_build_ms": 0.0,
+        "ysolve_direct_c_coeff_ms": 0.05995900000144161,
+        "ysolve_branch_select_ms": 3.3911670000001948,
+        "ysolve_static_action_double_ms": 3.1321670000004076,
+        "ysolve_linear_form_select_ms": 1.4157909999994445,
+        "ysolve_static_root_total_ms": 43.919499999999445,
+        "ysolve_static_root_eig_ms": 12.947999872267246,
+        "ysolve_static_root_newton_ms": 0.9089999366551638,
+        "ysolve_static_root_ctypes_overhead_ms": 24.118250191076385,
+        "pose_scoring_ms": 11.547583000000472,
+        "candidate_count": 48.0,
+        "polynomial_solver_total_ms": 47.111626000001294
+      },
+      "colmap_reference": null
+    },
+    {
+      "instance_id": "instance_017",
+      "success": true,
+      "time_sec": 24.990421932848204,
+      "image_name": "query/query_000025.jpg",
+      "R": [
+        [
+          -0.9733736888496132,
+          0.0906865932174047,
+          -0.2105222165613819
+        ],
+        [
+          0.06811418996164444,
+          0.9913581940007576,
+          0.1121132833941867
+        ],
+        [
+          0.21887009613276417,
+          0.09478856997643319,
+          -0.9711390261031927
+        ]
+      ],
+      "t": [
+        -1.899626302495839,
+        -1.022605054060786,
+        5.685231860636708
+      ],
+      "center": [
+        -3.023719590462702,
+        0.6471435392750607,
+        5.235884602696093
+      ],
+      "objective": 2.9553079548854706,
+      "total_ms": 58.38683300000014,
+      "stages_ms": {
+        "input_load_ms": 0.2909579999990086,
+        "solver_init_ms": 0.046166999998931146,
+        "equation_build_ms": 0.0,
+        "ysolve_direct_c_coeff_ms": 0.02924999999898148,
+        "ysolve_branch_select_ms": 3.2472499999993687,
+        "ysolve_static_action_double_ms": 3.0879170000002176,
+        "ysolve_linear_form_select_ms": 1.317207999999681,
+        "ysolve_static_root_total_ms": 41.36191699999969,
+        "ysolve_static_root_eig_ms": 12.97999988310039,
+        "ysolve_static_root_newton_ms": 0.9689999278634787,
+        "ysolve_static_root_ctypes_overhead_ms": 21.796208189035937,
+        "pose_scoring_ms": 12.058542000000116,
+        "candidate_count": 50.0,
+        "polynomial_solver_total_ms": 44.47908399999889
+      },
+      "colmap_reference": null
+    },
+    {
+      "instance_id": "instance_018",
+      "success": true,
+      "time_sec": 25.990038810162133,
+      "image_name": "query/query_000026.jpg",
+      "R": [
+        [
+          -0.973253746292552,
+          0.09105709707725863,
+          -0.21091645360041497
+        ],
+        [
+          0.0684575967815924,
+          0.9913371481893108,
+          0.11209021394739843
+        ],
+        [
+          0.21929592511125742,
+          0.0946533871118585,
+          -0.9710561433500385
+        ]
+      ],
+      "t": [
+        -1.8638070767291317,
+        -1.0079443158450354,
+        5.71608700357176
+      ],
+      "center": [
+        -2.9984703617054844,
+        0.6278785096083086,
+        5.2705145159327405
+      ],
+      "objective": 2.9752346584374822,
+      "total_ms": 59.51029100000049,
+      "stages_ms": {
+        "input_load_ms": 0.2700830000001986,
+        "solver_init_ms": 0.04954100000098549,
+        "equation_build_ms": 0.0,
+        "ysolve_direct_c_coeff_ms": 0.028458000000952666,
+        "ysolve_branch_select_ms": 3.2492499999996483,
+        "ysolve_static_action_double_ms": 3.0847080000011573,
+        "ysolve_linear_form_select_ms": 1.334999999999198,
+        "ysolve_static_root_total_ms": 42.85945800000057,
+        "ysolve_static_root_eig_ms": 13.022999977692962,
+        "ysolve_static_root_newton_ms": 0.9159997571259737,
+        "ysolve_static_root_ctypes_overhead_ms": 23.268500265180236,
+        "pose_scoring_ms": 11.69316700000067,
+        "candidate_count": 49.0,
+        "polynomial_solver_total_ms": 45.97262400000268
+      },
+      "colmap_reference": null
+    },
+    {
+      "instance_id": "instance_019",
+      "success": true,
+      "time_sec": 26.989655687476063,
+      "image_name": "query/query_000027.jpg",
+      "R": [
+        [
+          -0.9730745242685946,
+          0.09201630064193489,
+          -0.21132669172544563
+        ],
+        [
+          0.0691887871443573,
+          0.9911834782048111,
+          0.11299656750231893
+        ],
+        [
+          0.2198610514687431,
+          0.09533264367459005,
+          -0.9708618877559633
+        ]
+      ],
+      "t": [
+        -1.7973461746195376,
+        -1.0199359049619787,
+        5.767796127489401
+      ],
+      "center": [
+        -2.9464973668317476,
+        0.6264695107779814,
+        5.3351554718912375
+      ],
+      "objective": 3.0402354124314397,
+      "total_ms": 55.22291700000004,
+      "stages_ms": {
+        "input_load_ms": 0.3009580000004064,
+        "solver_init_ms": 0.06095800000061047,
+        "equation_build_ms": 0.0,
+        "ysolve_direct_c_coeff_ms": 0.03304200000009416,
+        "ysolve_branch_select_ms": 3.2667079999999515,
+        "ysolve_static_action_double_ms": 3.0765410000004323,
+        "ysolve_linear_form_select_ms": 1.3342499999993152,
+        "ysolve_static_root_total_ms": 39.01400000000166,
+        "ysolve_static_root_eig_ms": 12.95799994841218,
+        "ysolve_static_root_newton_ms": 0.9039998985826969,
+        "ysolve_static_root_ctypes_overhead_ms": 19.70066615300503,
+        "pose_scoring_ms": 11.191417000000925,
+        "candidate_count": 49.0,
+        "polynomial_solver_total_ms": 42.123583000002185
+      },
+      "colmap_reference": null
+    },
+    {
+      "instance_id": "instance_020",
+      "success": true,
+      "time_sec": 27.98927256478999,
+      "image_name": "query/query_000028.jpg",
+      "R": [
+        [
+          -0.9728094029271153,
+          0.09316732339780431,
+          -0.21204177755215708
+        ],
+        [
+          0.07013571506104713,
+          0.9910393666368931,
+          0.11367477841993698
+        ],
+        [
+          0.2207325237690747,
+          0.09571219163113498,
+          -0.970626771382131
+        ]
+      ],
+      "t": [
+        -1.6943650939133703,
+        -1.047359859752929,
+        5.632030626529785
+      ],
+      "center": [
+        -2.818009296799044,
+        0.6567803181101861,
+        5.226381917001517
+      ],
+      "objective": 3.274033237155431,
+      "total_ms": 62.83220899999975,
+      "stages_ms": {
+        "input_load_ms": 0.24116599999857158,
+        "solver_init_ms": 0.03925000000037926,
+        "equation_build_ms": 0.0,
+        "ysolve_direct_c_coeff_ms": 0.02720900000063864,
+        "ysolve_branch_select_ms": 3.2241670000008327,
+        "ysolve_static_action_double_ms": 3.065208000000652,
+        "ysolve_linear_form_select_ms": 1.312083000000186,
+        "ysolve_static_root_total_ms": 46.751125000000116,
+        "ysolve_static_root_eig_ms": 13.088000006973743,
+        "ysolve_static_root_newton_ms": 1.0259998962283134,
+        "ysolve_static_root_ctypes_overhead_ms": 27.17166609679822,
+        "pose_scoring_ms": 11.204917000000592,
+        "candidate_count": 48.0,
+        "polynomial_solver_total_ms": 49.843542000001406
+      },
+      "colmap_reference": null
+    },
+    {
+      "instance_id": "instance_021",
+      "success": true,
+      "time_sec": 28.98888944210392,
+      "image_name": "query/query_000029.jpg",
+      "R": [
+        [
+          -0.9726469471630117,
+          0.09354435410817569,
+          -0.2126202483042432
+        ],
+        [
+          0.07048392783293603,
+          0.9910258073222915,
+          0.11357757321954903
+        ],
+        [
+          0.2213366939567754,
+          0.09548456962088056,
+          -0.970511599555925
+        ]
+      ],
+      "t": [
+        -1.626362811296173,
+        -1.0449154350325294,
+        5.273386405317408
+      ],
+      "center": [
+        -2.6754209921818815,
+        0.684148189958558,
+        4.8907639698611325
+      ],
+      "objective": 3.5032306759406113,
+      "total_ms": 57.50708299999907,
+      "stages_ms": {
+        "input_load_ms": 0.29041700000043136,
+        "solver_init_ms": 0.03775000000061368,
+        "equation_build_ms": 0.0,
+        "ysolve_direct_c_coeff_ms": 0.026790999999803944,
+        "ysolve_branch_select_ms": 3.230500000000802,
+        "ysolve_static_action_double_ms": 3.0693749999990416,
+        "ysolve_linear_form_select_ms": 1.2938330000000775,
+        "ysolve_static_root_total_ms": 42.97916700000037,
+        "ysolve_static_root_eig_ms": 12.950000120326877,
+        "ysolve_static_root_newton_ms": 0.9750004392117262,
+        "ysolve_static_root_ctypes_overhead_ms": 23.635624440460745,
+        "pose_scoring_ms": 9.61762500000063,
+        "candidate_count": 42.0,
+        "polynomial_solver_total_ms": 46.07533299999922
+      },
+      "colmap_reference": null
+    },
+    {
+      "instance_id": "instance_022",
+      "success": true,
+      "time_sec": 29.988506319417844,
+      "image_name": "query/query_000030.jpg",
+      "R": [
+        [
+          -0.972861146493243,
+          0.09260708789661909,
+          -0.21204979819646336
+        ],
+        [
+          0.06964958895368761,
+          0.9911166685295291,
+          0.11329909144167925
+        ],
+        [
+          0.2206583884705844,
+          0.09545510271449877,
+          -0.9706689440603987
+        ]
+      ],
+      "t": [
+        -1.5508919114492392,
+        -1.0683018870854328,
+        4.657508608133858
+      ],
+      "center": [
+        -2.462114039504346,
+        0.7578524282905791,
+        4.313070278954382
+      ],
+      "objective": 3.8166360800329264,
+      "total_ms": 83.4360830000005,
+      "stages_ms": {
+        "input_load_ms": 0.2866249999993187,
+        "solver_init_ms": 0.037084000000575656,
+        "equation_build_ms": 0.0,
+        "ysolve_direct_c_coeff_ms": 0.027583999999691855,
+        "ysolve_branch_select_ms": 3.254749999999973,
+        "ysolve_static_action_double_ms": 3.067874999999276,
+        "ysolve_linear_form_select_ms": 1.2836249999992333,
+        "ysolve_static_root_total_ms": 62.43720900000049,
+        "ysolve_static_root_eig_ms": 12.928999960422516,
+        "ysolve_static_root_newton_ms": 0.9319998789578676,
+        "ysolve_static_root_ctypes_overhead_ms": 42.88175016061935,
+        "pose_scoring_ms": 16.080458999999436,
+        "candidate_count": 59.0,
+        "polynomial_solver_total_ms": 65.53266799999946
+      },
+      "colmap_reference": null
+    },
+    {
+      "instance_id": "instance_023",
+      "success": true,
+      "time_sec": 30.988123196731774,
+      "image_name": "query/query_000031.jpg",
+      "R": [
+        [
+          -0.9735011328529164,
+          0.09106768173149378,
+          -0.20976706528466285
+        ],
+        [
+          0.06915130500539175,
+          0.9915722394160706,
+          0.10955633726740775
+        ],
+        [
+          0.2179762403339867,
+          0.09214755212945198,
+          -0.9715941474125964
+        ]
+      ],
+      "t": [
+        -1.5923859460056105,
+        -1.0719404313079295,
+        3.6199369304171904
+      ],
+      "center": [
+        -2.26512368500103,
+        0.8743529435162285,
+        3.300517276324865
+      ],
+      "objective": 3.6330735870870163,
+      "total_ms": 92.03754199999992,
+      "stages_ms": {
+        "input_load_ms": 0.23704200000018716,
+        "solver_init_ms": 0.12237500000011892,
+        "equation_build_ms": 0.0,
+        "ysolve_direct_c_coeff_ms": 0.06266699999990522,
+        "ysolve_branch_select_ms": 3.36716600000031,
+        "ysolve_static_action_double_ms": 3.1240839999995274,
+        "ysolve_linear_form_select_ms": 1.367500000000632,
+        "ysolve_static_root_total_ms": 66.0784999999997,
+        "ysolve_static_root_eig_ms": 13.667999999597669,
+        "ysolve_static_root_newton_ms": 1.4170000795274973,
+        "ysolve_static_root_ctypes_overhead_ms": 44.94045792087498,
+        "pose_scoring_ms": 20.809583999998438,
+        "candidate_count": 50.0,
+        "polynomial_solver_total_ms": 69.26525099999914
+      },
+      "colmap_reference": null
+    },
+    {
+      "instance_id": "instance_024",
+      "success": true,
+      "time_sec": 31.987740074045703,
+      "image_name": "query/query_000032.jpg",
+      "R": [
+        [
+          -0.9736939883761717,
+          0.08940599874486546,
+          -0.20958669897810026
+        ],
+        [
+          0.06794473287256489,
+          0.9918845571874624,
+          0.10746412651628165
+        ],
+        [
+          0.2174937476687077,
+          0.09039686167929009,
+          -0.9718666971985179
+        ]
+      ],
+      "t": [
+        -1.6261714255737947,
+        -1.060854197433733,
+        2.8997981016923244
+      ],
+      "center": [
+        -2.142001842708607,
+        0.9355017283992569,
+        2.5913970722640753
+      ],
+      "objective": 3.5679934928924646,
+      "total_ms": 103.96987500000066,
+      "stages_ms": {
+        "input_load_ms": 0.3584170000010545,
+        "solver_init_ms": 0.07162500000035266,
+        "equation_build_ms": 0.0,
+        "ysolve_direct_c_coeff_ms": 0.040208000001484834,
+        "ysolve_branch_select_ms": 4.364457999999516,
+        "ysolve_static_action_double_ms": 4.129832999998584,
+        "ysolve_linear_form_select_ms": 1.6931250000009612,
+        "ysolve_static_root_total_ms": 87.56704199999987,
+        "ysolve_static_root_eig_ms": 18.5910000000149,
+        "ysolve_static_root_newton_ms": 4.657999845221639,
+        "ysolve_static_root_ctypes_overhead_ms": 56.025375154764134,
+        "pose_scoring_ms": 9.847708000000566,
+        "candidate_count": 40.0,
+        "polynomial_solver_total_ms": 91.73708299999994
+      },
+      "colmap_reference": null
+    },
+    {
+      "instance_id": "instance_025",
+      "success": true,
+      "time_sec": 32.98735695135963,
+      "image_name": "query/query_000033.jpg",
+      "R": [
+        [
+          -0.9735287102072183,
+          0.08967127015894391,
+          -0.21024013344352685
+        ],
+        [
+          0.06801620372056891,
+          0.9918134190379522,
+          0.1080737611434425
+        ],
+        [
+          0.21821009700220648,
+          0.09091317354668405,
+          -0.9716579379812416
+        ]
+      ],
+      "t": [
+        -1.6039741452995973,
+        -1.0346387411213738,
+        2.974126605986477
+      ],
+      "center": [
+        -2.14012713667509,
+        0.8996116979319748,
+        2.664431287097918
+      ],
+      "objective": 3.537014479737636,
+      "total_ms": 96.12816599999974,
+      "stages_ms": {
+        "input_load_ms": 0.247832999999531,
+        "solver_init_ms": 0.05395900000060294,
+        "equation_build_ms": 0.0,
+        "ysolve_direct_c_coeff_ms": 0.031541000000245845,
+        "ysolve_branch_select_ms": 3.3214590000003597,
+        "ysolve_static_action_double_ms": 3.14408399999877,
+        "ysolve_linear_form_select_ms": 1.3765829999989876,
+        "ysolve_static_root_total_ms": 80.65812499999936,
+        "ysolve_static_root_eig_ms": 16.51700004003942,
+        "ysolve_static_root_newton_ms": 2.8570001013576984,
+        "ysolve_static_root_ctypes_overhead_ms": 53.99449985860194,
+        "pose_scoring_ms": 10.42345900000008,
+        "candidate_count": 40.0,
+        "polynomial_solver_total_ms": 83.83374999999837
+      },
+      "colmap_reference": null
+    },
+    {
+      "instance_id": "instance_026",
+      "success": true,
+      "time_sec": 33.986973828673555,
+      "image_name": "query/query_000034.jpg",
+      "R": [
+        [
+          -0.9733011522618045,
+          0.09052322589899528,
+          -0.21092750550528824
+        ],
+        [
+          0.06874350909962304,
+          0.9917268229803777,
+          0.10840774205708989
+        ],
+        [
+          0.21899588343736962,
+          0.09101348336420248,
+          -0.971471743739055
+        ]
+      ],
+      "t": [
+        -1.5828205560328898,
+        -1.0346775772625947,
+        2.9388907046648653
+      ],
+      "center": [
+        -2.1130386697567105,
+        0.901920849000781,
+        2.633355945880904
+      ],
+      "objective": 3.5897186841010735,
+      "total_ms": 106.68316599999983,
+      "stages_ms": {
+        "input_load_ms": 0.3579589999986865,
+        "solver_init_ms": 0.08308399999990002,
+        "equation_build_ms": 0.0,
+        "ysolve_direct_c_coeff_ms": 0.03766599999899256,
+        "ysolve_branch_select_ms": 3.5250829999995403,
+        "ysolve_static_action_double_ms": 3.2522089999993398,
+        "ysolve_linear_form_select_ms": 1.3468339999995749,
+        "ysolve_static_root_total_ms": 90.48183300000012,
+        "ysolve_static_root_eig_ms": 18.43699999153614,
+        "ysolve_static_root_newton_ms": 5.074000218883157,
+        "ysolve_static_root_ctypes_overhead_ms": 60.28583278958166,
+        "pose_scoring_ms": 10.822333000000128,
+        "candidate_count": 42.0,
+        "polynomial_solver_total_ms": 93.77170799999845
+      },
+      "colmap_reference": null
+    }
+  ],
+  "processed_count": 27,
+  "accepted_count": 27,
+  "held_count": 0,
+  "failed_count": 0
+}

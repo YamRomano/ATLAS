@@ -382,6 +382,8 @@ def main() -> None:
     ap.add_argument("--degree", type=int, default=11)
     ap.add_argument("--action-weights", default="branch")
     ap.add_argument("--fallback-action-weights", default="")
+    ap.add_argument("--scene-json", type=Path, default=None, help=argparse.SUPPRESS)
+    ap.add_argument("--display-z-sign", type=float, default=-1.0, help=argparse.SUPPRESS)
     args = ap.parse_args()
 
     if not args.colmap.exists():

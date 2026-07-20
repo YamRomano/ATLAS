@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "updated_at": "2026-07-20 10:30:17",
+  "selected_model": null,
+  "model_status": "training_failed",
+  "enemies": [],
+  "training_message": "No enemy drone profiles selected for YOLO dataset preparation.",
+  "training_run_id": "enemy_yolo_20260720_103017_7b9f3e",
+  "training": {
+    "status": "failed",
+    "run_id": "enemy_yolo_20260720_103017_7b9f3e",
+    "base_model": "yolov8n.pt",
+    "epochs": 50,
+    "imgsz": 640,
+    "batch": 8,
+    "device": "auto",
+    "log": "public/enemy_drones/training_runs/enemy_yolo_20260720_103017_7b9f3e/train.log",
+    "error": "No enemy drone profiles selected for YOLO dataset preparation.",
+    "finished_at": "2026-07-20 10:30:17"
+  },
+  "total_videos": 0,
+  "total_frames": 0,
+  "total_labeled_frames": 0,
+  "class_count": 0,
+  "training_log": "public/enemy_drones/training_runs/enemy_yolo_20260720_103017_7b9f3e/train.log"
+}

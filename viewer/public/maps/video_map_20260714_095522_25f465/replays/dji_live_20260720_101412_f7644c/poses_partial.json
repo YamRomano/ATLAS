@@ -1,0 +1,19 @@
+{
+  "mode": "simulated_live_tsolve_partial",
+  "replay_id": "dji_live_20260720_101412_f7644c",
+  "frame_source": null,
+  "expected_count": 0,
+  "processed_count": 0,
+  "accepted_count": 0,
+  "held_count": 0,
+  "failed_count": 0,
+  "complete": false,
+  "updated_at": 1784531673.117839,
+  "poses": [],
+  "current_frame": {
+    "frame_index": 10,
+    "image_name": "query/query_000010.jpg",
+    "time_sec": 5.030941
+  },
+  "current_frame_time_sec": 5.030941
+}

@@ -1,0 +1,16 @@
+{
+  "mode": "simulated_live_tsolve_partial",
+  "replay_id": "replay_20260708_110756_e65ce5",
+  "frame_source": "/Users/yamromano/Documents/PythonF4/PythonF4/drone_phase1_replay_demo_20260706/data/app_uploads/drone_upload_f50dfd0c.MP4",
+  "expected_count": 88,
+  "processed_count": 0,
+  "complete": false,
+  "updated_at": 1783498082.323128,
+  "poses": [],
+  "current_frame": {
+    "frame_index": 0,
+    "image_name": "query/query_000000.jpg",
+    "time_sec": 0.0
+  },
+  "current_frame_time_sec": 0.0
+}

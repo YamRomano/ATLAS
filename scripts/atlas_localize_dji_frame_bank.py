@@ -209,6 +209,10 @@ def main() -> None:
             cfg["tsolve_action_weights"],
             "--fallback-action-weights",
             cfg["tsolve_fallback_action_weights"],
+            "--scene-json",
+            base_asset_dir / "scene.json",
+            "--display-z-sign",
+            selected.get("display_z_sign", -1),
         ],
         atlas.DRONE_STOP_EVENT,
     )

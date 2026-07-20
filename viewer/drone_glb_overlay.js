@@ -93,10 +93,9 @@ let smoothedRoomYaw = null;
 let lastYawUpdateMs = performance.now();
 let lastPoseTimeSec = null;
 let currentOverlaySize = 0;
-// Fixed calibration between the DJI GLB's local nose direction and ATLAS
-// room yaw. Positive Y is the room vertical. The DJI Mini 3 Pro GLB is flat
-// as loaded; after the path-heading stabilization in app.js, roomYaw already
-// points the nose along the selected TSolve/path heading.
+// Fixed calibration between the DJI GLB's local nose direction and ATLAS room
+// yaw. Runtime heading comes from TSolve after automatic first-motion
+// calibration in app.js; no operator trim is applied here.
 const MODEL_YAW_CORRECTION = 0;
 
 function unwrapAngleNear(target, reference) {
@@ -182,7 +181,7 @@ function animate() {
   const size = view?.mode === "top" ? 214 : 196;
   setOverlaySize(size);
 
-  const p = api.projectRoomPoint(pose.rcenter);
+  const p = api.projectRoomPointToViewport?.(pose.rcenter) || api.projectRoomPoint(pose.rcenter);
   canvas.style.display = "block";
   canvas.style.left = `${p[0] - size * 0.5}px`;
   canvas.style.top = `${p[1] - size * 0.5}px`;
@@ -190,6 +189,7 @@ function animate() {
 
   const heading = normalize(api.getHeadingForPose(pose));
   const targetRoomYaw = Math.atan2(heading[0], heading[2]);
+  const smoothYaw = Boolean(api.useDroneYawSmoothing?.());
   const poseTimeSec = Number(pose.time_sec);
   if (Number.isFinite(poseTimeSec) && lastPoseTimeSec != null && poseTimeSec < lastPoseTimeSec - 0.25) {
     smoothedRoomYaw = null;
@@ -198,7 +198,9 @@ function animate() {
   const now = performance.now();
   const dt = Math.max(0.001, Math.min(0.08, (now - lastYawUpdateMs) / 1000));
   lastYawUpdateMs = now;
-  if (smoothedRoomYaw == null || !Number.isFinite(smoothedRoomYaw)) {
+  if (!smoothYaw) {
+    smoothedRoomYaw = targetRoomYaw;
+  } else if (smoothedRoomYaw == null || !Number.isFinite(smoothedRoomYaw)) {
     smoothedRoomYaw = targetRoomYaw;
   } else {
     const unwrapped = unwrapAngleNear(targetRoomYaw, smoothedRoomYaw);
