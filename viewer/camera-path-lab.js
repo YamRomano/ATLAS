@@ -31,9 +31,9 @@ let targetHeading = null;
 let displayedHeading = null;
 let previousAnimationTime = performance.now();
 try {
-  renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
+  renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: "high-performance" });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
-  renderer.setClearColor(0xf4fbfe, 1);
+  renderer.setClearColor(0x071b2c, 0);
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   container.appendChild(renderer.domElement);
 } catch (_) {
@@ -52,7 +52,7 @@ try {
 }
 
 const scene = new THREE.Scene();
-scene.fog = new THREE.FogExp2(0xf4fbfe, 0.012);
+scene.fog = new THREE.FogExp2(0x0a2d49, 0.012);
 const camera = new THREE.PerspectiveCamera(44, 1, 0.02, 180);
 const orbit = { target: new THREE.Vector3(-1.7, 0.4, 0.2), yaw: -0.84, pitch: 0.52, distance: 17.5 };
 const wallsGroup = new THREE.Group();
@@ -63,7 +63,7 @@ scene.add(new THREE.HemisphereLight(0xffffff, 0xd9eef7, 1.45));
 const keyLight = new THREE.DirectionalLight(0xffffff, 1.05);
 keyLight.position.set(5, 11, 4);
 scene.add(keyLight);
-const floorGrid = new THREE.GridHelper(24, 24, 0x77b9d5, 0xc9e7f3);
+const floorGrid = new THREE.GridHelper(24, 24, 0x69b7d8, 0x225a78);
 floorGrid.position.y = -1.075;
 floorGrid.material.opacity = 0.32;
 floorGrid.material.transparent = true;
@@ -162,7 +162,7 @@ function drawFallbackMesh(context) {
   }).filter(Boolean).sort((a, b) => b.z - a.z);
   for (const point of points) {
     const radius = 1.15 + Math.min(1.15, Number(point.weight || 1) * 0.04);
-    context.globalAlpha = 0.55;
+    context.globalAlpha = 0.5;
     context.fillStyle = point.color;
     context.fillRect(point.x - radius, point.y - radius, radius * 2, radius * 2);
   }
@@ -210,6 +210,7 @@ function drawFallbackCamera(context) {
   context.save();
   context.translate(position.x, position.y);
   context.rotate(angle);
+  context.scale(1.28, 1.28);
   context.shadowColor = "rgba(86, 173, 213, 0.38)";
   context.shadowBlur = 12;
   context.strokeStyle = "rgba(79, 158, 193, 0.46)";
@@ -273,11 +274,15 @@ function drawFallbackScene() {
   const height = container.clientHeight;
   const context = fallbackContext;
   context.clearRect(0, 0, width, height);
-  context.fillStyle = "#f4fbfe";
+  const background = context.createLinearGradient(0, 0, width, height);
+  background.addColorStop(0, "#061725");
+  background.addColorStop(0.52, "#0d3454");
+  background.addColorStop(1, "#17587d");
+  context.fillStyle = background;
   context.fillRect(0, 0, width, height);
   const glow = context.createRadialGradient(width * 0.48, height * 0.44, 0, width * 0.48, height * 0.44, Math.max(width, height) * 0.62);
-  glow.addColorStop(0, "rgba(184, 224, 241, 0.34)");
-  glow.addColorStop(1, "rgba(244, 251, 254, 0)");
+  glow.addColorStop(0, "rgba(105, 188, 224, 0.24)");
+  glow.addColorStop(1, "rgba(6, 23, 37, 0)");
   context.fillStyle = glow;
   context.fillRect(0, 0, width, height);
   drawFallbackMesh(context);
@@ -466,7 +471,7 @@ function makeCameraRig() {
   const frustumGeometry = new THREE.BufferGeometry();
   frustumGeometry.setAttribute("position", new THREE.Float32BufferAttribute(points, 3));
   rig.add(new THREE.LineSegments(frustumGeometry, new THREE.LineBasicMaterial({ color: 0x4a9fc5, transparent: true, opacity: 0.68 })));
-  rig.scale.setScalar(0.9);
+  rig.scale.setScalar(1.3);
   rig.visible = false;
   scene.add(rig);
   return rig;
@@ -612,7 +617,7 @@ function loadGlbMesh() {
             color: node.geometry.getAttribute("color") ? 0xffffff : 0x82adba,
             vertexColors: Boolean(node.geometry.getAttribute("color")),
             transparent: true,
-            opacity: 0.68,
+            opacity: 0.5,
             depthWrite: true,
             side: THREE.DoubleSide,
           });
@@ -669,7 +674,7 @@ async function loadVoxelFallback() {
     size: Math.max(0.065, size * 0.82),
     sizeAttenuation: true,
     transparent: true,
-    opacity: 0.55,
+    opacity: 0.5,
     depthWrite: false,
     toneMapped: false,
   });
