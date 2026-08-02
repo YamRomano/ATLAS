@@ -110,6 +110,7 @@ button:focus-visible, .file-button:focus-within { outline: 2px solid rgba(86, 17
 #file-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .run-bar .run-button { min-width: 48px; border-color: rgba(180, 227, 246, .42); color: #ffffff; background: linear-gradient(135deg, rgba(66, 148, 188, .52), rgba(95, 188, 225, .32)); }
 .run-bar .stop-button { min-width: 48px; color: #c0dbe7; border-color: rgba(164, 207, 226, .28); background: rgba(255, 255, 255, .04); }
+.run-bar .replay-button { min-width: 56px; color: #e8f7fd; border-color: rgba(177, 226, 246, .34); background: linear-gradient(135deg, rgba(31, 92, 127, .78), rgba(61, 137, 173, .52)); }
 .run-bar button:disabled { opacity: .35; cursor: default; }
 .progress-track { flex: 1; min-width: 60px; height: 2px; background: rgba(86, 173, 213, .16); }
 .progress-track span { display: block; width: 0; height: 100%; background: var(--blue); box-shadow: 0 0 8px rgba(86, 173, 213, .4); transition: width .25s ease; }

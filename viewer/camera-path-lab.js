@@ -17,6 +17,7 @@ const coordinates = el("camera-coordinates");
 const meshBadge = el("mesh-badge");
 const startButton = el("start-button");
 const stopButton = el("stop-button");
+const replayButton = el("replay-button");
 
 let renderer = null;
 let fallbackCanvas = null;
@@ -74,11 +75,19 @@ let roomMatrix = null;
 let selectedFile = null;
 let videoObjectUrl = null;
 let latestPoseUrl = null;
-let latestPoseSignature = "";
+let latestPathSignature = "";
+let latestRenderedPoseKey = "";
 let pathLine = null;
 let cameraRig = null;
 let cameraPosePosition = null;
 let wallsVisible = true;
+let localizedPoses = [];
+let firstLocalizationReady = false;
+let currentJobStatus = "idle";
+let replayActive = false;
+let replayPoseIndex = -1;
+let replayPathIndex = -1;
+let loadedStreamMediaUrl = "";
 
 function setOrbit(top = false) {
   if (top) {
@@ -305,6 +314,7 @@ function animate(now = performance.now()) {
   requestAnimationFrame(animate);
   const deltaSeconds = Math.min(0.1, Math.max(0, (now - previousAnimationTime) / 1000));
   previousAnimationTime = now;
+  if (replayActive) updateReplayFrame();
   if (targetHeading) {
     if (!displayedHeading) displayedHeading = targetHeading.clone();
     const angleBefore = displayedHeading.angleTo(targetHeading);
@@ -373,11 +383,13 @@ function installPointerControls() {
 }
 
 function setStatus(status, message) {
+  currentJobStatus = status || "idle";
   statusDot.className = `status-dot ${status || "idle"}`;
   statusText.textContent = message || "Ready";
   const active = ["queued", "running", "stopping"].includes(status);
   startButton.disabled = active || !selectedFile;
   stopButton.disabled = !active;
+  replayButton.disabled = active || localizedPoses.length < 2;
 }
 
 function formatTime(seconds) {
@@ -471,7 +483,7 @@ function makeCameraRig() {
   const frustumGeometry = new THREE.BufferGeometry();
   frustumGeometry.setAttribute("position", new THREE.Float32BufferAttribute(points, 3));
   rig.add(new THREE.LineSegments(frustumGeometry, new THREE.LineBasicMaterial({ color: 0x4a9fc5, transparent: true, opacity: 0.68 })));
-  rig.scale.setScalar(1.3);
+  rig.scale.setScalar(2.1);
   rig.visible = false;
   scene.add(rig);
   return rig;
@@ -504,46 +516,77 @@ function loadAnalogCameraModel() {
   });
 }
 
-function updatePath(payload) {
-  const all = Array.isArray(payload?.poses) ? payload.poses : [];
-  const poses = all.filter(acceptedPose);
-  const signature = `${poses.length}:${payload?.processed_count || all.length}:${payload?.complete || false}`;
-  if (signature === latestPoseSignature) return;
-  latestPoseSignature = signature;
-  const positions = poses.map(posePosition).filter(Boolean);
+function poseKey(pose) {
+  return `${pose?.image_name || pose?.instance_id || "pose"}:${Number(pose?.time_sec || 0).toFixed(6)}`;
+}
+
+function renderPath(positions) {
   fallbackPath = positions;
   if (pathLine) {
     pathGroup.remove(pathLine);
     pathLine.geometry.dispose();
     pathLine.material.dispose();
+    pathLine = null;
   }
   if (positions.length >= 2) {
     const geometry = new THREE.BufferGeometry().setFromPoints(positions);
     pathLine = new THREE.Line(geometry, new THREE.LineBasicMaterial({ color: 0x3d91b8, transparent: true, opacity: 0.92 }));
     pathGroup.add(pathLine);
   }
-  const latest = poses.at(-1);
-  if (latest) {
-    const position = posePosition(latest);
-    cameraPosePosition = position;
-    cameraRig.position.copy(position);
-    const heading = poseHeading(latest);
-    if (heading) {
-      targetHeading = heading.clone();
-      if (!displayedHeading) displayedHeading = heading.clone();
-      applyDisplayedHeading(displayedHeading);
-    }
-    cameraRig.visible = true;
-    const yaw = targetHeading
-      ? THREE.MathUtils.radToDeg(Math.atan2(targetHeading.x, targetHeading.z))
-      : null;
-    coordinates.textContent = `X ${position.x.toFixed(3)} · Y ${position.y.toFixed(3)} · Z ${position.z.toFixed(3)}`
-      + (yaw === null ? "" : ` · YAW ${yaw.toFixed(1)}°`);
-    const time = Number(latest.time_sec) || 0;
-    el("video-time").textContent = formatTime(time);
-    if (sourceVideo.src && Math.abs(sourceVideo.currentTime - time) > 0.26) sourceVideo.currentTime = time;
-  }
   fallbackDirty = true;
+}
+
+function syncVideoToLocalizedFrame(time) {
+  const target = Math.max(0, Number(time) || 0);
+  sourceVideo.pause();
+  if (sourceVideo.readyState >= HTMLMediaElement.HAVE_METADATA) {
+    const duration = Number.isFinite(sourceVideo.duration) ? sourceVideo.duration : target;
+    const safeTarget = Math.min(target, Math.max(0, duration - 0.001));
+    if (Math.abs(sourceVideo.currentTime - safeTarget) > 0.015) sourceVideo.currentTime = safeTarget;
+  }
+  el("video-time").textContent = formatTime(target);
+}
+
+function applyCameraPose(pose, { syncVideo = false } = {}) {
+  if (!pose) return;
+  const position = posePosition(pose);
+  if (!position) return;
+  cameraPosePosition = position;
+  cameraRig.position.copy(position);
+  const heading = poseHeading(pose);
+  if (heading) {
+    targetHeading = heading.clone();
+    if (!displayedHeading) displayedHeading = heading.clone();
+    applyDisplayedHeading(displayedHeading);
+  }
+  cameraRig.visible = true;
+  const yaw = targetHeading
+    ? THREE.MathUtils.radToDeg(Math.atan2(targetHeading.x, targetHeading.z))
+    : null;
+  coordinates.textContent = `X ${position.x.toFixed(3)} · Y ${position.y.toFixed(3)} · Z ${position.z.toFixed(3)}`
+    + (yaw === null ? "" : ` · YAW ${yaw.toFixed(1)}°`);
+  if (syncVideo) syncVideoToLocalizedFrame(pose.time_sec);
+  fallbackDirty = true;
+}
+
+function updatePath(payload) {
+  const all = Array.isArray(payload?.poses) ? payload.poses : [];
+  const poses = all.filter(acceptedPose);
+  localizedPoses = poses;
+  const latest = poses.at(-1);
+  const pathSignature = `${poses.length}:${latest ? poseKey(latest) : "none"}:${Boolean(payload?.complete)}`;
+  if (!replayActive && pathSignature !== latestPathSignature) {
+    latestPathSignature = pathSignature;
+    renderPath(poses.map(posePosition).filter(Boolean));
+  }
+  if (!replayActive && latest) {
+    const key = poseKey(latest);
+    if (key !== latestRenderedPoseKey) {
+      latestRenderedPoseKey = key;
+      firstLocalizationReady = true;
+      applyCameraPose(latest, { syncVideo: true });
+    }
+  }
   const accepted = Number(payload?.accepted_count ?? poses.length);
   const processed = Number(payload?.processed_count ?? all.length);
   const expected = Number(payload?.expected_count ?? 0);
@@ -551,6 +594,95 @@ function updatePath(payload) {
   el("processed-count").textContent = String(processed);
   if (expected) el("target-count").textContent = String(expected);
   el("frame-chip").textContent = processed ? `FRAME ${processed}` : "FRAME —";
+  replayButton.disabled = ["queued", "running", "stopping"].includes(currentJobStatus) || poses.length < 2;
+}
+
+function resetLivePresentation() {
+  stopReplay(false);
+  localizedPoses = [];
+  latestPathSignature = "";
+  latestRenderedPoseKey = "";
+  firstLocalizationReady = false;
+  replayPoseIndex = -1;
+  replayPathIndex = -1;
+  cameraRig.visible = false;
+  cameraPosePosition = null;
+  targetHeading = null;
+  displayedHeading = null;
+  renderPath([]);
+  sourceVideo.pause();
+  if (sourceVideo.readyState >= HTMLMediaElement.HAVE_METADATA) sourceVideo.currentTime = 0;
+  el("video-time").textContent = "00:00.0";
+  el("frame-chip").textContent = "FRAME —";
+  coordinates.textContent = "X 0.000 · Y 0.000 · Z 0.000";
+}
+
+function updateReplayFrame() {
+  if (!replayActive || localizedPoses.length < 2) return;
+  const playbackTime = Number(sourceVideo.currentTime) || 0;
+  while (
+    replayPoseIndex + 1 < localizedPoses.length
+    && Number(localizedPoses[replayPoseIndex + 1].time_sec || 0) <= playbackTime + 0.002
+  ) replayPoseIndex += 1;
+  const index = Math.max(0, replayPoseIndex);
+  const current = localizedPoses[index];
+  const next = localizedPoses[Math.min(index + 1, localizedPoses.length - 1)];
+  const currentTime = Number(current.time_sec || 0);
+  const nextTime = Number(next.time_sec || currentTime);
+  const alpha = nextTime > currentTime
+    ? THREE.MathUtils.clamp((playbackTime - currentTime) / (nextTime - currentTime), 0, 1)
+    : 0;
+  const currentPosition = posePosition(current);
+  const nextPosition = posePosition(next);
+  const position = currentPosition.clone().lerp(nextPosition, alpha);
+  const currentDirection = poseHeading(current);
+  const nextDirection = poseHeading(next);
+  const direction = currentDirection && nextDirection
+    ? currentDirection.clone().lerp(nextDirection, alpha).normalize()
+    : currentDirection || nextDirection;
+  applyCameraPose({ rcenter: position.toArray(), rheading: direction?.toArray(), time_sec: playbackTime });
+  if (index !== replayPathIndex) {
+    replayPathIndex = index;
+    const replayPoints = localizedPoses.slice(0, index + 1).map(posePosition).filter(Boolean);
+    replayPoints.push(position);
+    renderPath(replayPoints);
+    el("frame-chip").textContent = `FRAME ${index + 1}`;
+  }
+  el("video-time").textContent = formatTime(playbackTime);
+  const lastTime = Number(localizedPoses.at(-1)?.time_sec || 0);
+  if (playbackTime >= lastTime || sourceVideo.ended) stopReplay(true);
+}
+
+function stopReplay(restoreFullPath = true) {
+  if (replayActive) sourceVideo.pause();
+  replayActive = false;
+  replayButton.textContent = "Replay";
+  replayPoseIndex = -1;
+  replayPathIndex = -1;
+  if (restoreFullPath && localizedPoses.length) {
+    renderPath(localizedPoses.map(posePosition).filter(Boolean));
+    const latest = localizedPoses.at(-1);
+    latestRenderedPoseKey = poseKey(latest);
+    applyCameraPose(latest, { syncVideo: true });
+  }
+}
+
+async function startReplay() {
+  if (localizedPoses.length < 2) return;
+  replayActive = true;
+  replayPoseIndex = -1;
+  replayPathIndex = -1;
+  replayButton.textContent = "Pause";
+  renderPath([]);
+  const first = localizedPoses[0];
+  applyCameraPose(first);
+  sourceVideo.currentTime = Math.max(0, Number(first.time_sec) || 0);
+  try {
+    await sourceVideo.play();
+  } catch (error) {
+    stopReplay(false);
+    el("detail-text").textContent = `Replay could not start: ${error.message}`;
+  }
 }
 
 function addWalls(entry) {
@@ -708,19 +840,32 @@ async function fetchPoseStream(url) {
   updatePath(await response.json());
 }
 
+function loadStoredStreamVideo(mediaUrl, title = "Recorded camera run") {
+  if (!mediaUrl || selectedFile || mediaUrl === loadedStreamMediaUrl) return;
+  loadedStreamMediaUrl = mediaUrl;
+  const resolved = mediaUrl.startsWith("/") ? `.${mediaUrl}` : `./${mediaUrl}`;
+  sourceVideo.src = resolved;
+  sourceVideo.pause();
+  el("video-empty").hidden = true;
+  el("file-name").textContent = title;
+}
+
 async function pollStatus() {
   try {
     const response = await fetch("/api/camera-path-lab/status", { cache: "no-store" });
     const payload = await response.json();
     const stream = payload.stream || {};
+    loadStoredStreamVideo(stream.media_url, stream.title || "Recorded camera run");
     setStatus(payload.status || "idle", payload.message);
     const active = ["queued", "running"].includes(payload.status);
-    if (active && selectedFile && sourceVideo.paused) {
-      sourceVideo.play().catch(() => {});
-    } else if (!active && !sourceVideo.paused) {
+    if (active && replayActive) stopReplay(false);
+    if (active && !sourceVideo.paused) {
       sourceVideo.pause();
     }
-    el("detail-text").textContent = stream.error || payload.message || "Ready.";
+    el("detail-text").textContent = stream.error
+      || (active && !firstLocalizationReady
+        ? "Initializing the first camera pose… video is held until localization is ready."
+        : payload.message || "Ready.");
     const processed = Number(stream.pose_count || 0);
     const accepted = Number(stream.accepted_pose_count || 0);
     const expected = Number(stream.expected_count || 0);
@@ -737,15 +882,17 @@ async function pollStatus() {
     setStatus("error", "Local processing service is unavailable");
     el("detail-text").textContent = "Start the local processing service, then reopen this page.";
   } finally {
-    window.setTimeout(pollStatus, 850);
+    window.setTimeout(pollStatus, 300);
   }
 }
 
 videoInput.addEventListener("change", () => {
   selectedFile = videoInput.files?.[0] || null;
+  loadedStreamMediaUrl = "";
   if (videoObjectUrl) URL.revokeObjectURL(videoObjectUrl);
   videoObjectUrl = selectedFile ? URL.createObjectURL(selectedFile) : null;
   sourceVideo.src = videoObjectUrl || "";
+  resetLivePresentation();
   el("video-empty").hidden = Boolean(selectedFile);
   el("file-name").textContent = selectedFile?.name || "Choose a lab video";
   videoInput.closest(".file-button").classList.toggle("has-file", Boolean(selectedFile));
@@ -754,6 +901,7 @@ videoInput.addEventListener("change", () => {
 
 startButton.addEventListener("click", async () => {
   if (!selectedFile) return;
+  resetLivePresentation();
   const form = new FormData();
   form.append("video", selectedFile, selectedFile.name);
   form.append("map_id", REFERENCE_MAP_ID);
@@ -763,7 +911,8 @@ startButton.addEventListener("click", async () => {
     const payload = await response.json();
     if (!response.ok || !payload.ok) throw new Error(payload.error || "Upload failed");
     sourceVideo.currentTime = 0;
-    sourceVideo.play().catch(() => {});
+    sourceVideo.pause();
+    el("detail-text").textContent = "Initializing the first camera pose… video is held until localization is ready.";
   } catch (error) {
     setStatus("error", error.message);
   }
@@ -774,6 +923,17 @@ stopButton.addEventListener("click", async () => {
   sourceVideo.pause();
   try { await fetch("/api/drone/stop", { method: "POST" }); } catch (_) { /* status poll will report it */ }
 });
+
+replayButton.addEventListener("click", () => {
+  if (replayActive) stopReplay(true);
+  else startReplay();
+});
+sourceVideo.addEventListener("loadedmetadata", () => {
+  if (!replayActive && localizedPoses.length) {
+    syncVideoToLocalizedFrame(localizedPoses.at(-1).time_sec);
+  }
+});
+sourceVideo.addEventListener("ended", () => stopReplay(true));
 
 el("reset-view").addEventListener("click", () => setOrbit(false));
 el("top-view").addEventListener("click", () => setOrbit(true));

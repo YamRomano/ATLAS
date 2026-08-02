@@ -35,6 +35,7 @@ class CameraPathLabTests(unittest.TestCase):
             "lab-canvas",
             "video-input",
             "start-button",
+            "replay-button",
             "camera-label",
             "camera-coordinates",
             "accepted-count",
@@ -58,9 +59,18 @@ class CameraPathLabTests(unittest.TestCase):
         self.assertIn("opacity: 0.5", script)
         self.assertIn("new THREE.PointsMaterial({", script)
         self.assertIn("new THREE.Points(geometry, material)", script)
-        self.assertIn("rig.scale.setScalar(1.3)", script)
+        self.assertIn("rig.scale.setScalar(2.1)", script)
+        self.assertIn("Initializing the first camera pose… video is held until localization is ready.", script)
+        self.assertIn("function syncVideoToLocalizedFrame(time)", script)
+        self.assertIn("function startReplay()", script)
+        self.assertIn("function updateReplayFrame()", script)
+        self.assertIn("function loadStoredStreamVideo(mediaUrl", script)
+        self.assertIn("loadStoredStreamVideo(stream.media_url", script)
+        self.assertIn('sourceVideo.addEventListener("loadedmetadata"', script)
+        self.assertIn("window.setTimeout(pollStatus, 300)", script)
+        self.assertNotIn("active && selectedFile && sourceVideo.paused", script)
         self.assertIn("colored surface points · GPU display", script)
-        self.assertIn('camera-path-lab.js?v=20260802-dark-ombre', html)
+        self.assertIn('camera-path-lab.js?v=20260802-live-synchronized', html)
         self.assertIn('window.location.protocol === "file:"', html)
         self.assertIn('window.location.replace("http://127.0.0.1:8767/camera-path-lab.html")', html)
         stylesheet = (ROOT / "viewer" / "camera-path-lab.css").read_text(encoding="utf-8")
@@ -107,6 +117,13 @@ class CameraPathLabTests(unittest.TestCase):
         snapshot = SERVER.camera_path_lab_snapshot()
         snapshot["stream"]["pose_count"] = 99
         self.assertEqual(SERVER.camera_path_lab_snapshot()["stream"]["pose_count"], 3)
+
+    def test_video_byte_ranges_support_seek_and_replay(self):
+        self.assertEqual(SERVER.parse_http_byte_range("bytes=100-199", 1000), (100, 199))
+        self.assertEqual(SERVER.parse_http_byte_range("bytes=900-", 1000), (900, 999))
+        self.assertEqual(SERVER.parse_http_byte_range("bytes=-100", 1000), (900, 999))
+        with self.assertRaises(ValueError):
+            SERVER.parse_http_byte_range("bytes=1000-", 1000)
 
     def test_mesh_conversion_applies_room_transform_and_face_cap(self):
         vertices = np.asarray(

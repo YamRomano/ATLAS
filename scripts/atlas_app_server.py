@@ -89,6 +89,25 @@ CAMERA_PATH_LAB_STATE = {
 }
 
 
+def parse_http_byte_range(value: str, size: int) -> tuple[int, int]:
+    """Parse one RFC 7233 byte range into an inclusive (start, end)."""
+    if size <= 0 or not value.startswith("bytes=") or "," in value:
+        raise ValueError("Unsupported byte range")
+    left, separator, right = value[6:].strip().partition("-")
+    if not separator:
+        raise ValueError("Malformed byte range")
+    if not left:
+        suffix = int(right)
+        if suffix <= 0:
+            raise ValueError("Invalid suffix range")
+        return max(0, size - suffix), size - 1
+    start = int(left)
+    end = int(right) if right else size - 1
+    if start < 0 or start >= size or end < start:
+        raise ValueError("Unsatisfiable byte range")
+    return start, min(end, size - 1)
+
+
 def register_active_proc(kind: str, proc: subprocess.Popen) -> None:
     with ACTIVE_PROCS_LOCK:
         ACTIVE_PROCS.setdefault(kind, set()).add(proc)
@@ -6059,6 +6078,50 @@ class AtlasHandler(SimpleHTTPRequestHandler):
         self.send_header("Pragma", "no-cache")
         self.send_header("Expires", "0")
         super().end_headers()
+
+    def send_head(self):
+        range_header = self.headers.get("Range")
+        if not range_header:
+            self._response_byte_range = None
+            return super().send_head()
+        path = Path(self.translate_path(self.path))
+        if not path.is_file():
+            self._response_byte_range = None
+            return super().send_head()
+        size = path.stat().st_size
+        try:
+            start, end = parse_http_byte_range(range_header, size)
+        except (TypeError, ValueError):
+            self.send_response(416)
+            self.send_header("Content-Range", f"bytes */{size}")
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return None
+        handle = path.open("rb")
+        self._response_byte_range = (start, end)
+        self.send_response(206)
+        self.send_header("Content-Type", self.guess_type(str(path)))
+        self.send_header("Accept-Ranges", "bytes")
+        self.send_header("Content-Range", f"bytes {start}-{end}/{size}")
+        self.send_header("Content-Length", str(end - start + 1))
+        self.send_header("Last-Modified", self.date_time_string(path.stat().st_mtime))
+        self.end_headers()
+        return handle
+
+    def copyfile(self, source, outputfile) -> None:
+        selected_range = getattr(self, "_response_byte_range", None)
+        if not selected_range:
+            super().copyfile(source, outputfile)
+            return
+        start, end = selected_range
+        source.seek(start)
+        remaining = end - start + 1
+        while remaining > 0:
+            block = source.read(min(128 * 1024, remaining))
+            if not block:
+                break
+            outputfile.write(block)
+            remaining -= len(block)
 
     def send_json(self, payload: dict, status: int = 200) -> None:
         data = json.dumps(payload).encode("utf-8")
