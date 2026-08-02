@@ -40,6 +40,10 @@ class CameraPathLabTests(unittest.TestCase):
         self.assertIn('fetch("/api/camera-path-lab/upload"', script)
         self.assertIn("pose.rcenter", script)
         self.assertIn("roomMatrix", script)
+        self.assertIn('fallbackCanvas.className = "fallback-canvas"', script)
+        self.assertIn("function drawFallbackScene()", script)
+        self.assertIn("function drawFallbackCamera(context)", script)
+        self.assertNotIn("3D preview unavailable here", script)
 
     def test_server_keeps_side_project_out_of_map_manifest(self):
         source = SERVER_PATH.read_text(encoding="utf-8")

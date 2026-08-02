@@ -22,7 +22,9 @@ button { color: inherit; }
 .lab-stage { position: relative; width: 100%; height: 100%; overflow: hidden; }
 #lab-canvas { position: absolute; inset: 0; touch-action: none; }
 #lab-canvas canvas { display: block; width: 100%; height: 100%; }
-.no-webgl { background: radial-gradient(circle at 50% 45%, rgba(21, 84, 112, .22), transparent 38%), #020b12; }
+.canvas-fallback { background: #020b12; }
+.fallback-canvas { position: absolute; inset: 0; cursor: grab; }
+.fallback-canvas:active { cursor: grabbing; }
 .webgl-notice { position: absolute; inset: 0; display: grid; place-content: center; gap: 7px; text-align: center; color: #648b9b; }
 .webgl-notice::before { content: "◇"; color: var(--cyan); font-size: 28px; opacity: .4; }
 .webgl-notice strong { color: #b7d8e2; font-size: 12px; font-weight: 600; }

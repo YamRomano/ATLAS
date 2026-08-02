@@ -18,6 +18,14 @@ const startButton = el("start-button");
 const stopButton = el("stop-button");
 
 let renderer = null;
+let fallbackCanvas = null;
+let fallbackContext = null;
+let fallbackVoxels = [];
+let fallbackTriangles = [];
+let fallbackWalls = [];
+let fallbackPath = [];
+let fallbackHeading = null;
+let fallbackDirty = true;
 try {
   renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
@@ -25,11 +33,18 @@ try {
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   container.appendChild(renderer.domElement);
 } catch (_) {
-  container.classList.add("no-webgl");
-  const notice = document.createElement("div");
-  notice.className = "webgl-notice";
-  notice.innerHTML = "<strong>3D preview unavailable here</strong><span>Open this page in Safari or Chrome to use the Mac GPU renderer.</span>";
-  container.appendChild(notice);
+  container.classList.add("canvas-fallback");
+  fallbackCanvas = document.createElement("canvas");
+  fallbackCanvas.className = "fallback-canvas";
+  fallbackCanvas.setAttribute("aria-label", "ATLAS camera path map");
+  fallbackContext = fallbackCanvas.getContext("2d", { alpha: false });
+  container.appendChild(fallbackCanvas);
+  if (!fallbackContext) {
+    const notice = document.createElement("div");
+    notice.className = "webgl-notice";
+    notice.textContent = "Map preview unavailable";
+    container.appendChild(notice);
+  }
 }
 
 const scene = new THREE.Scene();
@@ -73,6 +88,7 @@ function setOrbit(top = false) {
     orbit.pitch = 0.52;
     orbit.distance = 17.5;
   }
+  fallbackDirty = true;
 }
 
 function updateOrbitCamera() {
@@ -84,15 +100,166 @@ function updateOrbitCamera() {
   );
   camera.up.set(0, 1, 0);
   camera.lookAt(orbit.target);
+  camera.updateMatrixWorld(true);
 }
 
 function resize() {
-  if (!renderer) return;
   const width = Math.max(1, container.clientWidth);
   const height = Math.max(1, container.clientHeight);
-  renderer.setSize(width, height, false);
+  if (renderer) renderer.setSize(width, height, false);
+  if (fallbackCanvas && fallbackContext) {
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    fallbackCanvas.width = Math.round(width * dpr);
+    fallbackCanvas.height = Math.round(height * dpr);
+    fallbackCanvas.style.width = `${width}px`;
+    fallbackCanvas.style.height = `${height}px`;
+    fallbackContext.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
   camera.aspect = width / height;
   camera.updateProjectionMatrix();
+  fallbackDirty = true;
+}
+
+function projectFallback(point) {
+  const projected = point.clone().project(camera);
+  if (!Number.isFinite(projected.x) || projected.z < -1 || projected.z > 1) return null;
+  return {
+    x: (projected.x * 0.5 + 0.5) * container.clientWidth,
+    y: (-projected.y * 0.5 + 0.5) * container.clientHeight,
+    z: projected.z,
+  };
+}
+
+function drawFallbackMesh(context) {
+  if (fallbackTriangles.length) {
+    const triangles = fallbackTriangles.map((triangle) => {
+      const a = projectFallback(triangle.a);
+      const b = projectFallback(triangle.b);
+      const c = projectFallback(triangle.c);
+      return a && b && c ? { a, b, c, z: (a.z + b.z + c.z) / 3 } : null;
+    }).filter(Boolean).sort((a, b) => b.z - a.z);
+    context.lineWidth = 0.45;
+    for (const triangle of triangles) {
+      context.beginPath();
+      context.moveTo(triangle.a.x, triangle.a.y);
+      context.lineTo(triangle.b.x, triangle.b.y);
+      context.lineTo(triangle.c.x, triangle.c.y);
+      context.closePath();
+      context.fillStyle = "rgba(76, 126, 145, 0.34)";
+      context.strokeStyle = "rgba(106, 189, 216, 0.12)";
+      context.fill();
+      context.stroke();
+    }
+    return;
+  }
+  const points = fallbackVoxels.map((voxel) => {
+    const projected = projectFallback(voxel.point);
+    return projected ? { ...projected, color: voxel.color, weight: voxel.weight } : null;
+  }).filter(Boolean).sort((a, b) => b.z - a.z);
+  for (const point of points) {
+    const radius = 1.15 + Math.min(1.15, Number(point.weight || 1) * 0.04);
+    context.globalAlpha = 0.68;
+    context.fillStyle = point.color;
+    context.fillRect(point.x - radius, point.y - radius, radius * 2, radius * 2);
+  }
+  context.globalAlpha = 1;
+}
+
+function drawFallbackWalls(context) {
+  if (!wallsVisible) return;
+  context.lineWidth = 1;
+  for (const wall of fallbackWalls) {
+    const points = wall.map(projectFallback).filter(Boolean);
+    if (points.length < 3) continue;
+    context.beginPath();
+    context.moveTo(points[0].x, points[0].y);
+    points.slice(1).forEach((point) => context.lineTo(point.x, point.y));
+    context.closePath();
+    context.fillStyle = "rgba(98, 220, 251, 0.035)";
+    context.strokeStyle = "rgba(98, 220, 251, 0.34)";
+    context.fill();
+    context.stroke();
+  }
+}
+
+function drawFallbackPath(context) {
+  const points = fallbackPath.map(projectFallback).filter(Boolean);
+  if (points.length < 2) return;
+  context.save();
+  context.beginPath();
+  context.moveTo(points[0].x, points[0].y);
+  points.slice(1).forEach((point) => context.lineTo(point.x, point.y));
+  context.strokeStyle = "#62dcfb";
+  context.lineWidth = 2.1;
+  context.shadowColor = "rgba(98, 220, 251, 0.72)";
+  context.shadowBlur = 8;
+  context.stroke();
+  context.restore();
+}
+
+function drawFallbackCamera(context) {
+  if (!cameraPosePosition || !fallbackHeading) return;
+  const position = projectFallback(cameraPosePosition);
+  const front = projectFallback(cameraPosePosition.clone().add(fallbackHeading.clone().multiplyScalar(0.75)));
+  if (!position || !front) return;
+  const angle = Math.atan2(front.y - position.y, front.x - position.x);
+  context.save();
+  context.translate(position.x, position.y);
+  context.rotate(angle);
+  context.shadowColor = "rgba(98, 220, 251, 0.78)";
+  context.shadowBlur = 12;
+  context.strokeStyle = "rgba(98, 220, 251, 0.48)";
+  context.lineWidth = 1;
+  context.beginPath();
+  context.arc(0, 0, 15, 0, Math.PI * 2);
+  context.stroke();
+  context.shadowBlur = 0;
+  context.fillStyle = "rgba(3, 17, 26, 0.94)";
+  context.strokeStyle = "#e9fbff";
+  context.lineWidth = 1.35;
+  context.fillRect(-9, -7, 16, 14);
+  context.strokeRect(-9, -7, 16, 14);
+  context.beginPath();
+  context.moveTo(7, -4.5);
+  context.lineTo(12, -6.5);
+  context.lineTo(12, 6.5);
+  context.lineTo(7, 4.5);
+  context.closePath();
+  context.fillStyle = "#123746";
+  context.fill();
+  context.stroke();
+  context.strokeStyle = "rgba(92, 225, 255, 0.65)";
+  context.beginPath();
+  context.moveTo(12, -6.5);
+  context.lineTo(30, -15);
+  context.moveTo(12, 6.5);
+  context.lineTo(30, 15);
+  context.stroke();
+  context.fillStyle = "#ff5478";
+  context.beginPath();
+  context.arc(13.5, 0, 2.2, 0, Math.PI * 2);
+  context.fill();
+  context.restore();
+}
+
+function drawFallbackScene() {
+  if (!fallbackContext || !fallbackCanvas) return;
+  const width = container.clientWidth;
+  const height = container.clientHeight;
+  const context = fallbackContext;
+  context.clearRect(0, 0, width, height);
+  context.fillStyle = "#020b12";
+  context.fillRect(0, 0, width, height);
+  const glow = context.createRadialGradient(width * 0.48, height * 0.44, 0, width * 0.48, height * 0.44, Math.max(width, height) * 0.62);
+  glow.addColorStop(0, "rgba(14, 62, 84, 0.34)");
+  glow.addColorStop(1, "rgba(2, 11, 18, 0)");
+  context.fillStyle = glow;
+  context.fillRect(0, 0, width, height);
+  drawFallbackMesh(context);
+  drawFallbackWalls(context);
+  drawFallbackPath(context);
+  drawFallbackCamera(context);
+  fallbackDirty = false;
 }
 
 function animate() {
@@ -100,6 +267,7 @@ function animate() {
   updateOrbitCamera();
   updateCameraLabel();
   if (renderer) renderer.render(scene, camera);
+  else if (fallbackDirty) drawFallbackScene();
 }
 
 function updateCameraLabel() {
@@ -118,17 +286,18 @@ function updateCameraLabel() {
 }
 
 function installPointerControls() {
-  if (!renderer) return;
+  const surface = renderer?.domElement || fallbackCanvas;
+  if (!surface) return;
   let pointer = null;
   let lastX = 0;
   let lastY = 0;
-  renderer.domElement.addEventListener("pointerdown", (event) => {
+  surface.addEventListener("pointerdown", (event) => {
     pointer = event.pointerId;
     lastX = event.clientX;
     lastY = event.clientY;
-    renderer.domElement.setPointerCapture(pointer);
+    surface.setPointerCapture(pointer);
   });
-  renderer.domElement.addEventListener("pointermove", (event) => {
+  surface.addEventListener("pointermove", (event) => {
     if (pointer !== event.pointerId) return;
     const dx = event.clientX - lastX;
     const dy = event.clientY - lastY;
@@ -136,15 +305,17 @@ function installPointerControls() {
     lastY = event.clientY;
     orbit.yaw -= dx * 0.006;
     orbit.pitch = THREE.MathUtils.clamp(orbit.pitch + dy * 0.005, -1.25, 1.52);
+    fallbackDirty = true;
   });
   const release = (event) => {
     if (pointer === event.pointerId) pointer = null;
   };
-  renderer.domElement.addEventListener("pointerup", release);
-  renderer.domElement.addEventListener("pointercancel", release);
-  renderer.domElement.addEventListener("wheel", (event) => {
+  surface.addEventListener("pointerup", release);
+  surface.addEventListener("pointercancel", release);
+  surface.addEventListener("wheel", (event) => {
     event.preventDefault();
     orbit.distance = THREE.MathUtils.clamp(orbit.distance * Math.exp(event.deltaY * 0.001), 2.2, 46);
+    fallbackDirty = true;
   }, { passive: false });
 }
 
@@ -259,6 +430,7 @@ function updatePath(payload) {
   if (signature === latestPoseSignature) return;
   latestPoseSignature = signature;
   const positions = poses.map(posePosition).filter(Boolean);
+  fallbackPath = positions;
   if (pathLine) {
     pathGroup.remove(pathLine);
     pathLine.geometry.dispose();
@@ -275,6 +447,7 @@ function updatePath(payload) {
     cameraPosePosition = position;
     cameraRig.position.copy(position);
     const heading = poseHeading(latest);
+    fallbackHeading = heading || fallbackHeading || new THREE.Vector3(1, 0, 0);
     if (heading) {
       const target = position.clone().add(heading);
       cameraRig.up.set(0, 1, 0);
@@ -287,6 +460,7 @@ function updatePath(payload) {
     el("video-time").textContent = formatTime(time);
     if (sourceVideo.src && Math.abs(sourceVideo.currentTime - time) > 0.26) sourceVideo.currentTime = time;
   }
+  fallbackDirty = true;
   const accepted = Number(payload?.accepted_count ?? poses.length);
   const processed = Number(payload?.processed_count ?? all.length);
   const expected = Number(payload?.expected_count ?? 0);
@@ -299,6 +473,9 @@ function updatePath(payload) {
 function addWalls(entry) {
   wallsGroup.clear();
   const walls = entry?.safety_barriers || entry?.barriers || [];
+  fallbackWalls = walls
+    .map((wall) => (wall.corners || []).map((point) => new THREE.Vector3(...point.map(Number))))
+    .filter((corners) => corners.length >= 4);
   for (const wall of walls) {
     const corners = wall.corners || [];
     if (corners.length < 4) continue;
@@ -319,6 +496,7 @@ function addWalls(entry) {
     const edges = new THREE.LineSegments(new THREE.EdgesGeometry(geometry), new THREE.LineBasicMaterial({ color: 0x7edcf5, transparent: true, opacity: 0.44 }));
     wallsGroup.add(mesh, edges);
   }
+  fallbackDirty = true;
 }
 
 async function loadReferenceMap() {
@@ -336,8 +514,22 @@ function loadGlbMesh() {
     new GLTFLoader().load(
       MESH_GLB_URL,
       (gltf) => {
+        gltf.scene.updateMatrixWorld(true);
+        const faceLimit = 12000;
         gltf.scene.traverse((node) => {
           if (!node.isMesh) return;
+          const positions = node.geometry.getAttribute("position");
+          const indices = node.geometry.index;
+          const faceCount = indices ? Math.floor(indices.count / 3) : Math.floor(positions.count / 3);
+          const remaining = Math.max(1, faceLimit - fallbackTriangles.length);
+          const stride = Math.max(1, Math.ceil(faceCount / remaining));
+          for (let face = 0; face < faceCount && fallbackTriangles.length < faceLimit; face += stride) {
+            const vertexIndex = (offset) => indices ? indices.getX(face * 3 + offset) : face * 3 + offset;
+            const vertex = (offset) => new THREE.Vector3()
+              .fromBufferAttribute(positions, vertexIndex(offset))
+              .applyMatrix4(node.matrixWorld);
+            fallbackTriangles.push({ a: vertex(0), b: vertex(1), c: vertex(2) });
+          }
           node.material = new THREE.MeshStandardMaterial({
             color: 0xb1cbd3,
             vertexColors: Boolean(node.geometry.getAttribute("color")),
@@ -349,6 +541,7 @@ function loadGlbMesh() {
           });
         });
         scene.add(gltf.scene);
+        fallbackDirty = true;
         resolve(gltf.scene);
       },
       undefined,
@@ -363,6 +556,14 @@ async function loadVoxelFallback() {
   const asset = await response.json();
   const voxels = asset.voxels || [];
   const size = Number(asset.voxel_size) || 0.1;
+  const displayStride = Math.max(1, Math.ceil(voxels.length / 14000));
+  fallbackVoxels = voxels
+    .filter((_, index) => index % displayStride === 0)
+    .map((voxel) => ({
+      point: new THREE.Vector3(Number(voxel[0]), Number(voxel[1]), Number(voxel[2])),
+      color: `rgb(${Number(voxel[3])}, ${Number(voxel[4])}, ${Number(voxel[5])})`,
+      weight: Number(voxel[6]) || 1,
+    }));
   const geometry = new THREE.BoxGeometry(size * 0.95, size * 0.95, size * 0.95);
   const material = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.94, metalness: 0 });
   const instanced = new THREE.InstancedMesh(geometry, material, voxels.length);
@@ -377,17 +578,20 @@ async function loadVoxelFallback() {
   instanced.instanceMatrix.needsUpdate = true;
   if (instanced.instanceColor) instanced.instanceColor.needsUpdate = true;
   scene.add(instanced);
+  fallbackDirty = true;
   return { count: voxels.length };
 }
 
 async function loadDisplayMesh() {
   try {
     await loadGlbMesh();
-    meshBadge.textContent = "COLMAP Delaunay mesh · GPU display";
+    meshBadge.textContent = renderer ? "COLMAP Delaunay mesh · GPU display" : "COLMAP Delaunay mesh";
   } catch (_) {
     try {
       const fallback = await loadVoxelFallback();
-      meshBadge.textContent = `${fallback.count.toLocaleString()} surface voxels · GPU display`;
+      meshBadge.textContent = renderer
+        ? `${fallback.count.toLocaleString()} surface cells · GPU display`
+        : `${fallback.count.toLocaleString()} surface cells`;
     } catch (error) {
       meshBadge.textContent = "Room shell only · mesh pending";
       el("detail-text").textContent = `The page is ready; ${error.message}.`;
@@ -474,6 +678,7 @@ el("top-view").addEventListener("click", () => setOrbit(true));
 el("toggle-walls").addEventListener("click", (event) => {
   wallsVisible = !wallsVisible;
   wallsGroup.visible = wallsVisible;
+  fallbackDirty = true;
   event.currentTarget.textContent = wallsVisible ? "Walls" : "Walls off";
   event.currentTarget.setAttribute("aria-pressed", String(wallsVisible));
 });
