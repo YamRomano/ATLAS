@@ -61,6 +61,16 @@ class UploadedVideoCoverageTests(unittest.TestCase):
         self.assertEqual(report["saved_frames"], 50)
         self.assertEqual(report["temporal_coverage"], 1.0)
 
+    def test_small_decoder_tail_shortfall_passes_coverage_threshold(self):
+        report = server.validate_extracted_video_coverage(
+            self.write_extraction(saved_frames=49),
+            min_temporal_coverage=0.98,
+        )
+        self.assertEqual(report["saved_frames"], 49)
+        self.assertEqual(report["missing_tail_frames"], 1)
+        self.assertAlmostEqual(report["frame_coverage"], 0.98)
+        self.assertAlmostEqual(report["temporal_coverage"], 0.98)
+
     def test_truncated_extraction_is_rejected(self):
         with self.assertRaisesRegex(RuntimeError, "extraction is incomplete"):
             server.validate_extracted_video_coverage(

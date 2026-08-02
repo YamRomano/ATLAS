@@ -5499,13 +5499,41 @@ def validate_extracted_video_coverage(
     if not rows or expected_full <= 0:
         raise RuntimeError("Uploaded video yielded no usable localization frames.")
 
-    last_source_frame = int(rows[-1].get("source_frame") or 0)
+    source_frames = [int(row.get("source_frame") or 0) for row in rows]
+    if any(current <= previous for previous, current in zip(source_frames, source_frames[1:])):
+        raise RuntimeError("Uploaded-video frame index is not strictly increasing.")
+    internal_gaps = [
+        current - previous
+        for previous, current in zip(source_frames, source_frames[1:])
+        if current - previous > step_frames
+    ]
+    if internal_gaps:
+        raise RuntimeError(
+            "Uploaded-video extraction has an internal frame gap: "
+            f"largest source-frame step {max(internal_gaps)} > expected {step_frames}."
+        )
+
+    last_source_frame = source_frames[-1]
     temporal_coverage = min(1.0, (last_source_frame + step_frames) / frame_count)
-    if saved_frames != expected_full or temporal_coverage < min_temporal_coverage:
+    frame_coverage = min(1.0, saved_frames / expected_full)
+    if saved_frames > expected_full:
+        raise RuntimeError(
+            "Uploaded-video extraction count exceeds the container estimate: "
+            f"{saved_frames}/{expected_full} frames."
+        )
+    failed_requirements = []
+    if frame_coverage < min_temporal_coverage:
+        failed_requirements.append(
+            f"frame coverage {frame_coverage:.3f} < {min_temporal_coverage:.3f}"
+        )
+    if temporal_coverage < min_temporal_coverage:
+        failed_requirements.append(
+            f"temporal coverage {temporal_coverage:.3f} < {min_temporal_coverage:.3f}"
+        )
+    if failed_requirements:
         raise RuntimeError(
             "Uploaded-video extraction is incomplete: "
-            f"{saved_frames}/{expected_full} frames, temporal coverage "
-            f"{temporal_coverage:.3f} < {min_temporal_coverage:.3f}."
+            f"{saved_frames}/{expected_full} frames; " + "; ".join(failed_requirements) + "."
         )
     return {
         "frame_count": frame_count,
@@ -5513,7 +5541,9 @@ def validate_extracted_video_coverage(
         "saved_frames": saved_frames,
         "expected_full": expected_full,
         "duration_sec": float(metadata.get("duration_sec") or 0.0),
+        "frame_coverage": frame_coverage,
         "temporal_coverage": temporal_coverage,
+        "missing_tail_frames": max(0, expected_full - saved_frames),
     }
 
 
