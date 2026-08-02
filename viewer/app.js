@@ -17,11 +17,51 @@ const poseR = document.getElementById("pose-r");
 const demoApp = document.getElementById("demo-app");
 const startPage = document.getElementById("start-page");
 const enemyPage = document.getElementById("enemy-page");
+const fleetPage = document.getElementById("fleet-page");
 const startPreview = document.getElementById("start-preview");
 const navBack = document.getElementById("nav-back");
 const atlasHome = document.getElementById("atlas-home");
 const atlasScreenLabel = document.getElementById("atlas-screen-label");
 const enemyLabButton = document.getElementById("enemy-lab-button");
+const fleetMonitorButton = document.getElementById("fleet-monitor-button");
+const fleetDroneSelect = document.getElementById("fleet-drone-select");
+const fleetMapSelect = document.getElementById("fleet-map-select");
+const fleetPatrolSelect = document.getElementById("fleet-patrol-select");
+const fleetFpsSelect = document.getElementById("fleet-fps-select");
+const fleetDispatchButton = document.getElementById("fleet-dispatch");
+const fleetDispatchStatus = document.getElementById("fleet-dispatch-status");
+const fleetStopAllButton = document.getElementById("fleet-stop-all");
+const fleetDroneNameInput = document.getElementById("fleet-drone-name");
+const fleetDroneIpInput = document.getElementById("fleet-drone-ip");
+const fleetSaveDroneButton = document.getElementById("fleet-save-drone");
+const fleetSwitcher = document.getElementById("fleet-switcher");
+const fleetOverviewGrid = document.getElementById("fleet-overview-grid");
+const fleetOverviewCount = document.getElementById("fleet-overview-count");
+const fleetFocus = document.getElementById("fleet-focus");
+const fleetSummaryRegistered = document.getElementById("fleet-summary-registered");
+const fleetSummaryActive = document.getElementById("fleet-summary-active");
+const fleetSummaryAirborne = document.getElementById("fleet-summary-airborne");
+const fleetSummaryAttention = document.getElementById("fleet-summary-attention");
+const fleetFocusOverline = document.getElementById("fleet-focus-overline");
+const fleetFocusName = document.getElementById("fleet-focus-name");
+const fleetFocusAssignment = document.getElementById("fleet-focus-assignment");
+const fleetFocusBadge = document.getElementById("fleet-focus-badge");
+const fleetLivePreview = document.getElementById("fleet-live-preview");
+const fleetLiveIndicator = document.getElementById("fleet-live-indicator");
+const fleetLiveFrameCount = document.getElementById("fleet-live-frame-count");
+const fleetMetricLocalization = document.getElementById("fleet-metric-localization");
+const fleetMetricPoses = document.getElementById("fleet-metric-poses");
+const fleetMetricMap = document.getElementById("fleet-metric-map");
+const fleetMetricPatrol = document.getElementById("fleet-metric-patrol");
+const fleetMetricBridge = document.getElementById("fleet-metric-bridge");
+const fleetMetricAction = document.getElementById("fleet-metric-action");
+const fleetTakeoffButton = document.getElementById("fleet-takeoff");
+const fleetStartPatrolButton = document.getElementById("fleet-start-patrol");
+const fleetHoverButton = document.getElementById("fleet-hover");
+const fleetLandButton = document.getElementById("fleet-land");
+const fleetEndSessionButton = document.getElementById("fleet-end-session");
+const fleetSmartLog = document.getElementById("fleet-smart-log");
+const fleetLogCount = document.getElementById("fleet-log-count");
 const enemyDroneList = document.getElementById("enemy-drone-list");
 const enemyNameInput = document.getElementById("enemy-name");
 const enemyVideoUpload = document.getElementById("enemy-video-upload");
@@ -43,6 +83,7 @@ const enemySaveBoxButton = document.getElementById("enemy-save-box");
 const enemyTrackBoxButton = document.getElementById("enemy-track-box");
 const enemyCopyPrevBoxButton = document.getElementById("enemy-copy-prev-box");
 const enemySkipFrameButton = document.getElementById("enemy-skip-frame");
+const enemyNegativeFrameButton = document.getElementById("enemy-negative-frame");
 const enemyClearBoxButton = document.getElementById("enemy-clear-box");
 const mapCardList = document.getElementById("map-card-list");
 const uploadStatus = document.getElementById("upload-status");
@@ -64,6 +105,10 @@ const videoLibraryModal = document.getElementById("video-library-modal");
 const videoLibraryTitle = document.getElementById("video-library-title");
 const videoLibrarySubtitle = document.getElementById("video-library-subtitle");
 const videoLibraryList = document.getElementById("video-library-list");
+const patrolImportModal = document.getElementById("patrol-import-modal");
+const patrolImportSubtitle = document.getElementById("patrol-import-subtitle");
+const patrolImportList = document.getElementById("patrol-import-list");
+const importPatrolButton = document.getElementById("import-patrol");
 const mapUpload = document.getElementById("map-upload");
 const mapVideoUpload = document.getElementById("map-video-upload");
 const demoDroneUpload = document.getElementById("demo-drone-upload");
@@ -73,11 +118,22 @@ const phoneIpSelect = document.getElementById("phone-ip-select");
 const savePhoneIpButton = document.getElementById("save-phone-ip");
 const liveAtlasFps = document.getElementById("live-atlas-fps");
 const droneHeadingTrimSelect = document.getElementById("drone-heading-trim");
+const droneHeadingTrimValue = document.getElementById("drone-heading-trim-value");
+const useModelHeadingForFlightInput = document.getElementById("use-model-heading-for-flight");
 const enemyLiveDetectorState = document.getElementById("enemy-live-detector-state");
 const enemyLiveDetection = document.getElementById("enemy-live-detection");
 const enemyResponseStatus = document.getElementById("enemy-response-status");
 const enemyConfirmLockButton = document.getElementById("enemy-confirm-lock");
+const enemyStartPursuitButton = document.getElementById("enemy-start-pursuit");
 const enemyClearAlertButton = document.getElementById("enemy-clear-alert");
+const enemyRangeStatus = document.getElementById("enemy-range-status");
+const enemyMeasuredClearanceInput = document.getElementById("enemy-measured-clearance");
+const enemyStopClearanceInput = document.getElementById("enemy-stop-clearance");
+const enemyPursuitYawDirection = document.getElementById("enemy-pursuit-yaw-direction");
+const enemySaveRangeSampleButton = document.getElementById("enemy-save-range-sample");
+const enemyValidateRangeButton = document.getElementById("enemy-validate-range");
+const enemyResetRangeButton = document.getElementById("enemy-reset-range");
+const enemyRangeHelp = document.getElementById("enemy-range-help");
 const liveLocalizationControl = document.getElementById("live-localization-control");
 const liveControlSummary = document.getElementById("live-control-summary");
 const pinLiveControlButton = document.getElementById("pin-live-control");
@@ -90,6 +146,9 @@ const djiEmergencyHoverButton = document.getElementById("dji-emergency-hover");
 const guidedMotionEnable = document.getElementById("guided-motion-enable");
 const djiCommandStatus = document.getElementById("dji-command-status");
 const confirmLocalizationButton = document.getElementById("confirm-localization");
+const correctInitialPositionButton = document.getElementById("correct-initial-position");
+const resetInitialPositionButton = document.getElementById("reset-initial-position");
+const initialPositionStatus = document.getElementById("initial-position-status");
 const localizationGateStatus = document.getElementById("localization-gate-status");
 const droneControlPanel = document.getElementById("drone-control-panel");
 const missionSpeedSelect = document.getElementById("mission-speed");
@@ -123,6 +182,7 @@ const viewIsoButton = document.getElementById("view-iso");
 const viewDroneButton = document.getElementById("view-drone");
 const togglePointsButton = document.getElementById("toggle-points");
 const toggleCamerasButton = document.getElementById("toggle-cameras");
+const toggleCoverageRiskButton = document.getElementById("toggle-coverage-risk");
 const selectTargetButton = document.getElementById("select-target");
 const clearTargetButton = document.getElementById("clear-target");
 const startMissionButton = document.getElementById("start-mission");
@@ -179,6 +239,9 @@ let lastMapStatus = null;
 let lastDroneStatus = null;
 let currentScreen = "start";
 let screenHistory = [];
+let fleetData = { drones: [], maps: [], summary: {} };
+let selectedFleetDroneId = "";
+let fleetPollTimer = null;
 let pendingLiveReplayOpen = false;
 let pendingLiveReplayMapId = null;
 let liveReplayInFlight = false;
@@ -216,10 +279,14 @@ const MISSION_AUTONOMY_SPEED_LIMIT_MPS = 0.16;
 const PATROL_AUTONOMY_SPEED_LIMIT_MPS = 0.12;
 const PATROL_SCAN_YAW_DEG = 90;
 const MISSION_RELOCALIZE_HOVER_SECONDS = 1.5;
+const FLIGHT_SAFETY_PULSE_BUFFER_M = 0.30;
 const ENEMY_ALERT_MIN_CONFIDENCE = 0.35;
 const ENEMY_HOVER_COOLDOWN_MS = 7000;
 const ENEMY_LOCKON_MAX_YAW_DEG = 24;
 const ENEMY_LOCKON_FOLLOW_TARGET_HEIGHT = 0.28;
+const ENEMY_CONFIRM_HITS = 3;
+const ENEMY_CONFIRM_WINDOW = 5;
+let enemyDetectionHistory = [];
 const previewSceneCache = new Map();
 const previewZoomByMap = new Map();
 let view = {
@@ -232,6 +299,7 @@ let view = {
   axisScale: { x: 1, y: 1, z: 1 },
   showPoints: true,
   showCameras: true,
+  showCoverageRisk: true,
 };
 let missionTarget = null;
 let missionSelecting = false;
@@ -242,12 +310,22 @@ let patrolSelecting = false;
 let patrolDraggingIndex = -1;
 let patrolDragMoved = false;
 let patrolPointHover = null;
+let patrolCoverageCache = { room: null, key: "", samples: [] };
 let editingPatrolId = null;
 let activePatrolId = null;
 let firstLocalizationConfirmed = false;
+let initialPositionSelecting = false;
+let initialPoseOffsetRoom = [0, 0, 0];
 let plannedMission = null;
 let plannedPatrol = null;
 let activeExecutionPatrolRoute = null;
+let activePatrolExecutionContext = null;
+let interruptedPatrolExecutionContext = null;
+let enemyPursuitResumeContext = null;
+const handledEnemyPursuitResumeIds = new Set();
+let enemyPatrolResumeInFlight = false;
+let enemyTargetSuppressedUntilClear = false;
+let manualPatrolRecording = null;
 let enemyAlertState = {
   active: false,
   hoverSent: false,
@@ -257,6 +335,8 @@ let enemyAlertState = {
   frame: "",
   updatedAt: 0,
 };
+let enemyPursuitInFlight = false;
+let enemyPursuitCommandId = "";
 let barrierDraft = null;
 let barrierEditing = false;
 let barrierAdjusting = false;
@@ -600,11 +680,15 @@ function pointCloudBounds(points, low = 0.01, high = 0.99) {
     max: max.map((v, i) => v + margin[i]),
   };
   b.center = b.min.map((v, i) => 0.5 * (v + b.max[i]));
-  b.radius = Math.max(...b.max.map((v, i) => Math.abs(v - b.center[i])), 1e-6);
+  b.radius = Math.max(
+    ...b.max.map((v, i) => Math.abs(v - b.center[i])),
+    ...b.min.map((v, i) => Math.abs(v - b.center[i])),
+    1e-6
+  );
   return b;
 }
 
-function orientedStructureBox(points, fallbackBounds, floorY) {
+function orientedStructureBox(points, fallbackBounds, floorY, forcedYaw = null) {
   const raw = (points || []).map(p => p.rxyz || p).filter(p =>
     Array.isArray(p) &&
     p.length >= 3 &&
@@ -633,7 +717,12 @@ function orientedStructureBox(points, fallbackBounds, floorY) {
   cxz /= sample.length;
   czz /= sample.length;
 
-  const yaw = 0.5 * Math.atan2(2 * cxz, cxx - czz);
+  // Maps with an explicit room alignment are already rotated into their
+  // intended X/Z frame. Running another PCA here rotates only the skeleton
+  // away from those axes and creates misleading triangular gaps.
+  const yaw = Number.isFinite(forcedYaw)
+    ? forcedYaw
+    : 0.5 * Math.atan2(2 * cxz, cxx - czz);
   const ux = Math.cos(yaw), uz = Math.sin(yaw);
   const vx = -uz, vz = ux;
   const us = sample.map(p => (p[0] - cx) * ux + (p[2] - cz) * uz);
@@ -891,32 +980,49 @@ function buildRoomFrame() {
   // frame or projection bounds makes the entire map appear to jump.
   sample.push(...cameras);
 
-  const center = [0, 0, 0];
-  for (const p of sample) for (let i = 0; i < 3; i++) center[i] += p[i];
-  for (let i = 0; i < 3; i++) center[i] /= Math.max(sample.length, 1);
+  const alignment = currentMapEntry?.room_alignment?.matrix;
+  const hasExplicitAlignment = Array.isArray(alignment) && alignment.length === 3
+    && alignment.every(row => Array.isArray(row) && row.length === 4 && row.every(Number.isFinite));
+  let center = [0, 0, 0];
+  let axisX = [1, 0, 0];
+  let axisY = [0, 1, 0];
+  let axisZ = [0, 0, 1];
+  let transform;
+  let transformDirection;
+  if (hasExplicitAlignment) {
+    transform = xyz => alignment.map(row => (
+      row[0] * xyz[0] + row[1] * xyz[1] + row[2] * xyz[2] + row[3]
+    ));
+    transformDirection = dir => alignment.map(row => (
+      row[0] * dir[0] + row[1] * dir[1] + row[2] * dir[2]
+    ));
+  } else {
+    for (const p of sample) for (let i = 0; i < 3; i++) center[i] += p[i];
+    for (let i = 0; i < 3; i++) center[i] /= Math.max(sample.length, 1);
 
-  const C = covariance(sample, center);
-  const e0 = powerEigen(C, [1, 0.2, 0.1]);
-  const e1 = powerEigen(deflate(C, e0), [0.1, 1, 0.2]);
-  let axisX = normalize(e0.v);
-  let axisZ = normalize(sub(e1.v, mul(axisX, dot(e1.v, axisX))));
-  const zSign = Number(currentMapEntry?.display_z_sign ?? -1) < 0 ? -1 : 1;
-  axisZ = mul(axisZ, zSign);
-  let axisY = normalize(cross(axisZ, axisX));
+    const C = covariance(sample, center);
+    const e0 = powerEigen(C, [1, 0.2, 0.1]);
+    const e1 = powerEigen(deflate(C, e0), [0.1, 1, 0.2]);
+    axisX = normalize(e0.v);
+    axisZ = normalize(sub(e1.v, mul(axisX, dot(e1.v, axisX))));
+    const zSign = Number(currentMapEntry?.display_z_sign ?? -1) < 0 ? -1 : 1;
+    axisZ = mul(axisZ, zSign);
+    axisY = normalize(cross(axisZ, axisX));
 
-  const rawTransform = xyz => {
-    const d = sub(xyz, center);
-    return [dot(d, axisX), dot(d, axisY), dot(d, axisZ)];
-  };
-  const pointY = cloud.slice(0, 5000).map(p => rawTransform(p)[1]);
-  const camY = cameras.map(p => rawTransform(p)[1]);
-  if (camY.length && median(camY) < median(pointY)) axisY = mul(axisY, -1);
+    const rawTransform = xyz => {
+      const d = sub(xyz, center);
+      return [dot(d, axisX), dot(d, axisY), dot(d, axisZ)];
+    };
+    const pointY = cloud.slice(0, 5000).map(p => rawTransform(p)[1]);
+    const camY = cameras.map(p => rawTransform(p)[1]);
+    if (camY.length && median(camY) < median(pointY)) axisY = mul(axisY, -1);
 
-  const transform = xyz => {
-    const d = sub(xyz, center);
-    return [dot(d, axisX), dot(d, axisY), dot(d, axisZ)];
-  };
-  const transformDirection = dir => [dot(dir, axisX), dot(dir, axisY), dot(dir, axisZ)];
+    transform = xyz => {
+      const d = sub(xyz, center);
+      return [dot(d, axisX), dot(d, axisY), dot(d, axisZ)];
+    };
+    transformDirection = dir => [dot(dir, axisX), dot(dir, axisY), dot(dir, axisZ)];
+  }
 
   const transformedPoints = visualPointRows.map(p => ({ ...p, dense: Boolean(densePointRows), rxyz: transform(p.xyz) }));
   const xs = transformedPoints.map(p => p.rxyz[0]);
@@ -938,10 +1044,22 @@ function buildRoomFrame() {
     p.rxyz[2] >= displayBounds.min[2] && p.rxyz[2] <= displayBounds.max[2]
   );
   const structureBounds = pointCloudBounds(displayPoints.map(p => p.rxyz), 0.015, 0.985);
-  const structureBox = orientedStructureBox(displayPoints, structureBounds, quantile(displayPoints.map(p => p.rxyz[1]), 0.05));
+  const configuredStructureYawDeg = Number(currentMapEntry?.room_alignment?.structure_yaw_deg);
+  const forcedStructureYaw = hasExplicitAlignment
+    ? (Number.isFinite(configuredStructureYawDeg) ? configuredStructureYawDeg * Math.PI / 180 : 0)
+    : null;
+  const structureBox = orientedStructureBox(
+    displayPoints,
+    structureBounds,
+    quantile(displayPoints.map(p => p.rxyz[1]), 0.05),
+    forcedStructureYaw
+  );
+  // Camera centers can include badly registered frames far outside the room.
+  // They must not pull the orbit pivot away from the visible structure once a
+  // map has an explicit room alignment.
   const allRoom = [
     ...displayPoints.map(p => p.rxyz),
-    ...cameras.map(transform),
+    ...(hasExplicitAlignment ? [] : cameras.map(transform)),
   ];
   const b = { min: [Infinity, Infinity, Infinity], max: [-Infinity, -Infinity, -Infinity] };
   for (const p of allRoom) {
@@ -951,7 +1069,15 @@ function buildRoomFrame() {
     }
   }
   b.center = b.min.map((v, i) => 0.5 * (v + b.max[i]));
-  b.radius = Math.max(...b.max.map((v, i) => Math.abs(v - b.center[i])), 1e-6);
+  if (hasExplicitAlignment && structureBox?.center) {
+    b.center[0] = structureBox.center[0];
+    b.center[2] = structureBox.center[2];
+  }
+  b.radius = Math.max(
+    ...b.max.map((v, i) => Math.abs(v - b.center[i])),
+    ...b.min.map((v, i) => Math.abs(v - b.center[i])),
+    1e-6
+  );
   const floorY = quantile(displayPoints.map(p => p.rxyz[1]), 0.05);
   const scanPoints = buildScanVisualPoints(b, floorY);
   const rawRoomPoses = poses
@@ -1079,6 +1205,10 @@ function updateViewButtons() {
   if (toggleCamerasButton) {
     toggleCamerasButton.classList.toggle("active", Boolean(view.showCameras));
     toggleCamerasButton.textContent = view.showCameras ? "Hide Cameras" : "Show Cameras";
+  }
+  if (toggleCoverageRiskButton) {
+    toggleCoverageRiskButton.classList.toggle("active", Boolean(view.showCoverageRisk));
+    toggleCoverageRiskButton.textContent = view.showCoverageRisk ? "Hide Coverage Risk" : "Coverage Risk";
   }
 }
 
@@ -1736,9 +1866,9 @@ async function startDroneReplayUpload(file, mapId) {
 }
 
 function selectedLiveAtlasFps() {
-  const raw = Number(liveAtlasFps?.value || 2);
-  if (!Number.isFinite(raw)) return 2;
-  return Math.min(5, Math.max(0.5, raw));
+  const raw = Number(liveAtlasFps?.value || 10);
+  if (!Number.isFinite(raw)) return 10;
+  return Math.min(10, Math.max(0.5, raw));
 }
 
 function updateLiveControlSummary() {
@@ -1825,10 +1955,8 @@ function storedDroneHeadingTrimDeg() {
 }
 
 function selectedDroneHeadingTrimDeg() {
-  // Heading is calibrated automatically from TSolve rotation against the
-  // first stable motion segment. Keep this at zero so visual and physical
-  // patrol logic do not depend on an operator trim knob.
-  return 0;
+  const value = Number(droneHeadingTrimSelect?.value);
+  return Number.isFinite(value) ? value : storedDroneHeadingTrimDeg();
 }
 
 function selectedDroneHeadingTrimRad() {
@@ -1837,10 +1965,15 @@ function selectedDroneHeadingTrimRad() {
 
 function renderDroneHeadingTrim() {
   if (!droneHeadingTrimSelect) return;
-  droneHeadingTrimSelect.value = "0";
-  droneHeadingTrimSelect.disabled = true;
+  const stored = Math.max(-180, Math.min(180, storedDroneHeadingTrimDeg()));
+  droneHeadingTrimSelect.value = String(Math.round(stored / 5) * 5);
+  droneHeadingTrimSelect.disabled = false;
+  if (droneHeadingTrimValue) {
+    const value = selectedDroneHeadingTrimDeg();
+    droneHeadingTrimValue.textContent = `${value > 0 ? "+" : ""}${value} deg`;
+  }
   const label = droneHeadingTrimSelect.closest("label");
-  if (label) label.hidden = true;
+  if (label) label.hidden = false;
 }
 
 function storedLiveControlPinned() {
@@ -1905,6 +2038,38 @@ function firstConfirmedPoseReady() {
   );
 }
 
+function correctedLivePose(pose) {
+  if (!pose?.rcenter) return pose;
+  return {
+    ...pose,
+    rcenter: pose.rcenter.map((value, index) => value + Number(initialPoseOffsetRoom[index] || 0)),
+  };
+}
+
+function initialPoseOffsetMagnitude() {
+  return Math.hypot(Number(initialPoseOffsetRoom[0] || 0), Number(initialPoseOffsetRoom[2] || 0));
+}
+
+function updateInitialPositionControls() {
+  const ready = firstConfirmedPoseReady();
+  if (correctInitialPositionButton) {
+    correctInitialPositionButton.disabled = !ready;
+    correctInitialPositionButton.classList.toggle("active", initialPositionSelecting);
+    correctInitialPositionButton.textContent = initialPositionSelecting
+      ? "Click Actual Drone Position"
+      : "Correct Initial Position";
+  }
+  if (resetInitialPositionButton) {
+    resetInitialPositionButton.disabled = initialPoseOffsetMagnitude() < 1e-6;
+  }
+  if (initialPositionStatus) {
+    const magnitude = initialPoseOffsetMagnitude();
+    initialPositionStatus.textContent = magnitude < 1e-6
+      ? "No manual position correction."
+      : `Position corrected ${magnitude.toFixed(2)} map units. This same offset will be used by flight control.`;
+  }
+}
+
 function djiBridgeAgeSeconds(status = latestDjiLiveStatus) {
   const updated = Number(status?.updated_at || 0);
   return updated > 0 ? Math.max(0, Date.now() / 1000 - updated) : Infinity;
@@ -1958,6 +2123,11 @@ function bestEnemyDetection(detections) {
     .sort((a, b) => Number(b.confidence || 0) - Number(a.confidence || 0))[0] || null;
 }
 
+function enemyDetectionIsFresh(payload) {
+  const updatedAt = Number(payload?.updated_at || 0) * 1000;
+  return Number.isFinite(updatedAt) && updatedAt > 0 && Date.now() - updatedAt <= 2500;
+}
+
 function enemyTargetEstimate(target) {
   const box = target?.box || {};
   const centerX = Number(box.x1 ?? 0) + Number(box.width ?? 0) * 0.5;
@@ -1978,13 +2148,57 @@ function updateEnemyResponseStatus(text = "", tone = "") {
   enemyResponseStatus.dataset.tone = tone;
 }
 
+function currentEnemyRangeCalibration() {
+  const calibration = currentEnemyProfile()?.range_calibration;
+  return calibration && typeof calibration === "object"
+    ? calibration
+    : { status: "needs_samples", samples: [], sample_count: 0, model: null, validation: null };
+}
+
+function selectedEnemyStopClearanceM() {
+  const value = Number(enemyStopClearanceInput?.value || 0.50);
+  return Math.max(0.50, Math.min(2.0, Number.isFinite(value) ? value : 0.50));
+}
+
+function renderEnemyRangeCalibration() {
+  const profile = currentEnemyProfile();
+  const calibration = currentEnemyRangeCalibration();
+  const count = Number(calibration.sample_count ?? calibration.samples?.length ?? 0);
+  const validation = calibration.validation || {};
+  const validated = calibration.status === "validated" && calibration.model;
+  if (enemyRangeStatus) {
+    enemyRangeStatus.textContent = validated
+      ? `validated · ${count} samples · p90 ${Number(validation.p90_absolute_error_m || 0).toFixed(2)} m`
+      : calibration.status === "rejected"
+      ? `rejected · ${count} samples · add more varied measurements`
+      : `${count} sample${count === 1 ? "" : "s"} · pursuit locked`;
+  }
+  if (enemyRangeHelp) {
+    enemyRangeHelp.textContent = validated
+      ? `Calibrated ${Number(validation.min_clearance_m || 0).toFixed(2)}–${Number(validation.max_clearance_m || 0).toFixed(2)} m. Pursuit uses a conservative ${Number(calibration.model?.conservative_margin_m || 0).toFixed(2)} m error margin.`
+      : "Record at least 8 samples at 4 measured distances spanning 0.75 m. Forward pursuit stays locked until validation passes.";
+  }
+  const liveDetectionReady = Boolean(enemyAlertState.target && enemyDetectionIsFresh({updated_at: enemyAlertState.updatedAt / 1000}));
+  if (enemySaveRangeSampleButton) enemySaveRangeSampleButton.disabled = !profile || !liveDetectionReady || enemyPursuitInFlight;
+  if (enemyValidateRangeButton) enemyValidateRangeButton.disabled = !profile || count < 8 || enemyPursuitInFlight;
+  if (enemyResetRangeButton) enemyResetRangeButton.disabled = !profile || count === 0 || enemyPursuitInFlight;
+}
+
 function updateEnemyResponseControls() {
   const hasTarget = Boolean(enemyAlertState.active && enemyAlertState.target);
+  const calibration = currentEnemyRangeCalibration();
+  const pursuitReady = calibration.status === "validated" && Boolean(calibration.model);
   if (enemyConfirmLockButton) {
-    enemyConfirmLockButton.disabled = !hasTarget || !guidedMotionArmed();
+    enemyConfirmLockButton.disabled = !hasTarget || !guidedMotionArmed() || enemyPursuitInFlight;
+  }
+  if (enemyStartPursuitButton) {
+    enemyStartPursuitButton.disabled = !hasTarget || !guidedMotionArmed() || !pursuitReady || enemyPursuitInFlight;
+    enemyStartPursuitButton.title = pursuitReady
+      ? "Start calibrated moving-target pursuit."
+      : "Record and validate live range samples before forward pursuit.";
   }
   if (enemyClearAlertButton) {
-    enemyClearAlertButton.disabled = !hasTarget;
+    enemyClearAlertButton.disabled = !hasTarget || enemyPursuitInFlight;
   }
   if (!hasTarget) {
     updateEnemyResponseStatus(
@@ -1994,6 +2208,58 @@ function updateEnemyResponseControls() {
       ""
     );
   }
+  renderEnemyRangeCalibration();
+}
+
+async function saveEnemyRangeSample() {
+  const profile = currentEnemyProfile();
+  if (!profile) throw new Error("Choose the NEO enemy profile first.");
+  const measured = Number(enemyMeasuredClearanceInput?.value);
+  if (!Number.isFinite(measured) || measured < 0.20 || measured > 10.0) {
+    throw new Error("Enter the measured body-to-body clearance between 0.20 m and 10.0 m.");
+  }
+  updateEnemyResponseStatus(`Saving the live ${measured.toFixed(2)} m range sample...`, "busy");
+  const data = await postJson("/api/enemy-drone/range-sample", {
+    enemy_id: profile.id,
+    measured_clearance_m: measured,
+  });
+  enemyLibraryData = data.library || enemyLibraryData;
+  updateEnemyResponseStatus(`Saved live range sample at ${measured.toFixed(2)} m.`, "ok");
+  renderEnemyLibrary();
+  updateEnemyResponseControls();
+}
+
+async function validateEnemyRangeCalibration() {
+  const profile = currentEnemyProfile();
+  if (!profile) throw new Error("Choose the NEO enemy profile first.");
+  updateEnemyResponseStatus("Validating range accuracy across measured distances...", "busy");
+  const data = await postJson("/api/enemy-drone/range-validate", {
+    enemy_id: profile.id,
+    stop_clearance_m: selectedEnemyStopClearanceM(),
+  });
+  enemyLibraryData = data.library || enemyLibraryData;
+  const validation = data.validation || {};
+  const accepted = Boolean(validation.accepted);
+  updateEnemyResponseStatus(
+    accepted
+      ? `Range validated: MAE ${Number(validation.mean_absolute_error_m || 0).toFixed(2)} m, p90 ${Number(validation.p90_absolute_error_m || 0).toFixed(2)} m. Guarded pursuit is available.`
+      : `Range validation failed: MAE ${Number(validation.mean_absolute_error_m || 0).toFixed(2)} m, p90 ${Number(validation.p90_absolute_error_m || 0).toFixed(2)} m. Add varied samples before flight.`,
+    accepted ? "ok" : "error"
+  );
+  renderEnemyLibrary();
+  updateEnemyResponseControls();
+}
+
+async function resetEnemyRangeCalibration() {
+  const profile = currentEnemyProfile();
+  if (!profile) throw new Error("Choose the NEO enemy profile first.");
+  const ok = window.confirm("Delete all saved NEO range-calibration samples and lock pursuit again?");
+  if (!ok) return;
+  const data = await postJson("/api/enemy-drone/range-reset", {enemy_id: profile.id});
+  enemyLibraryData = data.library || enemyLibraryData;
+  updateEnemyResponseStatus("Range samples reset. Forward pursuit is locked.", "busy");
+  renderEnemyLibrary();
+  updateEnemyResponseControls();
 }
 
 async function pauseForEnemyDetection(payload, target) {
@@ -2006,6 +2272,10 @@ async function pauseForEnemyDetection(payload, target) {
     frame: String(payload.frame || ""),
     updatedAt: now,
   };
+  if (enemyPursuitInFlight) {
+    updateEnemyResponseControls();
+    return;
+  }
   const est = enemyTargetEstimate(target);
   updateEnemyResponseStatus(
     `Enemy drone candidate: ${target.class_name || "target"} ${(Number(target.confidence || 0) * 100).toFixed(0)}% · yaw estimate ${est.yawDeg.toFixed(1)} deg. Confirm lock-on for a slow guarded follow pulse.`,
@@ -2014,6 +2284,13 @@ async function pauseForEnemyDetection(payload, target) {
   updateEnemyResponseControls();
   if (!liveLocalizationStarted()) return;
   if (sameFrame || enemyAlertState.hoverSent && now - enemyAlertState.hoverSentAt < ENEMY_HOVER_COOLDOWN_MS) return;
+  if (activePatrolExecutionContext) {
+    interruptedPatrolExecutionContext = {
+      ...activePatrolExecutionContext,
+      interrupted_at: now,
+    };
+    activePatrolExecutionContext = null;
+  }
   enemyAlertState.hoverSent = true;
   enemyAlertState.hoverSentAt = now;
   try {
@@ -2059,16 +2336,6 @@ function buildEnemyLockOnPlan(target) {
       safety: "enemy-yaw-align",
     });
   }
-  if (est.followDuration > 0.18) {
-    commands.push({
-      type: "cruise",
-      title: "Cautious enemy follow pulse",
-      distance: Math.max(0.05, Math.min(0.35, est.followDuration * 0.18)),
-      duration_s: est.followDuration,
-      detail: "Short forward pulse only; ATLAS stops after the pulse and waits for another confirmed detection.",
-      safety: "enemy-follow-pulse",
-    });
-  }
   commands.push({
     type: "hover",
     title: "Post lock-on TSolve refresh",
@@ -2093,7 +2360,7 @@ async function confirmEnemyLockOn() {
   const { estimate, commands } = buildEnemyLockOnPlan(enemyAlertState.target);
   const ok = window.confirm(
     `Confirm guarded enemy-drone lock-on?\n\n` +
-    `ATLAS will send ${commands.length} tiny TSolve-gated step(s): hover, yaw-align, optional short forward pulse, then hover.\n` +
+    `ATLAS will hover and may rotate in place to center the target. Forward movement is disabled until range estimation is validated.\n` +
     `Estimated yaw: ${estimate.yawDeg.toFixed(1)} deg.\n` +
     `Keep the physical controller ready and press Hover Now if anything looks wrong.\n\nContinue?`
   );
@@ -2125,6 +2392,9 @@ async function confirmEnemyLockOn() {
         barrier_clearance_m: selectedBarrierClearance(),
         obstacle_clearance_m: selectedObstacleClearance(),
         heading_trim_deg: 0,
+        operator_heading_calibrated: Boolean(useModelHeadingForFlightInput?.checked),
+        initial_body_heading_offset_deg: -selectedDroneHeadingTrimDeg(),
+        initial_pose_offset_room: initialPoseOffsetRoom.slice(0, 3),
         confirmed_at: new Date().toISOString(),
       },
     });
@@ -2136,6 +2406,89 @@ async function confirmEnemyLockOn() {
   } finally {
     updateEnemyResponseControls();
   }
+}
+
+async function confirmEnemyPursuit() {
+  const profile = currentEnemyProfile();
+  const calibration = currentEnemyRangeCalibration();
+  if (!profile || calibration.status !== "validated" || !calibration.model) {
+    updateEnemyResponseStatus("Guarded pursuit is locked until live range calibration passes.", "error");
+    return;
+  }
+  if (!enemyAlertState.target) {
+    updateEnemyResponseStatus("No fresh NEO target is available for pursuit.", "error");
+    return;
+  }
+  if (!guidedMotionArmed()) {
+    updateEnemyResponseStatus("Confirm localization and enable guided movement before pursuit.", "error");
+    return;
+  }
+  const stopClearance = selectedEnemyStopClearanceM();
+  const resumeContext = interruptedPatrolExecutionContext;
+  const resumeText = resumeContext
+    ? `After interception, ATLAS will use a fresh TSolve pose, rejoin "${resumeContext.patrolName}" at its nearest safe patrol point, and continue in the saved order.\n`
+    : "No active patrol was interrupted, so ATLAS will hold after interception.\n";
+  const ok = window.confirm(
+    `Start guarded moving-target pursuit?\n\n` +
+    `ATLAS will continuously re-detect NEO, predict lateral motion, rotate to keep it centered, and advance with one short forward pulse per fresh detector frame.\n\n` +
+    `Stop clearance: ${stopClearance.toFixed(2)} m (body-to-body).\n` +
+    resumeText +
+    `Walls and obstacles retain their saved clearance plus a ${FLIGHT_SAFETY_PULSE_BUFFER_M.toFixed(2)} m motion buffer.\n` +
+    `Loss of NEO, stale range, stale TSolve pose, timeout, or Hover Now will stop translation and hold position.\n` +
+    `Vertical tracking remains disabled for the first validation runs.\n\n` +
+    `Keep the physical controller ready. Continue?`
+  );
+  if (!ok) return;
+  enemyPursuitResumeContext = resumeContext;
+  interruptedPatrolExecutionContext = null;
+  updateEnemyResponseStatus("Queueing calibrated moving-target pursuit...", "busy");
+  enemyPursuitInFlight = true;
+  updateEnemyResponseControls();
+  let data;
+  try {
+    data = await sendDjiFlightCommand("mission", {
+      mission: {
+        client_safety_version: 3,
+        guided_enabled: true,
+        enemy_pursuit: true,
+        enemy_id: profile.id,
+        operator_confirmed: true,
+        stop_clearance_m: stopClearance,
+        target_detection: enemyAlertState.target,
+        pose_max_age_seconds: 1.2,
+        pose_recovery_seconds: 4.0,
+        pulse_seconds: 0.14,
+        max_forward_rc: 0.025,
+        max_yaw_rc: 0.028,
+        max_vertical_rc: 0.010,
+        vertical_tracking_enabled: false,
+        detection_max_age_seconds: 1.0,
+        lost_target_abort_seconds: 4.0,
+        max_pursuit_seconds: 45.0,
+        minimum_confidence: 0.40,
+        pursuit_yaw_sign: Number(enemyPursuitYawDirection?.value || 1) < 0 ? -1 : 1,
+        map_id: currentMapEntry?.id || null,
+        map_title: currentMapEntry?.title || null,
+        safety_barriers: mapSafetyBarriers(),
+        safety_obstacles: mapSafetyObstacles(),
+        safety_motion_buffer_m: FLIGHT_SAFETY_PULSE_BUFFER_M,
+        initial_pose_offset_room: initialPoseOffsetRoom.slice(0, 3),
+        confirmed_at: new Date().toISOString(),
+      },
+    });
+  } catch (error) {
+    enemyPursuitInFlight = false;
+    enemyPursuitCommandId = "";
+    enemyPursuitResumeContext = null;
+    updateEnemyResponseControls();
+    throw error;
+  }
+  enemyPursuitCommandId = String(data.command_id || "");
+  updateEnemyResponseStatus(
+    `Guarded pursuit started. ATLAS will hover until 3/5 live NEO detections confirm the moving track, then use short closed-loop pulses toward ${stopClearance.toFixed(2)} m.`,
+    "busy"
+  );
+  updateEnemyResponseControls();
 }
 
 function updateFlightControlState() {
@@ -2156,6 +2509,7 @@ function updateFlightControlState() {
       ? "Localization Confirmed"
       : "Confirm First Localization";
   }
+  updateInitialPositionControls();
   if (localizationGateStatus) {
     if (firstLocalizationConfirmed && bridgeMissionReady) {
       localizationGateStatus.textContent = "Confirmed. Mission controls are unlocked.";
@@ -2204,6 +2558,8 @@ function updateFlightControlState() {
 function resetLocalizationGate(options = {}) {
   const preserveMission = Boolean(options.preserveMission);
   firstLocalizationConfirmed = false;
+  initialPositionSelecting = false;
+  initialPoseOffsetRoom = [0, 0, 0];
   if (!preserveMission) {
     plannedMission = null;
     missionTarget = null;
@@ -2626,30 +2982,30 @@ function obstacleRouteDistance3D(routeA, routeB, obstacle) {
   return best;
 }
 
-function missionRouteSafetyCheck(segments) {
+function missionRouteSafetyCheck(segments, extraClearance = FLIGHT_SAFETY_PULSE_BUFFER_M) {
   if (!segments.length) return { blocked: false, reason: "No route segments yet.", nearest: null };
   let nearest = null;
   for (const barrier of mapSafetyBarriers()) {
     const dist = Math.min(...segments.map(([a, b]) => barrierRouteDistance2D(a, b, barrier)));
-    const clearance = barrier.clearance_m;
+    const clearance = barrier.clearance_m + extraClearance;
     if (!nearest || dist < nearest.distance) nearest = { type: "wall", barrier, label: barrier.label, distance: dist, clearance };
     if (dist <= clearance) {
       return {
         blocked: true,
         nearest: { type: "wall", barrier, label: barrier.label, distance: dist, clearance },
-        reason: `${barrier.label} is ${dist.toFixed(2)} map units from the route; required clearance is ${clearance.toFixed(2)}.`,
+        reason: `${barrier.label} is ${dist.toFixed(2)} map units from the route; required clearance is ${clearance.toFixed(2)} (${barrier.clearance_m.toFixed(2)} saved + ${extraClearance.toFixed(2)} motion buffer).`,
       };
     }
   }
   for (const obstacle of mapSafetyObstacles()) {
     const dist = Math.min(...segments.map(([a, b]) => obstacleRouteDistance3D(a, b, obstacle)));
-    const clearance = obstacle.clearance_m;
+    const clearance = obstacle.clearance_m + extraClearance;
     if (!nearest || dist < nearest.distance) nearest = { type: "obstacle", obstacle, label: obstacle.label, distance: dist, clearance };
     if (dist <= clearance) {
       return {
         blocked: true,
         nearest: { type: "obstacle", obstacle, label: obstacle.label, distance: dist, clearance },
-        reason: `${obstacle.label} is ${dist.toFixed(2)} map units from the route; required clearance is ${clearance.toFixed(2)}. The route may pass over it only above its saved height.`,
+        reason: `${obstacle.label} is ${dist.toFixed(2)} map units from the route; required clearance is ${clearance.toFixed(2)} (${obstacle.clearance_m.toFixed(2)} saved + ${extraClearance.toFixed(2)} motion buffer). The route may pass over it only above its saved height.`,
       };
     }
   }
@@ -3919,7 +4275,7 @@ async function autoTrackEnemyLabels() {
   const labeled = Number(data.labeled || 0);
   const review = Number(data.review || 0);
   const stopped = Number(data.stopped || 0);
-  setEnemyAnnotationStatus(`Auto-track finished: ${labeled} labeled, ${review} marked for review${stopped ? ", stopped at weak match" : ""}. Review orange frames before training.`);
+  setEnemyAnnotationStatus(`Auto-track finished: ${labeled} seed label, ${review} boxes awaiting review${stopped ? ", stopped at weak match" : ""}. Auto-tracked boxes are never accepted automatically.`);
   renderEnemyLibrary();
 }
 
@@ -4096,7 +4452,11 @@ function renderMapLibrary() {
       if (!files.length || !mapId) return;
       await selectMap(mapId, false);
       const names = files.map(file => file.name).join(", ");
-      uploadStatus.textContent = `Enhancing ${currentMapEntry?.title || mapId} with ${files.length} mapping video${files.length === 1 ? "" : "s"}: ${names}`;
+      const fixedReference = currentMapEntry?.kind === "map_copy"
+        && (currentMapEntry?.localization_map_id || currentMapEntry?.source_map_id);
+      uploadStatus.textContent = fixedReference
+        ? `Registering ${files.length} video${files.length === 1 ? "" : "s"} into fixed ${currentMapEntry?.title || mapId} coordinates. Original map will not be changed: ${names}`
+        : `Enhancing ${currentMapEntry?.title || mapId} with ${files.length} mapping video${files.length === 1 ? "" : "s"}: ${names}`;
       await uploadVideos("/api/map/enhance", files, { map_id: mapId });
       input.value = "";
       await pollStatus();
@@ -4223,6 +4583,133 @@ function savedPatrolDescription(patrol) {
   return `${count} point${count === 1 ? "" : "s"} · ${mode} · ${altitude.toFixed(1)} m · ${speed.toFixed(2)} m/s · ${scan}`;
 }
 
+function mapCoordinateLineageIds(entry) {
+  const mapsById = new Map((mapLibraryData?.maps || []).map(map => [map.id, map]));
+  const lineage = new Set();
+  const pending = [String(entry?.id || "")];
+  while (pending.length && lineage.size < 32) {
+    const mapId = pending.pop();
+    if (!mapId || lineage.has(mapId)) continue;
+    lineage.add(mapId);
+    const map = mapsById.get(mapId);
+    if (!map) continue;
+    for (const key of ["source_map_id", "localization_map_id"]) {
+      const parentId = String(map?.[key] || "");
+      if (parentId && parentId !== mapId && !lineage.has(parentId)) pending.push(parentId);
+    }
+  }
+  return lineage;
+}
+
+function mapsShareCoordinateFrame(left, right) {
+  const leftLineage = mapCoordinateLineageIds(left);
+  return [...mapCoordinateLineageIds(right)].some(mapId => leftLineage.has(mapId));
+}
+
+function hidePatrolImportModal() {
+  patrolImportModal?.classList.add("hidden");
+}
+
+async function importPatrolFromMap(sourceMapId, patrolId, button) {
+  if (!currentMapEntry?.id) return;
+  const originalLabel = button?.textContent || "Import";
+  if (button) {
+    button.disabled = true;
+    button.textContent = "Importing…";
+  }
+  try {
+    const data = await postJson("/api/map/patrol/import", {
+      target_map_id: currentMapEntry.id,
+      source_map_id: sourceMapId,
+      patrol_id: patrolId,
+    });
+    if (data.state?.library) mapLibraryData = data.state.library;
+    if (data.map) syncMapEntryInLibrary(data.map);
+    else currentMapEntry = selectedMap();
+    renderMapLibrary();
+    renderSavedPatrols();
+    hidePatrolImportModal();
+    if (data.patrol) loadPatrolIntoEditor(data.patrol, { selecting: false });
+    const importedTitle = patrolTitle(data.patrol);
+    uploadStatus.textContent = `Imported patrol: ${importedTitle}`;
+    updatePatrolStatus(
+      `Imported "${importedTitle}". The source patrol was not changed. Validate it on this map before flight.`,
+      "busy",
+    );
+  } catch (error) {
+    if (button) {
+      button.disabled = false;
+      button.textContent = originalLabel;
+    }
+    throw error;
+  }
+}
+
+function renderPatrolImportOptions() {
+  if (!patrolImportList) return;
+  patrolImportList.innerHTML = "";
+  const target = currentMapEntry;
+  if (!target) {
+    patrolImportList.innerHTML = `<div class="patrol-import-empty">Select a target map first.</div>`;
+    return;
+  }
+  const existingIds = new Set(patrolList(target).map(patrol => patrol.id));
+  const compatibleSources = (mapLibraryData?.maps || [])
+    .filter(map => map.id !== target.id)
+    .filter(map => patrolList(map).length > 0)
+    .filter(map => mapsShareCoordinateFrame(target, map));
+  const options = compatibleSources.flatMap(map => (
+    patrolList(map).map(patrol => ({ map, patrol }))
+  ));
+  if (!options.length) {
+    patrolImportList.innerHTML = `
+      <div class="patrol-import-empty">
+        No patrols are available from maps that share this map's coordinate frame.
+        Import is blocked across unrelated maps because their points would send the drone to incorrect positions.
+      </div>
+    `;
+    return;
+  }
+
+  for (const { map, patrol } of options) {
+    const alreadyPresent = existingIds.has(patrol.id);
+    const item = document.createElement("article");
+    item.className = "patrol-import-item";
+    const copy = document.createElement("div");
+    copy.className = "patrol-import-copy";
+    const title = document.createElement("strong");
+    title.textContent = patrolTitle(patrol);
+    const description = document.createElement("span");
+    description.textContent = savedPatrolDescription(patrol);
+    const source = document.createElement("small");
+    source.textContent = `From ${map.title || map.id}`;
+    copy.append(title, description, source);
+
+    const action = document.createElement("button");
+    action.type = "button";
+    action.className = "patrol-import-action";
+    action.textContent = alreadyPresent ? "Imported" : "Import";
+    action.disabled = alreadyPresent;
+    if (!alreadyPresent) {
+      action.addEventListener("click", () => {
+        runUi(() => importPatrolFromMap(map.id, patrol.id, action));
+      });
+    }
+    item.append(copy, action);
+    patrolImportList.appendChild(item);
+  }
+}
+
+async function showPatrolImportModal() {
+  await refreshMapLibrary();
+  currentMapEntry = selectedMap();
+  if (patrolImportSubtitle) {
+    patrolImportSubtitle.textContent = `Choose a saved patrol to copy into ${currentMapEntry?.title || "the selected map"}.`;
+  }
+  renderPatrolImportOptions();
+  patrolImportModal?.classList.remove("hidden");
+}
+
 function syncMapEntryInLibrary(entry) {
   if (!entry?.id) return;
   mapLibraryData.maps = (mapLibraryData.maps || []).map(map => map.id === entry.id ? entry : map);
@@ -4330,7 +4817,7 @@ async function savePatrolDraft() {
   editingPatrolId = payload.id;
   activePatrolId = payload.id;
   await persistPatrols(patrols, `Saved patrol: ${payload.title}`);
-  updatePatrolStatus(`Saved "${payload.title}". At flight time, ATLAS will replan from the live drone pose to the nearest patrol point.`, "busy");
+  updatePatrolStatus(`Saved "${payload.title}". At flight time, ATLAS will replan from the live drone pose to patrol point 1.`, "busy");
 }
 
 async function deleteSavedPatrol(patrolId) {
@@ -4369,6 +4856,11 @@ function renderSavedPatrols() {
       </button>
       <div class="saved-patrol-actions">
         <button type="button" data-action="play" data-patrol-id="${patrol.id}">Play</button>
+        <button type="button" data-action="record" data-patrol-id="${patrol.id}">${
+          manualPatrolRecording?.status === "recording" && manualPatrolRecording.patrol_id === patrol.id
+            ? "Finish Manual"
+            : "Record Manual"
+        }</button>
         <button type="button" data-action="adjust" data-patrol-id="${patrol.id}">Adjust</button>
         <button type="button" class="danger-action" data-action="delete" data-patrol-id="${patrol.id}">Delete</button>
       </div>
@@ -4387,11 +4879,68 @@ function renderSavedPatrols() {
           runUi(() => deleteSavedPatrol(patrol.id));
         } else if (action === "play") {
           runUi(() => executeSavedPatrol(patrol.id));
+        } else if (action === "record") {
+          runUi(() => toggleManualPatrolRecording(patrol));
         }
       });
     }
     savedPatrolList.appendChild(item);
   }
+}
+
+async function toggleManualPatrolRecording(patrol) {
+  if (manualPatrolRecording?.status === "recording") {
+    if (manualPatrolRecording.patrol_id !== patrol.id) {
+      updatePatrolStatus(
+        `Finish the active recording for "${manualPatrolRecording.patrol_title}" first.`,
+        "error",
+      );
+      return;
+    }
+    const ok = window.confirm(
+      `Finish recording "${patrolTitle(patrol)}" now?\n\n` +
+      "Only finish after completing point 1 → 2 → 3 → 4 → 1 and hovering at point 1."
+    );
+    if (!ok) return;
+    updatePatrolStatus("Finishing manual patrol recording and building the reference trajectory...", "busy");
+    const data = await postJson("/api/manual-patrol/finish", {
+      recording_id: manualPatrolRecording.recording_id,
+    });
+    manualPatrolRecording = data.recording;
+    updatePatrolStatus(
+      `Manual patrol saved: ${data.recording.accepted_pose_count} trusted poses and ` +
+      `${data.recording.frame_count} synchronized frames. It is ready for guarded replay processing.`,
+      "success",
+    );
+    renderSavedPatrols();
+    return;
+  }
+
+  if (!firstLocalizationConfirmed) {
+    updatePatrolStatus(
+      "Start Live Localization and confirm the pose before recording. Manually place/fly the drone to point 1 first.",
+      "error",
+    );
+    return;
+  }
+  const ok = window.confirm(
+    `Start recording "${patrolTitle(patrol)}" at point 1?\n\n` +
+    "Before continuing, hover at point 1 and confirm the model matches the real drone. " +
+    "Then fly 1 → 2 → 3 → 4 → 1 manually, including every in-place turn. " +
+    "Keep Live Localization running throughout."
+  );
+  if (!ok) return;
+  const data = await postJson("/api/manual-patrol/start", {
+    map_id: currentMapEntry?.id,
+    patrol_id: patrol.id,
+    patrol_title: patrolTitle(patrol),
+  });
+  manualPatrolRecording = data.recording;
+  updatePatrolStatus(
+    `Recording "${patrolTitle(patrol)}". Fly point 1 → 2 → 3 → 4 → 1 manually, then press Finish Manual.`,
+    "busy",
+  );
+  renderSavedPatrols();
 }
 
 async function executeSavedPatrol(patrolId) {
@@ -4417,9 +4966,13 @@ async function executeSavedPatrol(patrolId) {
   }
   const livePatrol = validatePatrolPreview(true);
   if (!livePatrol?.commands?.length) return;
+  const headingNotice = useModelHeadingForFlightInput?.checked
+    ? `Initial heading: using the model alignment (${selectedDroneHeadingTrimDeg()} deg). Confirm its nose matches the real drone before continuing.\n`
+    : "Initial heading: ATLAS will perform a small forward calibration probe.\n";
   const ok = window.confirm(
     `Execute saved patrol "${patrolTitle(patrol)}"?\n\n` +
-    `ATLAS will first fly from the current localized drone pose to the nearest patrol point, then continue the ${patrolModeLabel(livePatrol.patrol_mode)} patrol with wall-aware detours.\n` +
+    `ATLAS will first fly from the current localized drone pose to patrol point 1, then follow the displayed ${patrolModeLabel(livePatrol.patrol_mode)} route in point order.\n` +
+    headingNotice +
     `Keep the controller ready and use Hover Now if anything looks wrong.\n\nContinue?`
   );
   if (!ok) return;
@@ -4632,6 +5185,42 @@ function robustPreviewBounds(points) {
   return { mins, maxs, center, radius, extent };
 }
 
+function buildMiniPreviewRoom(sceneData, entry) {
+  const pointRows = sceneData?.points3D || [];
+  const cloud = pointRows.map(point => point.xyz).filter(Boolean);
+  const cameras = (sceneData?.map_cameras || []).map(camera => camera.center).filter(Boolean);
+  const sample = [];
+  const stride = Math.max(1, Math.ceil(cloud.length / 7000));
+  for (let i = 0; i < cloud.length; i += stride) sample.push(cloud[i]);
+  sample.push(...cameras);
+  if (!sample.length) return null;
+
+  const origin = [0, 0, 0];
+  for (const point of sample) for (let axis = 0; axis < 3; axis++) origin[axis] += point[axis];
+  for (let axis = 0; axis < 3; axis++) origin[axis] /= sample.length;
+
+  const covarianceMatrix = covariance(sample, origin);
+  const eigenX = powerEigen(covarianceMatrix, [1, 0.2, 0.1]);
+  const eigenZ = powerEigen(deflate(covarianceMatrix, eigenX), [0.1, 1, 0.2]);
+  const axisX = normalize(eigenX.v);
+  const zSign = Number(entry?.display_z_sign ?? -1) < 0 ? -1 : 1;
+  const axisZ = mul(normalize(sub(eigenZ.v, mul(axisX, dot(eigenZ.v, axisX)))), zSign);
+  let axisY = normalize(cross(axisZ, axisX));
+  const rawTransform = xyz => {
+    const delta = sub(xyz, origin);
+    return [dot(delta, axisX), dot(delta, axisY), dot(delta, axisZ)];
+  };
+  const pointY = cloud.slice(0, 5000).map(point => rawTransform(point)[1]);
+  const cameraY = cameras.map(point => rawTransform(point)[1]);
+  if (cameraY.length && median(cameraY) < median(pointY)) axisY = mul(axisY, -1);
+  const transform = xyz => {
+    const delta = sub(xyz, origin);
+    return [dot(delta, axisX), dot(delta, axisY), dot(delta, axisZ)];
+  };
+  const points = pointRows.map(point => ({ ...point, rxyz: transform(point.xyz) }));
+  return { points, bounds: robustPreviewBounds(points.map(point => point.rxyz)) };
+}
+
 function drawSceneMiniPreview(canvas, sceneData, entry) {
   const rect = canvas.getBoundingClientRect();
   const dpr = window.devicePixelRatio || 1;
@@ -4641,13 +5230,14 @@ function drawSceneMiniPreview(canvas, sceneData, entry) {
   pctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   pctx.clearRect(0, 0, rect.width, rect.height);
 
-  const points = sceneData?.points3D || [];
+  const miniRoom = buildMiniPreviewRoom(sceneData, entry);
+  const points = miniRoom?.points || [];
   if (!points.length) {
     drawMapCardPlaceholder(canvas, entry);
     return;
   }
 
-  const bounds = robustPreviewBounds(points);
+  const bounds = miniRoom.bounds;
   const yaw = -0.72;
   const pitch = 0.52;
   const cy = Math.cos(yaw), sy = Math.sin(yaw);
@@ -4731,11 +5321,87 @@ function drawSceneMiniPreview(canvas, sceneData, entry) {
   pctx.closePath();
   pctx.stroke();
 
+  const drawPreviewPolygon = (vertices, fill, stroke, lineWidth = 1) => {
+    if (!Array.isArray(vertices) || vertices.length < 3) return;
+    const projectedVertices = vertices.map(toPreview);
+    pctx.beginPath();
+    pctx.moveTo(projectedVertices[0][0], projectedVertices[0][1]);
+    for (let i = 1; i < projectedVertices.length; i++) {
+      pctx.lineTo(projectedVertices[i][0], projectedVertices[i][1]);
+    }
+    pctx.closePath();
+    if (fill) {
+      pctx.fillStyle = fill;
+      pctx.fill();
+    }
+    pctx.strokeStyle = stroke;
+    pctx.lineWidth = lineWidth;
+    pctx.stroke();
+  };
+  const drawPreviewLine = (a, b, color, lineWidth = 1) => {
+    const pa = toPreview(a);
+    const pb = toPreview(b);
+    pctx.strokeStyle = color;
+    pctx.lineWidth = lineWidth;
+    pctx.beginPath();
+    pctx.moveTo(pa[0], pa[1]);
+    pctx.lineTo(pb[0], pb[1]);
+    pctx.stroke();
+  };
+
+  const skeletonFloor = bounds.mins[1];
+  const skeletonCeiling = bounds.maxs[1];
+  const skeletonBottom = [
+    [bounds.mins[0], skeletonFloor, bounds.mins[2]],
+    [bounds.maxs[0], skeletonFloor, bounds.mins[2]],
+    [bounds.maxs[0], skeletonFloor, bounds.maxs[2]],
+    [bounds.mins[0], skeletonFloor, bounds.maxs[2]],
+  ];
+  const skeletonTop = skeletonBottom.map(point => [point[0], skeletonCeiling, point[2]]);
+  for (let i = 0; i < 4; i++) {
+    const next = (i + 1) % 4;
+    drawPreviewLine(skeletonBottom[i], skeletonBottom[next], "rgba(65, 190, 255, 0.48)", 1.1);
+    drawPreviewLine(skeletonTop[i], skeletonTop[next], "rgba(198, 245, 255, 0.72)", 1.35);
+    drawPreviewLine(skeletonBottom[i], skeletonTop[i], "rgba(120, 220, 255, 0.58)", 1);
+  }
+
+  for (const barrier of (entry?.safety_barriers || [])) {
+    const corners = (barrier?.corners || []).map(asVec3).filter(Boolean);
+    if (corners.length < 4) continue;
+    const color = sanitizeHexColor(barrier.color, "#cfd8df");
+    const opacity = Math.max(0.05, Math.min(0.95, Number(barrier.opacity ?? 0.24)));
+    drawPreviewPolygon(
+      corners,
+      rgbaFromHex(color, opacity),
+      rgbaFromHex(color, Math.min(0.92, opacity + 0.42)),
+      1.35,
+    );
+  }
+
+  for (const obstacle of (entry?.safety_obstacles || [])) {
+    const prism = obstacleHullPrism(obstacle);
+    if (!prism) continue;
+    const color = sanitizeHexColor(obstacle.color, "#86dfff");
+    const opacity = Math.max(0.05, Math.min(0.95, Number(obstacle.opacity ?? 0.24)));
+    const stroke = rgbaFromHex(color, Math.min(0.94, opacity + 0.42));
+    drawPreviewPolygon(prism.bottom, rgbaFromHex(color, opacity * 0.72), stroke, 1);
+    drawPreviewPolygon(prism.top, rgbaFromHex(color, Math.min(0.72, opacity + 0.08)), stroke, 1.15);
+    for (let i = 0; i < prism.bottom.length; i++) {
+      const next = (i + 1) % prism.bottom.length;
+      drawPreviewPolygon(
+        [prism.bottom[i], prism.bottom[next], prism.top[next], prism.top[i]],
+        rgbaFromHex(color, opacity * 0.82),
+        stroke,
+        0.9,
+      );
+    }
+  }
+
   const projected = [];
   const stride = Math.max(1, Math.ceil(points.length / 2800));
   for (let i = 0; i < points.length; i += stride) {
     const pt = points[i];
-    const [x, y, depth, perspective] = toPreview(pt.xyz || pt);
+    const [x, y, depth, perspective] = toPreview(pt.rxyz || pt.xyz || pt);
     if (x < -4 || y < -4 || x > rect.width + 4 || y > rect.height + 4) continue;
     projected.push({ x, y, depth, perspective, rgb: pt.rgb || [210, 235, 226] });
   }
@@ -4904,7 +5570,10 @@ function closestPose() {
     if (t <= Number(timed[0].time_sec)) {
       return {
         ...timed[0],
-        rheading: timed[0].pathHeading || timed[0].rotationHeading || sub(timed[1].rcenter, timed[0].rcenter),
+        rheading: timed[0].rheading
+          || timed[0].rotationHeading
+          || timed[0].pathHeading
+          || sub(timed[1].rcenter, timed[0].rcenter),
       };
     }
     for (let i = 0; i + 1 < timed.length; i++) {
@@ -4919,6 +5588,9 @@ function closestPose() {
           Number.isFinite(a.rotationYaw) && Number.isFinite(b.rotationYaw)
             ? lerpAngle(a.rotationYaw, b.rotationYaw, u)
             : null;
+        const interpolatedRawHeading = a.rheading && b.rheading
+          ? normalize(lerpVec(a.rheading, b.rheading, u))
+          : (nearest.rheading || a.rheading || b.rheading);
         return {
           ...nearest,
           instance_id: `${a.instance_id}->${b.instance_id}`,
@@ -4926,15 +5598,22 @@ function closestPose() {
           center: lerpVec(a.center, b.center, u),
           rcenter: lerpVec(a.rcenter, b.rcenter, u),
           rotationYaw,
-          rheading: Number.isFinite(rotationYaw)
-            ? headingFromYaw(rotationYaw)
-            : (nearest.rotationHeading || nearest.pathHeading || a.pathHeading || b.pathHeading || sub(b.rcenter, a.rcenter)),
+          rheading: interpolatedRawHeading
+            || (Number.isFinite(rotationYaw) ? headingFromYaw(rotationYaw) : null)
+            || nearest.rotationHeading
+            || nearest.pathHeading
+            || a.pathHeading
+            || b.pathHeading
+            || sub(b.rcenter, a.rcenter),
         };
       }
     }
     const last = timed[timed.length - 1];
     const prev = timed[timed.length - 2];
-    return { ...last, rheading: last.rotationHeading || last.pathHeading || sub(last.rcenter, prev.rcenter) };
+    return {
+      ...last,
+      rheading: last.rheading || last.rotationHeading || last.pathHeading || sub(last.rcenter, prev.rcenter),
+    };
   }
   let best = good[0], bestD = Infinity;
   for (const p of good) {
@@ -5439,7 +6118,7 @@ function chooseNearestPatrolEntry(start, targets) {
   return best || { index: 0, leg: patrolLegRoute(start, targets[0]), distance: Infinity };
 }
 
-function planPatrolRoute(requireCurrentPose = false) {
+function planPatrolRoute(requireCurrentPose = false, options = {}) {
   const targets = patrolBaseTargets();
   if (targets.length < 2) {
     return { blocked: true, reason: "Add at least two patrol points.", route: targets, legs: [], arrival_indices: [] };
@@ -5460,10 +6139,18 @@ function planPatrolRoute(requireCurrentPose = false) {
   let start = cur?.rcenter ? [cur.rcenter[0], patrolAltitudeY(), cur.rcenter[2]] : orderedTargets[0];
   route.push(start);
   if (cur?.rcenter) {
-    const entry = chooseNearestPatrolEntry(start, targets);
-    entryIndex = entry.index;
-    firstLeg = entry.leg;
-    orderedTargets = patrolSequenceTargets(targets, entryIndex, mode);
+    if (options.entryStrategy === "nearest") {
+      const nearest = chooseNearestPatrolEntry(start, targets);
+      entryIndex = nearest.index;
+      firstLeg = nearest.leg;
+      orderedTargets = patrolSequenceTargets(targets, entryIndex, mode);
+    } else {
+      // A normal operator-started patrol enters at point 1. Automatic
+      // post-pursuit recovery explicitly requests the nearest safe point.
+      entryIndex = 0;
+      firstLeg = patrolLegRoute(start, targets[0]);
+      orderedTargets = patrolSequenceTargets(targets, 0, mode);
+    }
   }
   const sequence = cur?.rcenter ? orderedTargets : orderedTargets.slice(1);
 
@@ -5569,7 +6256,7 @@ function renderPatrolCommands(commands = plannedPatrol?.commands || []) {
   `;
 }
 
-function validatePatrolPreview(requireCurrentPose = false) {
+function validatePatrolPreview(requireCurrentPose = false, options = {}) {
   if (patrolPoints.length < 2) {
     plannedPatrol = null;
     renderPatrolCommands([]);
@@ -5588,7 +6275,7 @@ function validatePatrolPreview(requireCurrentPose = false) {
     invalidateStaticLayer();
     return null;
   }
-  const plan = planPatrolRoute(requireCurrentPose);
+  const plan = planPatrolRoute(requireCurrentPose, options);
   if (plan.blocked) {
     plannedPatrol = null;
     renderPatrolCommands([]);
@@ -5621,8 +6308,8 @@ function validatePatrolPreview(requireCurrentPose = false) {
   plannedPatrol.commands = buildPatrolCommandPlan(plannedPatrol);
   renderPatrolCommands(plannedPatrol.commands);
   const currentGate = plan.pending_current_pose
-    ? "Saved/offline preview starts at point 1; live execution will enter at the nearest safe patrol point."
-    : `Live entry point: patrol point ${(plan.entry_index ?? 0) + 1}.`;
+    ? "Saved/offline preview starts at point 1; live execution will also enter at point 1."
+    : `Live entry point: patrol point ${Number(plan.entry_index || 0) + 1}.`;
   updatePatrolStatus(
     `Patrol validated: ${patrolPoints.length} points, ${patrolModeLabel(plannedPatrol.patrol_mode)} mode, ${plannedPatrol.distance?.toFixed(2) || "pending"} map units, ${plannedPatrol.speed.toFixed(2)} m/s. ${currentGate}`,
     "busy",
@@ -5645,7 +6332,7 @@ function currentDroneHeadingDeg() {
   if (!cur) return null;
   const heading = headingForPose(cur);
   const deg = headingDegFromVector(heading);
-  return Number.isFinite(deg) ? deg + selectedDroneHeadingTrimDeg() : null;
+  return Number.isFinite(deg) ? deg : null;
 }
 
 function signedHeadingDeltaDeg(fromDeg, toDeg) {
@@ -5860,7 +6547,7 @@ function buildPatrolCommandPlan(patrol = plannedPatrol) {
   return commands;
 }
 
-async function sendPatrolToBridge(patrol = plannedPatrol, patrolName = "saved patrol") {
+async function sendPatrolToBridge(patrol = plannedPatrol, patrolName = "saved patrol", options = {}) {
   if (!patrol?.commands?.length) {
     updatePatrolStatus("Patrol plan has no executable steps. Validate again before executing.", "error");
     return;
@@ -5881,23 +6568,31 @@ async function sendPatrolToBridge(patrol = plannedPatrol, patrolName = "saved pa
   try {
     const result = await sendDjiFlightCommand("mission", {
       mission: {
+        client_safety_version: 3,
         guided_enabled: true,
         patrol: true,
         pose_max_age_seconds: 2.5,
         pose_recovery_seconds: 45.0,
         pulse_seconds: 0.30,
-        max_forward_rc: 0.040,
-        max_lateral_rc: 0.032,
-        allow_lateral_rc: true,
-        allow_axis_auto_calibration: true,
-        axis_probe_rc: 0.032,
-        axis_probe_seconds: 0.48,
-        max_yaw_rc: 0.020,
+        max_forward_rc: 0.035,
+        max_lateral_rc: 0.010,
+        allow_lateral_rc: false,
+        allow_axis_auto_calibration: false,
+        axis_probe_rc: 0.018,
+        axis_probe_seconds: 0.45,
+        max_yaw_rc: 0.050,
+        max_scan_yaw_rc: 0.025,
+        allow_patrol_scan_yaw: false,
+        alignment_grace_seconds: 35.0,
         max_vertical_rc: 0.018,
         max_step_seconds: 2.0,
         max_cruise_seconds: 120.0,
-        arrival_radius_map_units: 0.30,
-        arrival_deadband_map_units: 0.18,
+        max_pose_step_map_units: 0.30,
+        max_pose_step_hard_map_units: 0.55,
+        cross_track_recovery_start_map_units: 0.30,
+        max_cross_track_map_units: 0.80,
+        arrival_radius_map_units: 0.24,
+        arrival_deadband_map_units: 0.14,
         target_frame: "atlas_room",
         map_id: currentMapEntry?.id || null,
         map_title: currentMapEntry?.title || null,
@@ -5919,9 +6614,13 @@ async function sendPatrolToBridge(patrol = plannedPatrol, patrolName = "saved pa
         commands: patrol.commands,
         safety_barriers: mapSafetyBarriers(),
         safety_obstacles: mapSafetyObstacles(),
+        safety_motion_buffer_m: FLIGHT_SAFETY_PULSE_BUFFER_M,
         barrier_clearance_m: selectedBarrierClearance(),
         obstacle_clearance_m: selectedObstacleClearance(),
         heading_trim_deg: 0,
+        operator_heading_calibrated: Boolean(useModelHeadingForFlightInput?.checked),
+        initial_body_heading_offset_deg: -selectedDroneHeadingTrimDeg(),
+        initial_pose_offset_room: initialPoseOffsetRoom.slice(0, 3),
         confirmed_at: new Date().toISOString(),
       },
     });
@@ -5929,11 +6628,76 @@ async function sendPatrolToBridge(patrol = plannedPatrol, patrolName = "saved pa
     const pendingMessage = `${bridgeMessage} ${commandCount} guarded patrol steps are visible below.`;
     updatePatrolStatus(pendingMessage, "busy");
     setDjiCommandStatus(pendingMessage, "busy");
+    activePatrolExecutionContext = {
+      mapId: currentMapEntry?.id || null,
+      patrolId: editingPatrolId || activePatrolId || null,
+      patrolName,
+      commandId: String(result.command_id || ""),
+      autoResumed: Boolean(options.autoResume),
+      startedAt: Date.now(),
+    };
+    return result;
   } catch (error) {
     activeExecutionPatrolRoute = null;
+    activePatrolExecutionContext = null;
     invalidateStaticLayer();
     updatePatrolStatus(`Patrol command failed: ${error.message}`, "error");
     setDjiCommandStatus(`Patrol command failed: ${error.message}`, "error");
+    return null;
+  }
+}
+
+async function resumeInterruptedPatrolAfterPursuit(pursuitCommandId, pursuitResult) {
+  if (enemyPatrolResumeInFlight || handledEnemyPursuitResumeIds.has(pursuitCommandId)) return;
+  handledEnemyPursuitResumeIds.add(pursuitCommandId);
+  if (handledEnemyPursuitResumeIds.size > 24) {
+    const oldest = handledEnemyPursuitResumeIds.values().next().value;
+    handledEnemyPursuitResumeIds.delete(oldest);
+  }
+  const context = enemyPursuitResumeContext;
+  enemyPursuitResumeContext = null;
+  enemyTargetSuppressedUntilClear = true;
+  if (!context) {
+    updateEnemyResponseStatus(
+      `Pursuit complete: holding at estimated ${Number(pursuitResult.final_clearance_m || pursuitResult.stop_clearance_m || 0).toFixed(2)} m. No running patrol was interrupted, so no automatic route was started.`,
+      "ok",
+    );
+    return;
+  }
+  enemyPatrolResumeInFlight = true;
+  try {
+    if (context.mapId !== currentMapEntry?.id) {
+      throw new Error("the selected map changed after the patrol was interrupted");
+    }
+    if (!guidedMotionArmed()) {
+      throw new Error("guided movement is no longer armed");
+    }
+    const savedPatrol = patrolList(currentMapEntry).find(patrol => patrol.id === context.patrolId);
+    if (!savedPatrol) {
+      throw new Error("the interrupted saved patrol is no longer available");
+    }
+    loadPatrolIntoEditor(savedPatrol, { selecting: false });
+    const resumePlan = validatePatrolPreview(true, { entryStrategy: "nearest" });
+    if (!resumePlan?.commands?.length) {
+      throw new Error("no safe route exists from the current TSolve pose to the nearest patrol point");
+    }
+    const entryPoint = Number(resumePlan.entry_index || 0) + 1;
+    updateEnemyResponseStatus(
+      `Interception complete. Rejoining "${context.patrolName}" at nearest safe point ${entryPoint}; saved wall/obstacle clearance plus ${FLIGHT_SAFETY_PULSE_BUFFER_M.toFixed(2)} m remains active.`,
+      "busy",
+    );
+    const queued = await sendPatrolToBridge(resumePlan, context.patrolName, { autoResume: true });
+    if (!queued) throw new Error("the DJI bridge did not queue the patrol rejoin mission");
+  } catch (error) {
+    activePatrolExecutionContext = null;
+    updateEnemyResponseStatus(
+      `Interception complete, but automatic patrol rejoin was blocked: ${error.message || error}. Drone remains in hover.`,
+      "error",
+    );
+    setDjiCommandStatus(`Patrol rejoin blocked: ${error.message || error}. Drone remains in hover.`, "error");
+  } finally {
+    enemyPatrolResumeInFlight = false;
+    updateEnemyResponseControls();
   }
 }
 
@@ -6280,6 +7044,101 @@ function drawPatrolScanSweep(rxyz) {
   }
   ctx.setLineDash([]);
   ctx.restore();
+}
+
+function patrolCoverageSamples() {
+  const targets = patrolBaseTargets();
+  if (targets.length < 2 || !room?.displayPoints?.length) return [];
+  const cacheKey = targets.map(point => point.map(value => Number(value).toFixed(3)).join(",")).join("|");
+  if (patrolCoverageCache.room === room && patrolCoverageCache.key === cacheKey) {
+    return patrolCoverageCache.samples;
+  }
+  const route = targets.concat([targets[0]]);
+  const spacing = Math.max(0.12, Math.min(0.30, (room.bounds?.radius || 2) * 0.035));
+  const samples = [];
+  for (let segment = 0; segment < route.length - 1; segment++) {
+    const a = route[segment];
+    const b = route[segment + 1];
+    const distance = norm(sub(b, a));
+    const steps = Math.max(1, Math.ceil(distance / spacing));
+    for (let step = 0; step < steps; step++) {
+      samples.push({
+        point: lerpVec(a, b, step / steps),
+        segment,
+        atTurn: step === 0,
+      });
+    }
+  }
+  samples.push({ point: route[route.length - 1], segment: route.length - 2, atTurn: true });
+
+  const cellSize = Math.max(0.24, Math.min(0.55, (room.bounds?.radius || 2) * 0.065));
+  const searchRadius = cellSize * 2.2;
+  const cells = new Map();
+  const stride = Math.max(1, Math.ceil(room.displayPoints.length / 90000));
+  for (let i = 0; i < room.displayPoints.length; i += stride) {
+    const point = room.displayPoints[i].rxyz;
+    const key = `${Math.floor(point[0] / cellSize)},${Math.floor(point[2] / cellSize)}`;
+    cells.set(key, (cells.get(key) || 0) + 1);
+  }
+  const cellReach = Math.ceil(searchRadius / cellSize);
+  for (const sample of samples) {
+    const cx = Math.floor(sample.point[0] / cellSize);
+    const cz = Math.floor(sample.point[2] / cellSize);
+    let count = 0;
+    for (let dx = -cellReach; dx <= cellReach; dx++) {
+      for (let dz = -cellReach; dz <= cellReach; dz++) {
+        count += cells.get(`${cx + dx},${cz + dz}`) || 0;
+      }
+    }
+    sample.density = count;
+  }
+  const densities = samples.map(sample => sample.density).sort((a, b) => a - b);
+  const medianDensity = densities[Math.floor(densities.length * 0.5)] || 1;
+  const lowFloor = Math.max(18, medianDensity * 0.38);
+  const marginalFloor = Math.max(38, medianDensity * 0.68);
+  for (const sample of samples) {
+    sample.risk = sample.density < lowFloor ? "high" : (sample.density < marginalFloor ? "marginal" : "good");
+  }
+  patrolCoverageCache = { room, key: cacheKey, samples };
+  return samples;
+}
+
+function drawPatrolCoverageRisk() {
+  if (!view.showCoverageRisk) return;
+  const samples = patrolCoverageSamples();
+  if (samples.length < 2) return;
+  const colors = {
+    high: "rgba(255, 62, 92, 0.92)",
+    marginal: "rgba(255, 184, 58, 0.82)",
+  };
+  for (let i = 0; i < samples.length - 1; i++) {
+    const risk = samples[i].risk === "high" || samples[i + 1].risk === "high"
+      ? "high"
+      : (samples[i].risk === "marginal" || samples[i + 1].risk === "marginal" ? "marginal" : "good");
+    if (risk === "good") continue;
+    drawLine(samples[i].point, samples[i + 1].point, colors[risk], risk === "high" ? 8 : 5);
+  }
+  for (const sample of samples) {
+    if (sample.risk === "good") continue;
+    const [x, y] = project(sample.point);
+    ctx.save();
+    ctx.fillStyle = sample.risk === "high" ? "rgba(255, 52, 82, 0.20)" : "rgba(255, 184, 58, 0.14)";
+    ctx.strokeStyle = colors[sample.risk];
+    ctx.lineWidth = sample.risk === "high" ? 1.7 : 1.2;
+    ctx.beginPath();
+    ctx.arc(x, y, sample.atTurn ? 13 : 8, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    ctx.restore();
+  }
+  for (const sample of samples.filter(candidate => candidate.atTurn)) {
+    if (sample.risk === "good") continue;
+    drawLabel(
+      sample.point,
+      sample.risk === "high" ? "low map coverage" : "marginal coverage",
+      sample.risk === "high" ? "#ff879d" : "#ffd080",
+    );
+  }
 }
 
 function drawPatrolMission(cur = null) {
@@ -7804,8 +8663,11 @@ function partialPolyline(points, u) {
 }
 
 function headingForPose(cur) {
-  if (cur?.rotationHeading && norm(cur.rotationHeading) > 1e-8) return cur.rotationHeading;
+  // Flight calibration and visualization must share the same TSolve heading.
+  // rotationHeading is a replay-display alignment and is not used by bridge
+  // control, so it must never override a real room-frame rheading here.
   if (cur?.rheading && norm(cur.rheading) > 1e-8) return cur.rheading;
+  if (cur?.rotationHeading && norm(cur.rotationHeading) > 1e-8) return cur.rotationHeading;
   if (cur?.pathHeading && norm(cur.pathHeading) > 1e-8) return cur.pathHeading;
   const good = room.poses.filter(p => isRealPose(p));
   const idx = good.findIndex(p => p.instance_id === cur.instance_id);
@@ -8409,6 +9271,7 @@ function render() {
   drawStaticLayer(rect, dpr);
   drawSafetyBarriers();
   drawSafetyObstacles();
+  drawPatrolCoverageRisk();
   drawPatrolMission(cur);
   drawMissionTarget(cur);
 
@@ -8530,9 +9393,402 @@ async function loadViewerData(resetView = false, entry = null) {
   renderStartPreview();
 }
 
+function fleetSelectedDrone() {
+  return (fleetData.drones || []).find(item => item.id === selectedFleetDroneId) || null;
+}
+
+function setFleetStatus(message, tone = "") {
+  if (!fleetDispatchStatus) return;
+  fleetDispatchStatus.textContent = message;
+  fleetDispatchStatus.classList.toggle("error", tone === "error");
+  fleetDispatchStatus.classList.toggle("ok", tone === "ok");
+}
+
+function fillFleetSelect(select, items, selectedValue, placeholder, labeler) {
+  if (!select) return;
+  const previous = selectedValue || select.value;
+  select.replaceChildren();
+  const blank = document.createElement("option");
+  blank.value = "";
+  blank.textContent = placeholder;
+  select.appendChild(blank);
+  for (const item of items) {
+    const option = document.createElement("option");
+    option.value = item.id;
+    option.textContent = labeler(item);
+    select.appendChild(option);
+  }
+  if ([...select.options].some(option => option.value === previous)) select.value = previous;
+}
+
+function refreshFleetPatrolOptions() {
+  const map = (fleetData.maps || []).find(item => item.id === fleetMapSelect?.value);
+  fillFleetSelect(
+    fleetPatrolSelect,
+    map?.patrols || [],
+    fleetPatrolSelect?.value,
+    map ? "Choose saved patrol" : "Choose a map first",
+    patrol => `${patrol.title} · ${patrol.points} points`,
+  );
+}
+
+function formatFleetEventTime(value) {
+  const date = new Date(Number(value || 0) * 1000);
+  if (!Number.isFinite(date.getTime())) return "—";
+  return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+}
+
+function fleetSessionLabel(session) {
+  if (!session) return "Offline";
+  if (session.status === "error") return "Attention";
+  if (session.status === "stopping") return "Stopping";
+  if (session.patrol_running) return "Patrolling";
+  if (session.status === "running" && session.localization_ready) return "Ready";
+  if (session.status === "running" || session.status === "queued") return "Connecting";
+  return "Offline";
+}
+
+function fleetControlAvailability(session) {
+  const active = ["queued", "running", "stopping"].includes(session?.status);
+  const bridgeState = session?.bridge_status || "offline";
+  const ready = active && Boolean(session?.localization_ready) && bridgeState === "streaming";
+  const controlPending = Boolean(session?.control_pending);
+  return {
+    active,
+    bridgeState,
+    ready,
+    takeoff: ready && !session?.airborne && !session?.takeoff_pending,
+    startPatrol: ready && Boolean(session?.airborne) && !session?.patrol_running && !session?.patrol_pending && !controlPending,
+    stopPatrol: active && Boolean(session?.airborne),
+    land: active && Boolean(session?.airborne) && !session?.patrol_running && !session?.land_pending && !controlPending,
+    endSession: active,
+  };
+}
+
+function createFleetOverviewCard(droneId) {
+  const card = document.createElement("article");
+  card.className = "fleet-overview-card";
+  card.dataset.fleetDroneId = droneId;
+  card.innerHTML = `
+    <div class="fleet-overview-card-head">
+      <div><h3 data-field="name">Drone</h3><p data-field="assignment">No assignment</p></div>
+      <div class="fleet-state-badge" data-field="badge">Offline</div>
+    </div>
+    <div class="fleet-overview-video">
+      <img data-field="preview" alt="" hidden />
+      <div class="fleet-overview-video-placeholder"><span>⌁</span><small>Waiting for live video</small></div>
+      <div class="fleet-overview-video-bar"><span data-field="bridge">Offline</span><strong data-field="frames">0 frames</strong></div>
+    </div>
+    <div class="fleet-overview-metrics">
+      <div><span>Localization</span><strong data-field="localization">Waiting</strong></div>
+      <div><span>Accepted</span><strong data-field="poses">0 poses</strong></div>
+      <div><span>Patrol</span><strong data-field="patrol">—</strong></div>
+      <div><span>Last action</span><strong data-field="action">None</strong></div>
+    </div>
+    <div class="fleet-overview-recent"><strong>Latest</strong><span data-field="event">Session created.</span></div>
+    <div class="fleet-overview-controls" aria-label="Drone quick controls">
+      <button type="button" data-action="focus">Inspect</button>
+      <button type="button" data-action="takeoff">Take Off</button>
+      <button type="button" data-action="start_patrol">Start Patrol</button>
+      <button type="button" data-action="stop_patrol">Stop / Hover</button>
+      <button type="button" data-action="land">Land</button>
+      <button type="button" data-action="end_session">End Session</button>
+    </div>
+  `;
+  const preview = card.querySelector('[data-field="preview"]');
+  preview.addEventListener("error", () => { preview.hidden = true; });
+  for (const button of card.querySelectorAll("button[data-action]")) {
+    button.addEventListener("click", () => {
+      const action = button.dataset.action;
+      if (action === "focus") {
+        selectedFleetDroneId = droneId;
+        if (fleetDroneSelect) fleetDroneSelect.value = droneId;
+        renderFleetSwitcher();
+        renderFleetFocus();
+        fleetFocus?.scrollIntoView({ behavior: "smooth", block: "start" });
+      } else if (action === "end_session") {
+        runUi(() => endFleetSession(droneId));
+      } else {
+        runUi(() => fleetControl(action, droneId));
+      }
+    });
+  }
+  return card;
+}
+
+function updateFleetOverviewCard(card, drone) {
+  const session = drone.session || {};
+  const state = fleetControlAvailability(session);
+  const label = fleetSessionLabel(session);
+  const needsAttention = session.status === "error" || session.last_control_status === "error";
+  card.style.setProperty("--fleet-color", drone.color || "#56ddff");
+  card.classList.toggle("attention", needsAttention);
+  card.querySelector('[data-field="name"]').textContent = drone.name;
+  card.querySelector('[data-field="assignment"]').textContent = `${session.map_title || "Map"} · ${session.patrol_title || "Patrol"} · ${drone.phone_ip}`;
+  const badge = card.querySelector('[data-field="badge"]');
+  badge.textContent = needsAttention ? "Attention" : label;
+  badge.className = `fleet-state-badge${needsAttention ? " error" : (state.active ? " running" : "")}`;
+  card.querySelector('[data-field="bridge"]').textContent = String(state.bridgeState).replaceAll("_", " ");
+  card.querySelector('[data-field="frames"]').textContent = `${Number(session.frames_saved || 0).toLocaleString()} frames`;
+  card.querySelector('[data-field="localization"]').textContent = session.localization_ready ? "Valid" : (session.stage ? String(session.stage).replaceAll("_", " ") : "Waiting");
+  card.querySelector('[data-field="poses"]').textContent = `${Number(session.accepted_pose_count || 0).toLocaleString()} poses`;
+  card.querySelector('[data-field="patrol"]').textContent = session.patrol_title || "—";
+  card.querySelector('[data-field="action"]').textContent = session.last_command ? String(session.last_command).replaceAll("_", " ") : "None";
+  const preview = card.querySelector('[data-field="preview"]');
+  if (session.live_preview_url && state.bridgeState !== "offline") {
+    const nextSrc = `${session.live_preview_url}?t=${Math.floor(Number(session.bridge_updated_at || Date.now() / 1000) * 2)}`;
+    if (preview.dataset.fleetSrc !== nextSrc) {
+      preview.dataset.fleetSrc = nextSrc;
+      preview.src = nextSrc;
+    }
+    preview.alt = `${drone.name} live camera`;
+    preview.hidden = false;
+  } else {
+    preview.removeAttribute("src");
+    preview.removeAttribute("data-fleet-src");
+    preview.hidden = true;
+  }
+  const latestEvent = (session.events || []).at(-1);
+  card.querySelector('[data-field="event"]').textContent = latestEvent?.message || session.message || "Waiting for the first operational event.";
+  card.querySelector('[data-action="takeoff"]').disabled = !state.takeoff;
+  card.querySelector('[data-action="start_patrol"]').disabled = !state.startPatrol;
+  card.querySelector('[data-action="stop_patrol"]').disabled = !state.stopPatrol;
+  card.querySelector('[data-action="land"]').disabled = !state.land;
+  card.querySelector('[data-action="end_session"]').disabled = !state.endSession;
+}
+
+function renderFleetOverview() {
+  if (!fleetOverviewGrid) return;
+  const dispatched = (fleetData.drones || [])
+    .filter(drone => Boolean(drone.session))
+    .sort((a, b) => Number(["queued", "running", "stopping"].includes(b.session?.status)) - Number(["queued", "running", "stopping"].includes(a.session?.status)));
+  if (fleetOverviewCount) {
+    const activeCount = dispatched.filter(drone => ["queued", "running", "stopping"].includes(drone.session?.status)).length;
+    fleetOverviewCount.textContent = `${dispatched.length} dispatched · ${activeCount} active`;
+  }
+  if (!dispatched.length) {
+    fleetOverviewGrid.innerHTML = '<div class="fleet-overview-empty"><span>⌁</span><strong>No dispatched drones</strong><p>Every active drone will appear here at the same time.</p></div>';
+    return;
+  }
+  const wantedIds = new Set(dispatched.map(drone => drone.id));
+  for (const existing of fleetOverviewGrid.querySelectorAll("[data-fleet-drone-id]")) {
+    if (!wantedIds.has(existing.dataset.fleetDroneId)) existing.remove();
+  }
+  fleetOverviewGrid.querySelector(".fleet-overview-empty")?.remove();
+  for (const drone of dispatched) {
+    let card = fleetOverviewGrid.querySelector(`[data-fleet-drone-id="${CSS.escape(drone.id)}"]`);
+    if (!card) card = createFleetOverviewCard(drone.id);
+    updateFleetOverviewCard(card, drone);
+    fleetOverviewGrid.appendChild(card);
+  }
+}
+
+function renderFleetSwitcher() {
+  if (!fleetSwitcher) return;
+  fleetSwitcher.replaceChildren();
+  for (const drone of fleetData.drones || []) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = `fleet-switch${drone.id === selectedFleetDroneId ? " active" : ""}`;
+    button.style.setProperty("--fleet-color", drone.color || "#56ddff");
+    const dot = document.createElement("span");
+    dot.className = "fleet-switch-dot";
+    const copy = document.createElement("span");
+    const name = document.createElement("strong");
+    name.textContent = drone.name;
+    const state = document.createElement("small");
+    state.textContent = fleetSessionLabel(drone.session);
+    copy.append(name, state);
+    button.append(dot, copy);
+    button.addEventListener("click", () => {
+      selectedFleetDroneId = drone.id;
+      if (fleetDroneSelect) fleetDroneSelect.value = drone.id;
+      renderFleet();
+    });
+    fleetSwitcher.appendChild(button);
+  }
+}
+
+function renderFleetFocus() {
+  const drone = fleetSelectedDrone();
+  if (!fleetFocus) return;
+  fleetFocus.classList.toggle("empty", !drone);
+  if (!drone) return;
+  const session = drone.session;
+  const label = fleetSessionLabel(session);
+  fleetFocusName.textContent = drone.name;
+  fleetFocusOverline.textContent = `${drone.phone_ip} · dedicated Android link`;
+  fleetFocusAssignment.textContent = session
+    ? `${session.map_title || "Map"} · ${session.patrol_title || "Patrol"}`
+    : "No active assignment";
+  fleetFocusBadge.textContent = label;
+  fleetFocusBadge.className = `fleet-state-badge${session?.status === "error" ? " error" : (session?.status === "running" || session?.status === "queued" || session?.status === "stopping" ? " running" : "")}`;
+  const bridgeState = session?.bridge_status || "offline";
+  fleetLiveIndicator.textContent = bridgeState;
+  fleetLiveFrameCount.textContent = `${Number(session?.frames_saved || 0).toLocaleString()} frames`;
+  fleetMetricLocalization.textContent = session?.localization_ready ? "Valid" : (session?.stage ? String(session.stage).replaceAll("_", " ") : "Waiting");
+  fleetMetricPoses.textContent = Number(session?.accepted_pose_count || 0).toLocaleString();
+  fleetMetricMap.textContent = session?.map_title || "—";
+  fleetMetricPatrol.textContent = session?.patrol_title || "—";
+  fleetMetricBridge.textContent = String(bridgeState).replaceAll("_", " ");
+  fleetMetricAction.textContent = session?.last_command ? String(session.last_command).replaceAll("_", " ") : "None";
+  if (fleetLivePreview) {
+    if (session?.live_preview_url && bridgeState !== "offline") {
+      fleetLivePreview.src = `${session.live_preview_url}?t=${Math.floor(Number(session.bridge_updated_at || Date.now() / 1000) * 2)}`;
+      fleetLivePreview.hidden = false;
+    } else {
+      fleetLivePreview.removeAttribute("src");
+      fleetLivePreview.hidden = true;
+    }
+  }
+  const availability = fleetControlAvailability(session);
+  if (fleetTakeoffButton) fleetTakeoffButton.disabled = !availability.takeoff;
+  if (fleetStartPatrolButton) fleetStartPatrolButton.disabled = !availability.startPatrol;
+  if (fleetHoverButton) fleetHoverButton.disabled = !availability.stopPatrol;
+  if (fleetLandButton) fleetLandButton.disabled = !availability.land;
+  if (fleetEndSessionButton) fleetEndSessionButton.disabled = !availability.endSession;
+  const events = [...(session?.events || [])].reverse();
+  fleetLogCount.textContent = `${events.length} event${events.length === 1 ? "" : "s"}`;
+  fleetSmartLog.replaceChildren();
+  if (!events.length) {
+    const empty = document.createElement("p");
+    empty.className = "fleet-log-empty";
+    empty.textContent = "No session events yet. Dispatch this drone to begin its operational timeline.";
+    fleetSmartLog.appendChild(empty);
+  } else {
+    for (const event of events) {
+      const row = document.createElement("div");
+      row.className = `fleet-log-event ${event.level || "info"}`;
+      const time = document.createElement("time");
+      time.textContent = formatFleetEventTime(event.created_at || event.updated_at);
+      const dot = document.createElement("i");
+      const message = document.createElement("span");
+      message.textContent = event.message;
+      row.append(time, dot, message);
+      fleetSmartLog.appendChild(row);
+    }
+  }
+}
+
+function renderFleet() {
+  const summary = fleetData.summary || {};
+  if (fleetSummaryRegistered) fleetSummaryRegistered.textContent = Number(summary.registered || 0);
+  if (fleetSummaryActive) fleetSummaryActive.textContent = Number(summary.active || 0);
+  if (fleetSummaryAirborne) fleetSummaryAirborne.textContent = Number(summary.airborne || 0);
+  if (fleetSummaryAttention) fleetSummaryAttention.textContent = Number(summary.attention || 0);
+  if (!selectedFleetDroneId && fleetData.drones?.length) selectedFleetDroneId = fleetData.drones[0].id;
+  if (selectedFleetDroneId && !(fleetData.drones || []).some(item => item.id === selectedFleetDroneId)) {
+    selectedFleetDroneId = fleetData.drones?.[0]?.id || "";
+  }
+  fillFleetSelect(fleetDroneSelect, fleetData.drones || [], fleetDroneSelect?.value || selectedFleetDroneId, "Choose drone endpoint", drone => `${drone.name} · ${drone.phone_ip}`);
+  fillFleetSelect(fleetMapSelect, fleetData.maps || [], fleetMapSelect?.value, "Choose patrol map", map => `${map.title}${map.has_geofence ? "" : " · geofence required"}`);
+  refreshFleetPatrolOptions();
+  renderFleetOverview();
+  renderFleetSwitcher();
+  renderFleetFocus();
+  if (fleetStopAllButton) fleetStopAllButton.disabled = Number(summary.active || 0) === 0;
+}
+
+async function refreshFleet() {
+  const response = await fetch("/api/fleet", { cache: "no-store" });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error || "Could not load fleet state.");
+  fleetData = data;
+  renderFleet();
+  return data;
+}
+
+function scheduleFleetPoll() {
+  window.clearTimeout(fleetPollTimer);
+  if (currentScreen !== "fleet") return;
+  fleetPollTimer = window.setTimeout(async () => {
+    try {
+      await refreshFleet();
+      if (fleetDispatchStatus?.classList.contains("error")) setFleetStatus("");
+    } catch (error) {
+      setFleetStatus(error.message, "error");
+    }
+    scheduleFleetPoll();
+  }, 1500);
+}
+
+async function saveFleetDrone() {
+  const name = fleetDroneNameInput?.value.trim() || "";
+  const phoneIp = fleetDroneIpInput?.value.trim() || "";
+  if (!name || !phoneIp) throw new Error("Enter both a display name and the Android phone IP.");
+  setFleetStatus("Saving independent drone endpoint...");
+  const data = await postJson("/api/fleet/drone", { name, phone_ip: phoneIp });
+  fleetData = { ...fleetData, ...data.fleet };
+  selectedFleetDroneId = data.drone.id;
+  if (fleetDroneNameInput) fleetDroneNameInput.value = "";
+  if (fleetDroneIpInput) fleetDroneIpInput.value = "";
+  await refreshFleet();
+  setFleetStatus(`${data.drone.name} saved at ${data.drone.phone_ip}.`, "ok");
+}
+
+async function dispatchFleetDrone() {
+  const droneId = fleetDroneSelect?.value || "";
+  const mapId = fleetMapSelect?.value || "";
+  const patrolId = fleetPatrolSelect?.value || "";
+  if (!droneId || !mapId || !patrolId) throw new Error("Choose a drone, map, and saved patrol first.");
+  const drone = (fleetData.drones || []).find(item => item.id === droneId);
+  const map = (fleetData.maps || []).find(item => item.id === mapId);
+  if (!map?.has_geofence) throw new Error("This map needs a saved closed-wall geofence before dispatch.");
+  const ok = window.confirm(`Connect ${drone?.name || "this drone"} to ${map.title} and prepare the selected patrol?\n\nThis starts its independent live stream and localization. It will not take off until you press Take Off.`);
+  if (!ok) return;
+  setFleetStatus("Starting isolated DJI bridge and TSolve session...");
+  await postJson("/api/fleet/dispatch", {
+    drone_id: droneId,
+    map_id: mapId,
+    patrol_id: patrolId,
+    fps: Number(fleetFpsSelect?.value || 5),
+  });
+  selectedFleetDroneId = droneId;
+  await refreshFleet();
+  setFleetStatus(`${drone?.name || "Drone"} is connecting. Wait for Localization: Valid before takeoff.`, "ok");
+}
+
+async function fleetControl(action, droneId = selectedFleetDroneId) {
+  const drone = (fleetData.drones || []).find(item => item.id === droneId);
+  if (!drone?.session) throw new Error("Select an active drone session first.");
+  if (action === "start_patrol") {
+    const ok = window.confirm(`Start ${drone.session.patrol_title} on ${drone.name}?\n\nThe drone will enter at the nearest patrol point and use the saved geofence and obstacle clearances.`);
+    if (!ok) return;
+  }
+  if (action === "land") {
+    const ok = window.confirm(`Land ${drone.name} now?`);
+    if (!ok) return;
+  }
+  setFleetStatus(`Sending ${action.replaceAll("_", " ")} to ${drone.name}...`);
+  await postJson("/api/fleet/control", { drone_id: drone.id, action, height_m: 1.0 });
+  await refreshFleet();
+  setFleetStatus(`${action.replaceAll("_", " ")} queued for ${drone.name}.`, "ok");
+}
+
+async function endFleetSession(droneId = selectedFleetDroneId) {
+  const drone = (fleetData.drones || []).find(item => item.id === droneId);
+  if (!drone?.session) return;
+  const ok = window.confirm(`End ${drone.name}'s live session?\n\nATLAS will command hover, stop localization, and save the path. Land first if the drone is airborne.`);
+  if (!ok) return;
+  await postJson("/api/fleet/stop", { drone_id: drone.id });
+  await refreshFleet();
+  setFleetStatus(`${drone.name} is stopping and saving its path.`, "ok");
+}
+
+async function stopAllFleetSessions() {
+  const active = Number(fleetData.summary?.active || 0);
+  if (!active) return;
+  const ok = window.confirm(`Stop all ${active} active fleet sessions?\n\nEach bridge receives an emergency hover before its localization path is closed.`);
+  if (!ok) return;
+  await postJson("/api/fleet/stop", {});
+  await refreshFleet();
+  setFleetStatus("Stop-all sent. Every active drone is entering neutral hover and saving its path.", "ok");
+}
+
 async function init() {
   await refreshMapLibrary();
   await refreshEnemyLibrary();
+  await refreshFleet();
   await loadViewerData(true);
   renderStarted = true;
   updateNavState();
@@ -8549,6 +9805,7 @@ async function init() {
 function screenTitle(screen) {
   if (screen === "modal") return "Create Map";
   if (screen === "enemy") return "Enemy Drone Lab";
+  if (screen === "fleet") return "Fleet Monitor";
   return "";
 }
 
@@ -8563,12 +9820,14 @@ function rememberScreen(target) {
 
 function showDemo(options = {}) {
   if (options.push !== false) rememberScreen("demo");
-  document.body.classList.remove("show-start", "show-enemy");
+  window.clearTimeout(fleetPollTimer);
+  document.body.classList.remove("show-start", "show-enemy", "show-fleet");
   document.body.classList.add("show-demo");
   mapModal?.classList.add("hidden");
   demoApp?.setAttribute("aria-hidden", "false");
   startPage?.setAttribute("aria-hidden", "true");
   enemyPage?.setAttribute("aria-hidden", "true");
+  fleetPage?.setAttribute("aria-hidden", "true");
   currentScreen = "demo";
   updateNavState();
   setView("iso");
@@ -8584,13 +9843,15 @@ function showDemo(options = {}) {
 
 function showLibrary(options = {}) {
   if (options.push !== false) rememberScreen("start");
+  window.clearTimeout(fleetPollTimer);
   video.pause();
-  document.body.classList.remove("show-demo", "show-enemy");
+  document.body.classList.remove("show-demo", "show-enemy", "show-fleet");
   document.body.classList.add("show-start");
   mapModal?.classList.add("hidden");
   demoApp?.setAttribute("aria-hidden", "true");
   startPage?.setAttribute("aria-hidden", "false");
   enemyPage?.setAttribute("aria-hidden", "true");
+  fleetPage?.setAttribute("aria-hidden", "true");
   currentScreen = "start";
   updateNavState();
   renderMapLibrary();
@@ -8599,16 +9860,34 @@ function showLibrary(options = {}) {
 
 function showEnemyLab(options = {}) {
   if (options.push !== false) rememberScreen("enemy");
+  window.clearTimeout(fleetPollTimer);
   video.pause();
-  document.body.classList.remove("show-start", "show-demo");
+  document.body.classList.remove("show-start", "show-demo", "show-fleet");
   document.body.classList.add("show-enemy");
   mapModal?.classList.add("hidden");
   demoApp?.setAttribute("aria-hidden", "true");
   startPage?.setAttribute("aria-hidden", "true");
   enemyPage?.setAttribute("aria-hidden", "false");
+  fleetPage?.setAttribute("aria-hidden", "true");
   currentScreen = "enemy";
   updateNavState();
   runUi(refreshEnemyLibrary);
+}
+
+function showFleetMonitor(options = {}) {
+  if (options.push !== false) rememberScreen("fleet");
+  video.pause();
+  document.body.classList.remove("show-start", "show-demo", "show-enemy");
+  document.body.classList.add("show-fleet");
+  mapModal?.classList.add("hidden");
+  demoApp?.setAttribute("aria-hidden", "true");
+  startPage?.setAttribute("aria-hidden", "true");
+  enemyPage?.setAttribute("aria-hidden", "true");
+  fleetPage?.setAttribute("aria-hidden", "false");
+  currentScreen = "fleet";
+  updateNavState();
+  runUi(refreshFleet);
+  scheduleFleetPoll();
 }
 
 async function selectMap(mapId, openAfter = false) {
@@ -8620,6 +9899,10 @@ async function selectMap(mapId, openAfter = false) {
   patrolPointSafetyIssues = new Map();
   plannedPatrol = null;
   activeExecutionPatrolRoute = null;
+  activePatrolExecutionContext = null;
+  interruptedPatrolExecutionContext = null;
+  enemyPursuitResumeContext = null;
+  enemyTargetSuppressedUntilClear = false;
   patrolSelecting = false;
   patrolDraggingIndex = -1;
   editingPatrolId = null;
@@ -8910,6 +10193,42 @@ canvas.addEventListener("click", e => {
     patrolDragMoved = false;
     return;
   }
+  if (initialPositionSelecting) {
+    const picked = nearestVisibleMapPoint(e.clientX, e.clientY);
+    if (!picked?.rxyz || !liveCurrentPoseOverride?.rcenter) {
+      setDjiCommandStatus("No visible map point under the cursor. Choose a point at the drone's actual position.", "error");
+      return;
+    }
+    const rawCenter = liveCurrentPoseOverride.rcenter.map(
+      (value, index) => value - Number(initialPoseOffsetRoom[index] || 0),
+    );
+    const candidate = [
+      Number(picked.rxyz[0]) - Number(rawCenter[0]),
+      0,
+      Number(picked.rxyz[2]) - Number(rawCenter[2]),
+    ];
+    const magnitude = Math.hypot(candidate[0], candidate[2]);
+    if (!Number.isFinite(magnitude) || magnitude > 1.0) {
+      setDjiCommandStatus(
+        `Position correction ${Number.isFinite(magnitude) ? magnitude.toFixed(2) : "invalid"} is too large. Re-localize instead of forcing the pose.`,
+        "error",
+      );
+      return;
+    }
+    initialPoseOffsetRoom = candidate;
+    liveCurrentPoseOverride = correctedLivePose({ ...liveCurrentPoseOverride, rcenter: rawCenter });
+    initialPositionSelecting = false;
+    canvas.style.cursor = "";
+    updateInitialPositionControls();
+    invalidateStaticLayer();
+    if (missionTarget?.rxyz) planMissionPreview();
+    if (patrolPoints.length >= 2) validatePatrolPreview(false);
+    setDjiCommandStatus(
+      `Initial position corrected by ${magnitude.toFixed(2)} map units. Flight control will use the same correction.`,
+      "ok",
+    );
+    return;
+  }
   if (obstacleEditing) {
     const picked = nearestVisibleMapPoint(e.clientX, e.clientY);
     if (!picked?.rxyz) {
@@ -8961,6 +10280,20 @@ document.getElementById("back-library").addEventListener("click", showLibrary);
 navBack?.addEventListener("click", goBack);
 atlasHome?.addEventListener("click", goHome);
 enemyLabButton?.addEventListener("click", () => showEnemyLab());
+fleetMonitorButton?.addEventListener("click", () => showFleetMonitor());
+fleetMapSelect?.addEventListener("change", refreshFleetPatrolOptions);
+fleetDroneSelect?.addEventListener("change", () => {
+  selectedFleetDroneId = fleetDroneSelect.value;
+  renderFleet();
+});
+fleetSaveDroneButton?.addEventListener("click", () => runUi(saveFleetDrone));
+fleetDispatchButton?.addEventListener("click", () => runUi(dispatchFleetDrone));
+fleetStopAllButton?.addEventListener("click", () => runUi(stopAllFleetSessions));
+fleetTakeoffButton?.addEventListener("click", () => runUi(() => fleetControl("takeoff")));
+fleetStartPatrolButton?.addEventListener("click", () => runUi(() => fleetControl("start_patrol")));
+fleetHoverButton?.addEventListener("click", () => runUi(() => fleetControl("stop_patrol")));
+fleetLandButton?.addEventListener("click", () => runUi(() => fleetControl("land")));
+fleetEndSessionButton?.addEventListener("click", () => runUi(() => endFleetSession()));
 enemyRefreshButton?.addEventListener("click", () => runUi(refreshEnemyLibrary));
 enemyUploadSubmit?.addEventListener("click", () => runUi(uploadEnemyCalibration));
 enemyPrepareAllButton?.addEventListener("click", () => runUi(() => prepareEnemyYoloDataset("")));
@@ -8978,13 +10311,22 @@ enemyAnnotationProfile?.addEventListener("change", () => {
 enemyExtractFramesButton?.addEventListener("click", () => runUi(() => extractEnemyFrames(selectedEnemyId)));
 enemySaveBoxButton?.addEventListener("click", () => runUi(() => saveEnemyFrameLabel("labeled")));
 enemyTrackBoxButton?.addEventListener("click", () => runUi(autoTrackEnemyLabels));
+enemyNegativeFrameButton?.addEventListener("click", () => runUi(() => saveEnemyFrameLabel("negative")));
 enemySkipFrameButton?.addEventListener("click", () => runUi(() => saveEnemyFrameLabel("skipped")));
 enemyClearBoxButton?.addEventListener("click", () => {
   enemyBoxDraft = null;
   drawEnemyAnnotationCanvas();
 });
 enemyConfirmLockButton?.addEventListener("click", () => runUi(confirmEnemyLockOn));
+enemyStartPursuitButton?.addEventListener("click", () => runUi(confirmEnemyPursuit));
 enemyClearAlertButton?.addEventListener("click", clearEnemyAlert);
+enemySaveRangeSampleButton?.addEventListener("click", () => runUi(saveEnemyRangeSample));
+enemyValidateRangeButton?.addEventListener("click", () => runUi(validateEnemyRangeCalibration));
+enemyResetRangeButton?.addEventListener("click", () => runUi(resetEnemyRangeCalibration));
+enemyStopClearanceInput?.addEventListener("change", () => {
+  enemyStopClearanceInput.value = selectedEnemyStopClearanceM().toFixed(2);
+  updateEnemyResponseControls();
+});
 enemyCopyPrevBoxButton?.addEventListener("click", copyPreviousEnemyBox);
 enemyAnnotationCanvas?.addEventListener("pointerdown", event => {
   const start = enemyNormalizedPoint(enemyCanvasPoint(event));
@@ -9120,22 +10462,26 @@ startMissionButton?.addEventListener("click", async () => {
   try {
     const result = await sendDjiFlightCommand("mission", {
       mission: {
+        client_safety_version: 2,
         guided_enabled: true,
         pose_max_age_seconds: 2.5,
         pose_recovery_seconds: 45.0,
         pulse_seconds: 0.30,
-        max_forward_rc: 0.042,
-        max_lateral_rc: 0.032,
-        allow_lateral_rc: true,
-        allow_axis_auto_calibration: true,
-        axis_probe_rc: 0.032,
-        axis_probe_seconds: 0.48,
-        max_yaw_rc: 0.020,
-        max_vertical_rc: 0.022,
-        max_step_seconds: 2.4,
+        max_forward_rc: 0.035,
+        max_lateral_rc: 0.010,
+        allow_lateral_rc: false,
+        allow_axis_auto_calibration: false,
+        axis_probe_rc: 0.018,
+        axis_probe_seconds: 0.45,
+        max_yaw_rc: 0.050,
+        max_scan_yaw_rc: 0.025,
+        alignment_grace_seconds: 35.0,
+        max_vertical_rc: 0.018,
+        max_step_seconds: 2.0,
         max_cruise_seconds: 120.0,
-        arrival_radius_map_units: 0.34,
-        arrival_deadband_map_units: 0.16,
+        max_pose_step_map_units: 0.30,
+        arrival_radius_map_units: 0.24,
+        arrival_deadband_map_units: 0.14,
         map_id: currentMapEntry?.id || null,
         map_title: currentMapEntry?.title || null,
         replay_id: activeReplay(currentMapEntry)?.id || null,
@@ -9150,6 +10496,9 @@ startMissionButton?.addEventListener("click", async () => {
         safety_obstacles: mapSafetyObstacles(),
         barrier_clearance_m: selectedBarrierClearance(),
         heading_trim_deg: 0,
+        operator_heading_calibrated: Boolean(useModelHeadingForFlightInput?.checked),
+        initial_body_heading_offset_deg: -selectedDroneHeadingTrimDeg(),
+        initial_pose_offset_room: initialPoseOffsetRoom.slice(0, 3),
         confirmed_at: new Date().toISOString(),
       },
     });
@@ -9220,29 +10569,18 @@ stopPatrolButton?.addEventListener("click", async () => {
     return;
   }
   try {
-    setDjiCommandStatus("Sending immediate hover before return planning...", "busy");
+    setDjiCommandStatus("Stopping patrol and sending immediate hover...", "busy");
     await sendDjiFlightCommand("hover", { patrol_stop: true, emergency_stop: true });
+    activeExecutionPatrolRoute = null;
+    activePatrolExecutionContext = null;
+    interruptedPatrolExecutionContext = null;
+    enemyPursuitResumeContext = null;
+    invalidateStaticLayer();
+    updatePatrolStatus("Patrol stopped. Drone is holding position.", "busy");
+    setDjiCommandStatus("Patrol stopped. Immediate hover sent.", "busy");
   } catch (error) {
     setDjiCommandStatus(`Stop hover failed: ${error.message || error}`, "error");
-    return;
   }
-
-  const { plan, error } = buildPatrolReturnToStartPlan();
-  if (error) {
-    updatePatrolStatus(`Drone is holding. Return-to-start was not sent: ${error}`, "error");
-    setDjiCommandStatus(`Drone is holding. Return-to-start was not sent: ${error}`, "error");
-    return;
-  }
-  const ok = window.confirm(
-    `Patrol stopped and hover was sent.\n\nReturn to patrol start using a slow guarded path?\n\n` +
-    `Distance: ${plan.distance.toFixed(2)} map units\n` +
-    `Landing will NOT be automatic. Press Land only after confirming the drone is above a safe landing area.`,
-  );
-  if (!ok) {
-    updatePatrolStatus("Drone is holding. Return-to-start was cancelled by user confirmation.", "busy");
-    return;
-  }
-  await sendPatrolToBridge(plan, "return to patrol start");
 });
 [patrolSpeedSelect, patrolAltitudeInput, patrolDwellSelect, patrolScanModeSelect, patrolModeSelect, patrolLoopInput].forEach(control => {
   control?.addEventListener("change", () => {
@@ -9535,6 +10873,35 @@ confirmLocalizationButton?.addEventListener("click", () => {
   else updatePatrolStatus();
   updateFlightControlState();
 });
+correctInitialPositionButton?.addEventListener("click", () => {
+  if (!liveCurrentPoseOverride?.rcenter) {
+    setDjiCommandStatus("Wait for the first visible localization before correcting its position.", "error");
+    return;
+  }
+  initialPositionSelecting = !initialPositionSelecting;
+  missionSelecting = false;
+  patrolSelecting = false;
+  updateInitialPositionControls();
+  canvas.style.cursor = initialPositionSelecting ? "crosshair" : "";
+  setDjiCommandStatus(
+    initialPositionSelecting
+      ? "Click a visible map point at the drone's actual horizontal position."
+      : "Initial position correction cancelled.",
+    initialPositionSelecting ? "busy" : "",
+  );
+});
+resetInitialPositionButton?.addEventListener("click", () => {
+  if (liveCurrentPoseOverride?.rcenter) {
+    liveCurrentPoseOverride.rcenter = liveCurrentPoseOverride.rcenter.map(
+      (value, index) => value - Number(initialPoseOffsetRoom[index] || 0),
+    );
+  }
+  initialPoseOffsetRoom = [0, 0, 0];
+  initialPositionSelecting = false;
+  updateInitialPositionControls();
+  invalidateStaticLayer();
+  setDjiCommandStatus("Manual position correction reset. Reconfirm the displayed pose before movement.", "busy");
+});
 togglePointsButton?.addEventListener("click", () => {
   view.showPoints = !view.showPoints;
   invalidateStaticLayer();
@@ -9543,6 +10910,10 @@ togglePointsButton?.addEventListener("click", () => {
 toggleCamerasButton?.addEventListener("click", () => {
   view.showCameras = !view.showCameras;
   invalidateStaticLayer();
+  updateViewButtons();
+});
+toggleCoverageRiskButton?.addEventListener("click", () => {
+  view.showCoverageRisk = !view.showCoverageRisk;
   updateViewButtons();
 });
 document.getElementById("axis-reset").addEventListener("click", () => {
@@ -9567,10 +10938,13 @@ function closeMapModal(options = {}) {
   mapModal?.classList.add("hidden");
   const fallback = document.body.classList.contains("show-demo")
     ? "demo"
-    : (document.body.classList.contains("show-enemy") ? "enemy" : "start");
+    : (document.body.classList.contains("show-enemy")
+      ? "enemy"
+      : (document.body.classList.contains("show-fleet") ? "fleet" : "start"));
   const target = options.pop === false ? fallback : (screenHistory.pop() || fallback);
   if (target === "demo") showDemo({ push: false });
   else if (target === "enemy") showEnemyLab({ push: false });
+  else if (target === "fleet") showFleetMonitor({ push: false });
   else showLibrary({ push: false });
 }
 
@@ -9579,6 +10953,7 @@ function goBack() {
   if (target === "demo") showDemo({ push: false });
   else if (target === "modal") openMapModal({ push: false });
   else if (target === "enemy") showEnemyLab({ push: false });
+  else if (target === "fleet") showFleetMonitor({ push: false });
   else showLibrary({ push: false });
 }
 
@@ -9676,6 +11051,7 @@ async function uploadVideo(url, file, fields = {}) {
 function runUi(action) {
   action().catch(error => {
     const message = error?.message || String(error);
+    if (currentScreen === "fleet") setFleetStatus(message, "error");
     uploadStatus.textContent = message;
     jobLog.textContent = `ERROR: ${message}`;
     console.error(error);
@@ -9734,6 +11110,45 @@ async function pollDjiLivePreview() {
     const control = status.last_control;
     if (control && control.id) {
       const result = control.result || {};
+      const pursuitControl = Boolean(
+        control.progress?.enemy_pursuit ||
+        result.enemy_pursuit ||
+        (enemyPursuitCommandId && control.id === enemyPursuitCommandId)
+      );
+      if (pursuitControl) {
+        if (control.status === "running") {
+          enemyPursuitInFlight = true;
+          enemyPursuitCommandId = String(control.id);
+          const progress = control.progress || {};
+          updateEnemyResponseStatus(progress.message || control.message || "Guarded pursuit is running.", "busy");
+        } else {
+          enemyPursuitInFlight = false;
+          enemyPursuitCommandId = "";
+          const pursuitResult = control.result || {};
+          if (pursuitResult.reached) {
+            updateEnemyResponseStatus(
+              enemyPursuitResumeContext
+                ? `Pursuit complete at estimated ${Number(pursuitResult.final_clearance_m || pursuitResult.stop_clearance_m || 0).toFixed(2)} m. Preparing the nearest safe patrol rejoin...`
+                : `Pursuit complete: holding at estimated ${Number(pursuitResult.final_clearance_m || pursuitResult.stop_clearance_m || 0).toFixed(2)} m clearance.`,
+              "ok",
+            );
+            void resumeInterruptedPatrolAfterPursuit(String(control.id), pursuitResult);
+          } else {
+            enemyPursuitResumeContext = null;
+            updateEnemyResponseStatus(
+              `Pursuit stopped in hover: ${pursuitResult.abort_reason || control.error || pursuitResult.message || "safety gate ended the pursuit"}. Patrol is not resumed after a failed safety gate.`,
+              "error",
+            );
+          }
+        }
+        updateEnemyResponseControls();
+      }
+      if (
+        activePatrolExecutionContext?.commandId === String(control.id) &&
+        control.status !== "running"
+      ) {
+        activePatrolExecutionContext = null;
+      }
       const controlStatusKey = JSON.stringify({
         id: control.id,
         ok: control.ok,
@@ -9854,7 +11269,7 @@ async function loadLiveReplayPartial(stream = null) {
   room = buildRoomFrame();
   ensureLiveStreamVideoSource(payload.stream || stream);
   const latestPose = latestSuccessfulPose(room.poses);
-  liveCurrentPoseOverride = latestPose ? { ...latestPose } : null;
+  liveCurrentPoseOverride = latestPose ? correctedLivePose(latestPose) : null;
   if (liveReplayInFlight) {
     syncUploadedVideoToProcessingFrame(payload);
     if (latestPose && !liveVideoSyncedToFirstPose) {
@@ -9881,6 +11296,10 @@ async function pollStatus() {
     const resp = await fetch("/api/status", { cache: "no-store" });
     if (!resp.ok) throw new Error(`status ${resp.status}`);
     const state = await resp.json();
+    const backendRecording = state.manual_patrol_recording || null;
+    const recordingChanged = JSON.stringify(backendRecording) !== JSON.stringify(manualPatrolRecording);
+    manualPatrolRecording = backendRecording;
+    if (recordingChanged) renderSavedPatrols();
     if (state.library) {
       const before = JSON.stringify(mapLibraryData);
       mapLibraryData = state.library;
@@ -9892,7 +11311,7 @@ async function pollStatus() {
     }
     mapStatus.textContent = formatJob("map", state.map);
     droneStatus.textContent = formatJob("drone", state.drone);
-    const activeJobStates = new Set(["queued", "running", "stopping", "error"]);
+    const activeJobStates = new Set(["queued", "running", "stopping"]);
     const liveJobStates = new Set(["queued", "running", "stopping"]);
     liveReplayInFlight = liveJobStates.has(state.drone?.status);
     if (liveReplayInFlight && !liveReplayStartedAt) liveReplayStartedAt = performance.now();
@@ -9939,6 +11358,7 @@ async function pollStatus() {
     const mapDoneNow = state.map?.status === "done" && previousMapStatus && previousMapStatus !== "done";
     const droneDoneNow = state.drone?.status === "done" && (pendingLiveReplayOpen || (previousDroneStatus && previousDroneStatus !== "done"));
     const droneErroredNow = state.drone?.status === "error" && pendingLiveReplayOpen;
+    const droneCancelledNow = ["cancelled", "failed"].includes(state.drone?.status) && pendingLiveReplayOpen;
     lastMapStatus = state.map?.status || null;
     lastDroneStatus = state.drone?.status || null;
     if (liveReplayInFlight && renderStarted && !liveReplayWaitingViewPrepared) {
@@ -9993,6 +11413,18 @@ async function pollStatus() {
       pendingLiveReplayOpen = false;
       pendingLiveReplayMapId = null;
     }
+    if (droneCancelledNow) {
+      if (state.drone?.live_stream?.live_atlas) setLiveFrameMode(false);
+      liveAtlasPreviewActive = false;
+      liveReplayInFlight = false;
+      liveCurrentPoseOverride = null;
+      liveReplayWaitingViewPrepared = false;
+      liveReplayStartedAt = 0;
+      pendingLiveReplayOpen = false;
+      pendingLiveReplayMapId = null;
+      uploadStatus.textContent = state.drone?.message || "Live path creation stopped.";
+      renderReplayTabs();
+    }
   } catch {
     mapStatus.textContent = "Map: local backend not connected";
     droneStatus.textContent = "Drone replay: start scripts/atlas_app_server.py";
@@ -10016,6 +11448,15 @@ async function pollEnemyLiveDetections() {
       return;
     }
     const payload = await resp.json();
+    if (!enemyDetectionIsFresh(payload)) {
+      enemyDetectionHistory = [];
+      if (enemyLiveDetectorState) enemyLiveDetectorState.textContent = "stale";
+      if (enemyLiveDetection) {
+        enemyLiveDetection.textContent = "Detector result is stale; no flight response will be sent.";
+        enemyLiveDetection.dataset.tone = "error";
+      }
+      return;
+    }
     const status = String(payload.status || "unknown").replaceAll("_", " ");
     if (enemyLiveDetectorState) enemyLiveDetectorState.textContent = status;
     const detections = Array.isArray(payload.detections) ? payload.detections : [];
@@ -10024,9 +11465,49 @@ async function pollEnemyLiveDetections() {
         const best = detections.slice().sort((a, b) => Number(b.confidence || 0) - Number(a.confidence || 0))[0];
         enemyLiveDetection.textContent = `${detections.length} target candidate${detections.length === 1 ? "" : "s"} · ${best.class_name || "enemy drone"} ${(Number(best.confidence || 0) * 100).toFixed(0)}%`;
         enemyLiveDetection.dataset.tone = "alert";
+        if (enemyTargetSuppressedUntilClear) {
+          enemyLiveDetection.textContent += " · intercepted; patrol recovery will not re-chase until target leaves view";
+          return;
+        }
         const guardedBest = bestEnemyDetection(detections);
-        if (guardedBest) await pauseForEnemyDetection(payload, guardedBest);
+        const frameKey = String(payload.frame || payload.updated_at || "");
+        if (guardedBest && !enemyDetectionHistory.some(item => item.frame === frameKey)) {
+          enemyDetectionHistory.push({
+            frame: frameKey,
+            className: String(guardedBest.class_name || ""),
+            target: guardedBest,
+            payload,
+          });
+          enemyDetectionHistory = enemyDetectionHistory.slice(-ENEMY_CONFIRM_WINDOW);
+        }
+        if (guardedBest) {
+          const className = String(guardedBest.class_name || "");
+          const matches = enemyDetectionHistory.filter(item => item.className === className);
+          if (matches.length >= ENEMY_CONFIRM_HITS) {
+            const confirmed = matches[matches.length - 1];
+            await pauseForEnemyDetection(confirmed.payload, confirmed.target);
+          } else if (!enemyPursuitInFlight) {
+            updateEnemyResponseStatus(
+              `Possible enemy drone ${matches.length}/${ENEMY_CONFIRM_HITS} confirmations. Patrol response remains gated.`,
+              "busy"
+            );
+          }
+        }
       } else if (payload.status === "clear" || payload.status === "ready") {
+        const clearFrame = String(payload.frame || payload.updated_at || "");
+        if (!enemyDetectionHistory.some(item => item.frame === clearFrame)) {
+          enemyDetectionHistory.push({ frame: clearFrame, className: "", target: null, payload });
+          enemyDetectionHistory = enemyDetectionHistory.slice(-ENEMY_CONFIRM_WINDOW);
+        }
+        if (
+          enemyTargetSuppressedUntilClear &&
+          enemyDetectionHistory.slice(-ENEMY_CONFIRM_HITS).filter(item => !item.target).length >= ENEMY_CONFIRM_HITS
+        ) {
+          enemyTargetSuppressedUntilClear = false;
+          clearEnemyAlert();
+          enemyDetectionHistory = [];
+          updateEnemyResponseStatus("Intercepted target has left view. Automatic enemy detection is armed again.", "ok");
+        }
         enemyLiveDetection.textContent = payload.message || "No enemy drone detected.";
         enemyLiveDetection.dataset.tone = "ok";
         if (!enemyAlertState.active) updateEnemyResponseControls();
@@ -10055,6 +11536,11 @@ document.getElementById("close-video-library-modal")?.addEventListener("click", 
 videoLibraryModal?.addEventListener("click", event => {
   if (event.target === videoLibraryModal) hideVideoLibrary();
 });
+document.getElementById("close-patrol-import-modal")?.addEventListener("click", hidePatrolImportModal);
+patrolImportModal?.addEventListener("click", event => {
+  if (event.target === patrolImportModal) hidePatrolImportModal();
+});
+importPatrolButton?.addEventListener("click", () => runUi(showPatrolImportModal));
 collapseLibraryButton?.addEventListener("click", () => {
   const collapsed = !libraryPanel?.classList.contains("is-collapsed");
   libraryPanel?.classList.toggle("is-collapsed", collapsed);
@@ -10123,7 +11609,7 @@ liveLocalizationControl?.addEventListener("toggle", () => {
   syncLiveControlCollapsedState();
   if (renderStarted) render();
 });
-droneHeadingTrimSelect?.addEventListener("change", () => {
+function applyDroneHeadingAlignment() {
   try {
     localStorage.setItem(DRONE_HEADING_TRIM_STORAGE_KEY, String(selectedDroneHeadingTrimDeg()));
   } catch {
@@ -10137,7 +11623,13 @@ droneHeadingTrimSelect?.addEventListener("change", () => {
     plannedPatrol.commands = buildPatrolCommandPlan(plannedPatrol);
     renderPatrolCommands(plannedPatrol.commands);
   }
-});
+  if (droneHeadingTrimValue) {
+    const value = selectedDroneHeadingTrimDeg();
+    droneHeadingTrimValue.textContent = `${value > 0 ? "+" : ""}${value} deg`;
+  }
+}
+droneHeadingTrimSelect?.addEventListener("input", applyDroneHeadingAlignment);
+droneHeadingTrimSelect?.addEventListener("change", applyDroneHeadingAlignment);
 window.addEventListener("resize", renderStartPreview);
 renderPhoneIpOptions();
 renderDroneHeadingTrim();

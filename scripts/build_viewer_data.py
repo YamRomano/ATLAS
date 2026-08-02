@@ -13,9 +13,16 @@ import numpy as np
 from colmap_io import camera_center, read_images_text, read_points3d_text, qvec_to_rotmat
 
 
+def instance_sort_key(instance_id: str) -> tuple[str, int, str]:
+    prefix, separator, suffix = instance_id.rpartition("_")
+    if separator and suffix.isdigit():
+        return prefix, int(suffix), instance_id
+    return instance_id, -1, instance_id
+
+
 def load_static_results(static_dir: Path) -> dict[str, dict]:
     out = {}
-    for p in sorted(static_dir.glob("*.json")):
+    for p in sorted(static_dir.glob("*.json"), key=lambda path: instance_sort_key(path.stem)):
         out[p.stem] = json.loads(p.read_text(encoding="utf-8"))
     return out
 
@@ -23,6 +30,25 @@ def load_static_results(static_dir: Path) -> dict[str, dict]:
 def load_instance_meta(instances_dir: Path, instance_id: str) -> dict:
     p = instances_dir / instance_id / "input.json"
     return json.loads(p.read_text(encoding="utf-8")) if p.exists() else {}
+
+
+def load_live_summary(tsolve_runtime_dir: Path) -> dict:
+    summary_path = tsolve_runtime_dir / "live_stream_summary.json"
+    if not summary_path.is_file():
+        return {}
+    try:
+        return json.loads(summary_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
+def load_output_rejected_case_ids(tsolve_runtime_dir: Path) -> set[str]:
+    summary = load_live_summary(tsolve_runtime_dir)
+    return {
+        str(item["case_id"])
+        for item in summary.get("output_rejected", [])
+        if isinstance(item, dict) and item.get("case_id")
+    }
 
 
 def colmap_reference_from_meta(meta: dict) -> dict | None:
@@ -85,8 +111,15 @@ def main() -> None:
     static_dir = args.tsolve_runtime_dir / "persistent_static_json"
     instances_dir = args.tsolve_runtime_dir / "instances_all"
     results = load_static_results(static_dir)
+    live_summary = load_live_summary(args.tsolve_runtime_dir)
+    output_rejected_case_ids = load_output_rejected_case_ids(args.tsolve_runtime_dir)
     poses = []
-    for instance_id, result in sorted(results.items()):
+    for instance_id, result in sorted(results.items(), key=lambda item: instance_sort_key(item[0])):
+        # The live localizer may solve a mathematically valid pose that its
+        # temporal/objective guard rejects.  Such a result remains on disk for
+        # diagnostics, but it must never reappear in the final viewer path.
+        if instance_id in output_rejected_case_ids:
+            continue
         meta = load_instance_meta(instances_dir, instance_id)
         R = np.asarray(result.get("R"), dtype=float) if result.get("R") is not None else None
         t = np.asarray(result.get("t"), dtype=float).reshape(3) if result.get("t") is not None else None
@@ -118,6 +151,11 @@ def main() -> None:
         "mode": "simulated_live_tsolve_replay",
         "frame_source": str(args.drone_video),
         "description": "Timestamped TSolve R,t estimates produced from uploaded drone-video frames.",
+        "processed_count": int(live_summary.get("processed_frames") or len(results)),
+        "expected_count": int(live_summary.get("query_frames") or len(results)),
+        "accepted_count": len(poses),
+        "output_rejected_count": len(output_rejected_case_ids),
+        "complete": True,
         "poses": poses,
     }
     (out / "poses.json").write_text(json.dumps(pose_payload, indent=2), encoding="utf-8")
@@ -131,7 +169,7 @@ def main() -> None:
     except OSError:
         shutil.copy2(source_video, video_dst)
 
-    print(json.dumps({"points": len(point_rows), "map_cameras": len(map_cameras), "poses": len(poses), "out": str(out)}, indent=2))
+    print(json.dumps({"points": len(point_rows), "map_cameras": len(map_cameras), "poses": len(poses), "output_rejected": len(output_rejected_case_ids), "out": str(out)}, indent=2))
 
 
 if __name__ == "__main__":

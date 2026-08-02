@@ -94,8 +94,7 @@ let lastYawUpdateMs = performance.now();
 let lastPoseTimeSec = null;
 let currentOverlaySize = 0;
 // Fixed calibration between the DJI GLB's local nose direction and ATLAS room
-// yaw. Runtime heading comes from TSolve after automatic first-motion
-// calibration in app.js; no operator trim is applied here.
+// yaw. The operator's visual trim is applied separately below.
 const MODEL_YAW_CORRECTION = 0;
 
 function unwrapAngleNear(target, reference) {
@@ -188,7 +187,8 @@ function animate() {
   canvas.style.transform = "none";
 
   const heading = normalize(api.getHeadingForPose(pose));
-  const targetRoomYaw = Math.atan2(heading[0], heading[2]);
+  const visualTrim = Number(api.getDroneHeadingTrimRad?.() || 0);
+  const targetRoomYaw = Math.atan2(heading[0], heading[2]) + visualTrim;
   const smoothYaw = Boolean(api.useDroneYawSmoothing?.());
   const poseTimeSec = Number(pose.time_sec);
   if (Number.isFinite(poseTimeSec) && lastPoseTimeSec != null && poseTimeSec < lastPoseTimeSec - 0.25) {

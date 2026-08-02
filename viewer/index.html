@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>ATLAS Demo</title>
-  <link rel="stylesheet" href="style.css?v=106" />
+  <link rel="stylesheet" href="style.css?v=109" />
 </head>
 <body class="show-start">
   <header class="atlas-topbar" aria-label="ATLAS navigation">
@@ -14,6 +14,7 @@
       <img class="atlas-top-wordmark" src="public/branding/atlas-wordmark-clean.png" alt="ATLAS" />
       <span class="atlas-top-caption">Autonomous Tracking and Localization using Aerial Sensing</span>
     </button>
+    <button id="fleet-monitor-button" class="topbar-fleet-monitor" type="button">Monitor</button>
     <button id="enemy-lab-button" class="topbar-enemy-lab" type="button">Enemy Drone Lab</button>
     <span id="atlas-screen-label"></span>
     <img class="atlas-corner-symbol" src="public/branding/atlas-space-symbol.png" alt="" />
@@ -185,12 +186,111 @@
                 <button id="enemy-save-box" class="primary-action compact-action" type="button">Save Box</button>
                 <button id="enemy-track-box" class="primary-action compact-action" type="button">Auto Track Clip</button>
                 <button id="enemy-copy-prev-box" class="ghost-action compact-action" type="button">Copy Previous</button>
+                <button id="enemy-negative-frame" class="ghost-action compact-action" type="button">No Drone</button>
                 <button id="enemy-skip-frame" class="ghost-action compact-action" type="button">Skip Frame</button>
                 <button id="enemy-clear-box" class="ghost-action compact-action" type="button">Clear</button>
               </div>
             </div>
           </div>
         </section>
+      </div>
+    </div>
+  </section>
+
+  <section id="fleet-page" class="fleet-page" aria-hidden="true">
+    <div class="fleet-shell">
+      <section class="fleet-hero" aria-labelledby="fleet-title">
+        <div class="fleet-hero-copy">
+          <p class="fleet-kicker">Multi-aircraft operations</p>
+          <h1 id="fleet-title">Fleet Monitor</h1>
+          <p>Dispatch independent DJI endpoints to saved patrols, supervise every live map session, and intervene without leaving this console.</p>
+        </div>
+        <div class="fleet-summary" aria-label="Fleet summary">
+          <div><strong id="fleet-summary-registered">0</strong><span>Registered</span></div>
+          <div><strong id="fleet-summary-active">0</strong><span>Active</span></div>
+          <div><strong id="fleet-summary-airborne">0</strong><span>Airborne</span></div>
+          <div class="fleet-attention"><strong id="fleet-summary-attention">0</strong><span>Attention</span></div>
+        </div>
+      </section>
+
+      <div class="fleet-hardware-note">
+        <span class="fleet-note-icon">i</span>
+        <div><strong>Independent links by design</strong><p>Each physical drone uses its own Android phone/controller and IP. ATLAS isolates its stream, TSolve localization, commands, and logs.</p></div>
+      </div>
+
+      <div class="fleet-layout">
+        <aside class="fleet-dispatch-card">
+          <div class="fleet-panel-head">
+            <div><p class="fleet-kicker">Assignment desk</p><h2>Dispatch Drone</h2></div>
+            <button id="fleet-stop-all" class="fleet-danger" type="button">Stop All</button>
+          </div>
+          <label>Drone endpoint<select id="fleet-drone-select"></select></label>
+          <label>Map<select id="fleet-map-select"></select></label>
+          <label>Saved patrol<select id="fleet-patrol-select"></select></label>
+          <label>Localization rate<select id="fleet-fps-select"><option value="2">2 FPS</option><option value="3">3 FPS</option><option value="5" selected>5 FPS</option><option value="10">10 FPS</option></select></label>
+          <button id="fleet-dispatch" class="fleet-primary" type="button">Connect &amp; Dispatch</button>
+          <p id="fleet-dispatch-status" class="fleet-status-line">Choose a registered endpoint, map, and patrol.</p>
+
+          <div class="fleet-register">
+            <div><p class="fleet-kicker">Endpoint registry</p><h3>Add Drone</h3></div>
+            <label>Display name<input id="fleet-drone-name" type="text" placeholder="Example: Atlas Scout 2" /></label>
+            <label>Android phone IP<input id="fleet-drone-ip" type="text" inputmode="decimal" placeholder="192.168.50.236" /></label>
+            <button id="fleet-save-drone" class="fleet-secondary" type="button">Save Endpoint</button>
+          </div>
+        </aside>
+
+        <main class="fleet-operations">
+          <section class="fleet-overview" aria-labelledby="fleet-overview-title">
+            <div class="fleet-overview-head">
+              <div><p class="fleet-kicker">Simultaneous command view</p><h2 id="fleet-overview-title">Live Fleet Overview</h2></div>
+              <span id="fleet-overview-count">0 dispatched</span>
+            </div>
+            <div id="fleet-overview-grid" class="fleet-overview-grid" aria-live="polite">
+              <div class="fleet-overview-empty"><span>⌁</span><strong>No dispatched drones</strong><p>Every active drone will appear here at the same time.</p></div>
+            </div>
+          </section>
+          <div class="fleet-detail-heading">
+            <div><p class="fleet-kicker">Detailed inspector</p><h2>Selected Drone</h2></div>
+            <p>Use the cards above for simultaneous supervision or select one for its complete timeline.</p>
+          </div>
+          <div id="fleet-switcher" class="fleet-switcher" aria-label="Select monitored drone"></div>
+          <section id="fleet-focus" class="fleet-focus empty">
+            <div class="fleet-empty-state">
+              <span>⌁</span><h2>No drone selected</h2><p>Register an endpoint or choose a drone above to open its live operations card.</p>
+            </div>
+            <div class="fleet-focus-content">
+              <div class="fleet-focus-head">
+                <div><p id="fleet-focus-overline" class="fleet-kicker">Standby</p><h2 id="fleet-focus-name">Drone</h2><p id="fleet-focus-assignment">No active assignment</p></div>
+                <div id="fleet-focus-badge" class="fleet-state-badge">Offline</div>
+              </div>
+              <div class="fleet-live-grid">
+                <div class="fleet-video-card">
+                  <img id="fleet-live-preview" alt="Selected drone live camera" />
+                  <div class="fleet-video-overlay"><span id="fleet-live-indicator">Offline</span><strong id="fleet-live-frame-count">0 frames</strong></div>
+                </div>
+                <div class="fleet-telemetry">
+                  <div><span>Localization</span><strong id="fleet-metric-localization">Waiting</strong></div>
+                  <div><span>Accepted poses</span><strong id="fleet-metric-poses">0</strong></div>
+                  <div><span>Map</span><strong id="fleet-metric-map">—</strong></div>
+                  <div><span>Patrol</span><strong id="fleet-metric-patrol">—</strong></div>
+                  <div><span>Bridge</span><strong id="fleet-metric-bridge">Offline</strong></div>
+                  <div><span>Last action</span><strong id="fleet-metric-action">None</strong></div>
+                </div>
+              </div>
+              <div class="fleet-flight-controls" aria-label="Selected drone flight controls">
+                <button id="fleet-takeoff" type="button"><span>Take Off</span><small>1.0 m</small></button>
+                <button id="fleet-start-patrol" class="fleet-go" type="button"><span>Start Patrol</span><small>Nearest point</small></button>
+                <button id="fleet-hover" class="fleet-warn" type="button"><span>Stop Patrol</span><small>Hover now</small></button>
+                <button id="fleet-land" type="button"><span>Land</span><small>Controlled</small></button>
+                <button id="fleet-end-session" class="fleet-danger" type="button"><span>End Session</span><small>Save path</small></button>
+              </div>
+              <div class="fleet-log-card">
+                <div class="fleet-panel-head"><div><p class="fleet-kicker">Explainable operations</p><h3>Smart Log</h3></div><span id="fleet-log-count">0 events</span></div>
+                <div id="fleet-smart-log" class="fleet-smart-log" aria-live="polite"></div>
+              </div>
+            </div>
+          </section>
+        </main>
       </div>
     </div>
   </section>
@@ -220,6 +320,20 @@
         <button id="close-video-library-modal" class="modal-close" type="button" aria-label="Close video map library">×</button>
       </div>
       <div id="video-library-list" class="video-library-list"></div>
+    </div>
+  </div>
+
+  <div id="patrol-import-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="patrol-import-title">
+    <div class="modal-card patrol-import-card">
+      <div class="modal-title-row">
+        <div>
+          <h2 id="patrol-import-title">Import Patrol</h2>
+          <p id="patrol-import-subtitle">Choose a saved patrol from a compatible map.</p>
+        </div>
+        <button id="close-patrol-import-modal" class="modal-close" type="button" aria-label="Close patrol importer">×</button>
+      </div>
+      <div id="patrol-import-list" class="patrol-import-list" aria-live="polite"></div>
+      <p class="patrol-import-note">Import copies the patrol only. The source patrol and source map are never changed.</p>
     </div>
   </div>
 
@@ -255,20 +369,20 @@
             <select id="live-atlas-fps" aria-label="Live stream frame rate">
               <option value="0.5">0.5 FPS</option>
               <option value="1">1 FPS</option>
-              <option value="2" selected>2 FPS</option>
+              <option value="2">2 FPS</option>
               <option value="3">3 FPS</option>
               <option value="5">5 FPS</option>
+              <option value="10" selected>10 FPS</option>
             </select>
           </label>
           <label>
-            Drone Heading Trim
-            <select id="drone-heading-trim" aria-label="Drone visual heading trim">
-              <option value="-90">-90 deg</option>
-              <option value="-45" selected>-45 deg</option>
-              <option value="0">0 deg</option>
-              <option value="45">+45 deg</option>
-              <option value="90">+90 deg</option>
-            </select>
+            Drone Model Direction
+            <input id="drone-heading-trim" type="range" min="-180" max="180" step="5" value="-45" aria-label="Drone model direction">
+            <span id="drone-heading-trim-value">-45 deg</span>
+          </label>
+          <label>
+            <input id="use-model-heading-for-flight" type="checkbox" checked>
+            Use aligned model as initial flight heading
           </label>
           <section class="enemy-live-detection-block">
             <div class="flight-control-title">
@@ -277,8 +391,36 @@
             </div>
             <div id="enemy-live-detection" class="enemy-live-detection">Live patrol detection will appear here after YOLO training.</div>
             <div id="enemy-response-status" class="enemy-response-status">Patrol response is armed only after live localization starts.</div>
+            <div class="enemy-range-calibration">
+              <div class="flight-control-title">
+                <strong>Range Calibration</strong>
+                <span id="enemy-range-status">No validated range model.</span>
+              </div>
+              <label>
+                Measured body clearance
+                <input id="enemy-measured-clearance" type="number" min="0.2" max="10" step="0.05" value="1.50" aria-label="Measured body-to-body enemy drone clearance in meters" />
+              </label>
+              <label>
+                Pursuit stop clearance
+                <input id="enemy-stop-clearance" type="number" min="0.5" max="2" step="0.05" value="0.50" aria-label="Enemy pursuit stop clearance in meters" />
+              </label>
+              <label>
+                Camera-right target
+                <select id="enemy-pursuit-yaw-direction" aria-label="Yaw direction when the enemy appears on the camera right">
+                  <option value="1" selected>Rotate right</option>
+                  <option value="-1">Rotate left</option>
+                </select>
+              </label>
+              <div class="enemy-range-actions">
+                <button id="enemy-save-range-sample" type="button">Save Live Sample</button>
+                <button id="enemy-validate-range" type="button">Validate Range</button>
+                <button id="enemy-reset-range" type="button">Reset Samples</button>
+              </div>
+              <p id="enemy-range-help">Record at least 8 samples at 4 measured distances spanning 0.75 m. Forward pursuit stays locked until validation passes.</p>
+            </div>
             <div class="enemy-response-actions">
               <button id="enemy-confirm-lock" type="button" disabled>Confirm Lock-On</button>
+              <button id="enemy-start-pursuit" type="button" disabled>Start Guarded Pursuit</button>
               <button id="enemy-clear-alert" type="button" disabled>Clear Alert</button>
             </div>
           </section>
@@ -311,6 +453,9 @@
               <span id="localization-gate-status">Waiting for first TSolve R,t.</span>
             </div>
             <button id="confirm-localization" type="button" disabled>Confirm First Localization</button>
+            <button id="correct-initial-position" type="button" disabled>Correct Initial Position</button>
+            <button id="reset-initial-position" type="button" disabled>Reset Position Correction</button>
+            <div id="initial-position-status" class="mission-status">No manual position correction.</div>
           </section>
           <section id="drone-control-panel" class="mission-panel drone-control-panel is-locked">
             <div class="mission-head">
@@ -417,6 +562,7 @@
         <button id="flip-z">Flip Z</button>
         <button id="toggle-points">Hide Points</button>
         <button id="toggle-cameras">Hide Cameras</button>
+        <button id="toggle-coverage-risk">Coverage Risk</button>
       </div>
     </section>
     <aside class="side">
@@ -450,7 +596,10 @@
       <section id="saved-patrols-panel" class="side-section saved-patrols-panel">
         <div class="replay-tabs-head">
           <span>Saved Patrols</span>
-          <button id="new-patrol" type="button">+ New Patrol</button>
+          <div class="saved-patrol-head-actions">
+            <button id="import-patrol" type="button">Import Patrol</button>
+            <button id="new-patrol" type="button">+ New Patrol</button>
+          </div>
         </div>
         <p class="saved-patrols-copy">Create patrols offline on a clean map. At flight time ATLAS replans from the live localized drone pose to the nearest patrol point.</p>
         <div id="saved-patrol-list" class="saved-patrol-list" aria-live="polite"></div>
@@ -473,6 +622,7 @@
         <span><i class="dot mapcam"></i> map cameras</span>
         <span><i class="dot path"></i> height-coded TSolve route</span>
         <span><i class="dot drone"></i> current DJI drone</span>
+        <span><i class="dot coverage-risk"></i> weak patrol coverage</span>
       </div>
       <section id="safety-barrier-panel" class="side-section safety-barrier-panel">
         <div class="mission-head">
@@ -543,7 +693,7 @@
       </section>
     </aside>
   </main>
-  <script src="app.js?v=175"></script>
+  <script src="app.js?v=181"></script>
   <script type="module" src="drone_glb_overlay.js?v=23"></script>
 </body>
 </html>

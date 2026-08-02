@@ -129,9 +129,26 @@ class ReferenceSelector:
         self.bootstrap_count = max(1, int(bootstrap_count))
         self.tracking_count = max(1, int(tracking_count))
         self.centers: dict[str, np.ndarray] = {}
+        self.heading_bins: dict[str, int] = {}
         for im in self.images_by_points:
             try:
                 self.centers[im.name] = camera_center(im)
+            except Exception:
+                continue
+            try:
+                # COLMAP cameras look along +Z.  Keep only a coarse horizontal
+                # orientation bin: global recovery needs nearby keyframes that
+                # look in different directions around an in-place patrol turn,
+                # not ten nearly identical cameras chosen by distance alone.
+                forward = qvec_to_rotmat(im.qvec).T @ np.array(
+                    [0.0, 0.0, 1.0],
+                    dtype=float,
+                )
+                if float(np.linalg.norm(forward[[0, 2]])) > 1e-9:
+                    angle = float(np.arctan2(forward[0], forward[2]))
+                    self.heading_bins[im.name] = int(
+                        np.floor(((angle + np.pi) % (2.0 * np.pi)) / (np.pi / 6.0))
+                    )
             except Exception:
                 continue
         self.images_by_spread = self._spatial_spread()
@@ -170,9 +187,50 @@ class ReferenceSelector:
             self.centers.items(),
             key=lambda kv: float(np.linalg.norm(kv[1] - center)),
         )
-        local = [name for name, _ in ranked[:self.tracking_count]]
-        # Keep a few globally strong keyframes as a cheap recovery net.
-        for name in self.bootstrap()[: max(3, self.tracking_count // 3)]:
+        global_reserve = min(
+            self.tracking_count - 1,
+            max(3, self.tracking_count // 4),
+        )
+        local_budget = max(1, self.tracking_count - global_reserve)
+        candidate_count = min(
+            len(ranked),
+            max(64, self.tracking_count * 8),
+        )
+        candidates = ranked[:candidate_count]
+
+        # Preserve the closest cameras, then spend the rest of the local
+        # budget on different viewing directions from the same neighborhood.
+        # This is critical at point 3: position is unchanged while the camera
+        # turns roughly 90 degrees toward point 4.
+        nearest_count = min(local_budget, max(3, local_budget // 3))
+        local = [name for name, _ in candidates[:nearest_count]]
+        used_heading_bins = {
+            self.heading_bins[name]
+            for name in local
+            if name in self.heading_bins
+        }
+        for name, _camera_center in candidates:
+            if len(local) >= local_budget:
+                break
+            heading_bin = self.heading_bins.get(name)
+            if (
+                name not in local
+                and heading_bin is not None
+                and heading_bin not in used_heading_bins
+            ):
+                local.append(name)
+                used_heading_bins.add(heading_bin)
+        for name, _camera_center in candidates:
+            if len(local) >= local_budget:
+                break
+            if name not in local:
+                local.append(name)
+
+        # Keep a few globally strong keyframes as a cheap recovery net while
+        # respecting the configured total reference-image cap.
+        for name in self.bootstrap():
+            if len(local) >= self.tracking_count:
+                break
             if name not in local:
                 local.append(name)
         return local
@@ -384,6 +442,7 @@ def main() -> None:
     ap.add_argument("--fallback-action-weights", default="")
     ap.add_argument("--scene-json", type=Path, default=None, help=argparse.SUPPRESS)
     ap.add_argument("--display-z-sign", type=float, default=-1.0, help=argparse.SUPPRESS)
+    ap.add_argument("--room-alignment-json", default=None, help=argparse.SUPPRESS)
     args = ap.parse_args()
 
     if not args.colmap.exists():

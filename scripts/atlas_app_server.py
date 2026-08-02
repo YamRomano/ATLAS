@@ -4,6 +4,7 @@ from __future__ import annotations
 import cgi
 import argparse
 import csv
+import hashlib
 import json
 import math
 import mimetypes
@@ -35,6 +36,8 @@ MAPS_DIR = PUBLIC / "maps"
 MAP_MANIFEST = MAPS_DIR / "manifest.json"
 ENEMY_DIR = PUBLIC / "enemy_drones"
 ENEMY_MANIFEST = ENEMY_DIR / "manifest.json"
+FLEET_DIR = PUBLIC / "fleet"
+FLEET_MANIFEST = FLEET_DIR / "manifest.json"
 CONFIG = ROOT / "config.json"
 DEFAULT_PORT = 8765
 
@@ -67,10 +70,15 @@ STATE = {
 }
 MAP_STOP_EVENT = threading.Event()
 DRONE_STOP_EVENT = threading.Event()
+DRONE_JOB_ACTIVE = threading.Event()
+DRONE_JOB_LIFECYCLE_LOCK = threading.Lock()
 ACTIVE_JOB_STATES = {"queued", "running", "stopping"}
 COLMAP_QUERY_POSE_CACHE: dict[str, tuple[float, dict[str, dict]]] = {}
 ACTIVE_PROCS_LOCK = threading.Lock()
 ACTIVE_PROCS: dict[str, set[subprocess.Popen]] = {"map": set(), "drone": set(), "enemy": set()}
+FLEET_LOCK = threading.RLock()
+FLEET_SESSIONS: dict[str, dict] = {}
+LIBRARY_LOCK = threading.RLock()
 
 
 def register_active_proc(kind: str, proc: subprocess.Popen) -> None:
@@ -352,7 +360,10 @@ def load_library() -> dict:
 
 def save_library(lib: dict) -> None:
     MAPS_DIR.mkdir(parents=True, exist_ok=True)
-    MAP_MANIFEST.write_text(json.dumps(lib, indent=2), encoding="utf-8")
+    # ThreadingHTTPServer can save patrol/map metadata from overlapping
+    # requests. Replace the complete file atomically so readers never observe
+    # the zero-length interval created by Path.write_text().
+    atomic_write_json(MAP_MANIFEST, lib)
 
 
 def default_enemy_library() -> dict:
@@ -362,6 +373,80 @@ def default_enemy_library() -> dict:
         "selected_model": None,
         "model_status": "not_trained",
         "enemies": [],
+    }
+
+
+def normalize_enemy_range_calibration(raw: object) -> dict:
+    calibration = raw if isinstance(raw, dict) else {}
+    samples = []
+    for item in calibration.get("samples") or []:
+        if not isinstance(item, dict):
+            continue
+        try:
+            measured = float(item.get("measured_clearance_m"))
+            width = float(item.get("box_width"))
+            height = float(item.get("box_height"))
+            area = float(item.get("box_area") or width * height)
+            confidence = float(item.get("confidence") or 0.0)
+        except (TypeError, ValueError):
+            continue
+        if not (
+            math.isfinite(measured)
+            and math.isfinite(width)
+            and math.isfinite(height)
+            and math.isfinite(area)
+            and 0.20 <= measured <= 10.0
+            and 0.001 <= width <= 1.0
+            and 0.001 <= height <= 1.0
+            and 1e-6 <= area <= 1.0
+        ):
+            continue
+        samples.append(
+            {
+                "id": str(item.get("id") or f"range_{uuid.uuid4().hex[:10]}"),
+                "measured_clearance_m": measured,
+                "box_width": width,
+                "box_height": height,
+                "box_area": area,
+                "confidence": max(0.0, min(1.0, confidence)),
+                "frame": str(item.get("frame") or ""),
+                "captured_at": str(item.get("captured_at") or now_label()),
+            }
+        )
+    samples = samples[-240:]
+    model = calibration.get("model") if isinstance(calibration.get("model"), dict) else None
+    if model is not None:
+        try:
+            scale = float(model.get("scale"))
+            margin = float(model.get("conservative_margin_m"))
+        except (TypeError, ValueError):
+            model = None
+        else:
+            model_type = str(model.get("type") or "inverse_sqrt_area")
+            if (
+                model_type not in {"inverse_width", "inverse_sqrt_area", "inverse_height"}
+                or not (math.isfinite(scale) and scale > 0 and math.isfinite(margin) and margin >= 0)
+            ):
+                model = None
+            else:
+                model = {
+                    **model,
+                    "type": model_type,
+                    "scale": scale,
+                    "conservative_margin_m": margin,
+                }
+    status = str(calibration.get("status") or ("needs_validation" if samples else "needs_samples"))
+    if status not in {"needs_samples", "needs_validation", "validated", "rejected"}:
+        status = "needs_validation" if samples else "needs_samples"
+    if status == "validated" and model is None:
+        status = "needs_validation"
+    return {
+        "status": status,
+        "samples": samples,
+        "sample_count": len(samples),
+        "model": model,
+        "validation": calibration.get("validation") if isinstance(calibration.get("validation"), dict) else None,
+        "updated_at": str(calibration.get("updated_at") or ""),
     }
 
 
@@ -388,7 +473,7 @@ def normalize_enemy_profile(profile: dict) -> dict:
         if not isinstance(raw, dict):
             continue
         status = str(raw.get("status") or "unlabeled")
-        if status not in {"unlabeled", "labeled", "review", "skipped"}:
+        if status not in {"unlabeled", "labeled", "review", "skipped", "negative"}:
             status = "unlabeled"
         box = raw.get("box") if isinstance(raw.get("box"), dict) else None
         if box:
@@ -428,9 +513,11 @@ def normalize_enemy_profile(profile: dict) -> dict:
         "labeled_frame_count": labeled_count,
         "review_frame_count": sum(1 for f in frames if f.get("status") == "review"),
         "skipped_frame_count": sum(1 for f in frames if f.get("status") == "skipped"),
+        "negative_frame_count": sum(1 for f in frames if f.get("status") == "negative"),
         "training_status": training_status,
         "model_status": str(profile.get("model_status") or "not_trained"),
         "dataset_manifest": str(profile.get("dataset_manifest") or ""),
+        "range_calibration": normalize_enemy_range_calibration(profile.get("range_calibration")),
         "notes": str(profile.get("notes") or ""),
     }
 
@@ -459,7 +546,9 @@ def load_enemy_library() -> dict:
 def save_enemy_library(lib: dict) -> None:
     ENEMY_DIR.mkdir(parents=True, exist_ok=True)
     lib["updated_at"] = now_label()
-    ENEMY_MANIFEST.write_text(json.dumps(lib, indent=2), encoding="utf-8")
+    temporary = ENEMY_MANIFEST.with_name(f".{ENEMY_MANIFEST.name}.{uuid.uuid4().hex}.tmp")
+    temporary.write_text(json.dumps(lib, indent=2), encoding="utf-8")
+    temporary.replace(ENEMY_MANIFEST)
 
 
 def get_enemy_profile(enemy_id: str) -> tuple[dict, dict]:
@@ -468,6 +557,183 @@ def get_enemy_profile(enemy_id: str) -> tuple[dict, dict]:
         if profile.get("id") == enemy_id:
             return lib, profile
     raise RuntimeError(f"Unknown enemy drone profile: {enemy_id}")
+
+
+def percentile(values: list[float], quantile: float) -> float:
+    ordered = sorted(float(value) for value in values if math.isfinite(float(value)))
+    if not ordered:
+        return float("nan")
+    position = max(0.0, min(1.0, float(quantile))) * (len(ordered) - 1)
+    lower = int(math.floor(position))
+    upper = int(math.ceil(position))
+    if lower == upper:
+        return ordered[lower]
+    weight = position - lower
+    return ordered[lower] * (1.0 - weight) + ordered[upper] * weight
+
+
+def live_enemy_detection_payload() -> dict:
+    path = PUBLIC / "live_dji" / "enemy_detections.json"
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError as exc:
+        raise RuntimeError("Start Live ATLAS and wait for a current NEO detection before saving a range sample.") from exc
+    except (OSError, json.JSONDecodeError) as exc:
+        raise RuntimeError(f"The live enemy-detection result is unavailable: {exc}") from exc
+    try:
+        age = time.time() - float(payload.get("updated_at") or 0.0)
+    except (TypeError, ValueError):
+        age = float("inf")
+    if age < 0 or age > 2.0:
+        raise RuntimeError(f"The live enemy detection is stale ({age:.1f}s old). Hold the NEO in view and try again.")
+    return payload
+
+
+def capture_enemy_range_sample(
+    enemy_id: str,
+    measured_clearance_m: float,
+    detection_payload: dict | None = None,
+) -> dict:
+    lib, profile = get_enemy_profile(enemy_id)
+    measured = float(measured_clearance_m)
+    if not math.isfinite(measured) or not 0.20 <= measured <= 10.0:
+        raise RuntimeError("Measured body-to-body clearance must be between 0.20 m and 10.0 m.")
+    payload = detection_payload if isinstance(detection_payload, dict) else live_enemy_detection_payload()
+    detections = payload.get("detections") if isinstance(payload.get("detections"), list) else []
+    target_class = str(profile.get("class_name") or "").strip().lower()
+    candidates = []
+    for detection in detections:
+        if not isinstance(detection, dict) or not isinstance(detection.get("box"), dict):
+            continue
+        class_name = str(detection.get("class_name") or "").strip().lower()
+        if target_class and class_name and class_name != target_class:
+            continue
+        try:
+            confidence = float(detection.get("confidence") or 0.0)
+            width = float(detection["box"].get("width") or 0.0)
+            height = float(detection["box"].get("height") or 0.0)
+        except (TypeError, ValueError):
+            continue
+        area = width * height
+        if confidence >= 0.35 and 0.001 <= width <= 1.0 and 0.001 <= height <= 1.0 and area >= 1e-6:
+            candidates.append((confidence, width, height, area))
+    if not candidates:
+        raise RuntimeError("No fresh matching NEO detection above 35% confidence is available for this range sample.")
+    confidence, width, height, area = max(candidates, key=lambda item: item[0])
+    calibration = normalize_enemy_range_calibration(profile.get("range_calibration"))
+    calibration["samples"].append(
+        {
+            "id": f"range_{uuid.uuid4().hex[:10]}",
+            "measured_clearance_m": measured,
+            "box_width": width,
+            "box_height": height,
+            "box_area": area,
+            "confidence": confidence,
+            "frame": str(payload.get("frame") or ""),
+            "captured_at": now_label(),
+        }
+    )
+    calibration["samples"] = calibration["samples"][-240:]
+    calibration["sample_count"] = len(calibration["samples"])
+    calibration["status"] = "needs_validation"
+    calibration["model"] = None
+    calibration["validation"] = None
+    calibration["updated_at"] = now_label()
+    profile["range_calibration"] = calibration
+    profile["updated_at"] = now_label()
+    save_enemy_library(lib)
+    return {"enemy": normalize_enemy_profile(profile), "library": load_enemy_library()}
+
+
+def fit_enemy_range_calibration(enemy_id: str, stop_clearance_m: float = 0.50) -> dict:
+    lib, profile = get_enemy_profile(enemy_id)
+    stop_clearance = max(0.50, min(2.0, float(stop_clearance_m)))
+    calibration = normalize_enemy_range_calibration(profile.get("range_calibration"))
+    samples = calibration.get("samples") or []
+    if len(samples) < 8:
+        raise RuntimeError("Record at least 8 live range samples before validation.")
+    distances = [float(sample["measured_clearance_m"]) for sample in samples]
+    distance_bins = {round(distance / 0.10) for distance in distances}
+    distance_span = max(distances) - min(distances)
+    if len(distance_bins) < 4 or distance_span < 0.75:
+        raise RuntimeError("Range calibration needs at least 4 distinct distances spanning 0.75 m or more.")
+    if min(distances) > stop_clearance + 0.25:
+        raise RuntimeError(
+            f"Record at least one sample at or below {stop_clearance + 0.25:.2f} m before enabling a {stop_clearance:.2f} m stop clearance."
+        )
+    feature_models = [
+        ("inverse_width", [max(1e-9, float(sample["box_width"])) for sample in samples]),
+        ("inverse_sqrt_area", [math.sqrt(max(1e-9, float(sample["box_area"]))) for sample in samples]),
+        ("inverse_height", [max(1e-9, float(sample["box_height"])) for sample in samples]),
+    ]
+    fitted_models = []
+    for model_type, features in feature_models:
+        candidate_scale = percentile(
+            [distance * feature for distance, feature in zip(distances, features)],
+            0.50,
+        )
+        candidate_predictions = [candidate_scale / feature for feature in features]
+        candidate_errors = [abs(predicted - measured) for predicted, measured in zip(candidate_predictions, distances)]
+        fitted_models.append(
+            (
+                percentile(candidate_errors, 0.90),
+                max(candidate_errors),
+                sum(candidate_errors) / len(candidate_errors),
+                model_type,
+                candidate_scale,
+                candidate_predictions,
+            )
+        )
+    _candidate_p90, _candidate_max, _candidate_mae, model_type, scale, predictions = min(fitted_models)
+    errors = [abs(predicted - measured) for predicted, measured in zip(predictions, distances)]
+    signed_errors = [predicted - measured for predicted, measured in zip(predictions, distances)]
+    mae = sum(errors) / len(errors)
+    rmse = math.sqrt(sum(error * error for error in signed_errors) / len(signed_errors))
+    p90 = percentile(errors, 0.90)
+    max_error = max(errors)
+    accepted = bool(mae <= 0.18 and p90 <= 0.30 and max_error <= 0.45)
+    validation = {
+        "accepted": accepted,
+        "sample_count": len(samples),
+        "distance_count": len(distance_bins),
+        "min_clearance_m": min(distances),
+        "max_clearance_m": max(distances),
+        "distance_span_m": distance_span,
+        "mean_absolute_error_m": mae,
+        "rmse_m": rmse,
+        "p90_absolute_error_m": p90,
+        "max_absolute_error_m": max_error,
+        "required": {"mae_m": 0.18, "p90_m": 0.30, "max_error_m": 0.45},
+        "validated_at": now_label(),
+    }
+    calibration["status"] = "validated" if accepted else "rejected"
+    calibration["validation"] = validation
+    calibration["updated_at"] = now_label()
+    calibration["model"] = (
+        {
+            "type": model_type,
+            "scale": scale,
+            "conservative_margin_m": max(0.12, p90),
+            "trained_min_clearance_m": min(distances),
+            "trained_max_clearance_m": max(distances),
+            "stop_clearance_m": stop_clearance,
+            "validated_at": now_label(),
+        }
+        if accepted
+        else None
+    )
+    profile["range_calibration"] = calibration
+    profile["updated_at"] = now_label()
+    save_enemy_library(lib)
+    return {"enemy": normalize_enemy_profile(profile), "library": load_enemy_library(), "validation": validation}
+
+
+def reset_enemy_range_calibration(enemy_id: str) -> dict:
+    lib, profile = get_enemy_profile(enemy_id)
+    profile["range_calibration"] = normalize_enemy_range_calibration(None)
+    profile["updated_at"] = now_label()
+    save_enemy_library(lib)
+    return {"enemy": normalize_enemy_profile(profile), "library": load_enemy_library()}
 
 
 def upsert_enemy_profile(profile: dict) -> dict:
@@ -650,8 +916,8 @@ def normalize_enemy_box(box: dict | None) -> dict:
 
 def write_enemy_frame_label(lib: dict, profile: dict, frame: dict, box: dict | None, status: str) -> None:
     status = str(status or "labeled")
-    if status not in {"labeled", "review", "skipped", "unlabeled"}:
-        raise RuntimeError("Frame label status must be labeled, review, skipped, or unlabeled.")
+    if status not in {"labeled", "review", "skipped", "negative", "unlabeled"}:
+        raise RuntimeError("Frame label status must be labeled, review, negative, skipped, or unlabeled.")
     label_path = enemy_public_path(frame.get("label_url") or "")
     label_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -660,6 +926,9 @@ def write_enemy_frame_label(lib: dict, profile: dict, frame: dict, box: dict | N
         frame["box"] = normalized
         frame["status"] = status
         if status == "labeled":
+            # This sidecar is only an annotation preview. Dataset preparation
+            # rewrites labels using the immutable class map stored with that
+            # dataset version.
             class_id = enemy_class_index(lib, profile["id"])
             label_path.write_text(
                 (
@@ -815,13 +1084,15 @@ def track_enemy_labels(
             py = y0 + int(max_loc[1])
             tracked_box = enemy_pixels_to_box(frame, px, py, px + t_w, py + t_h)
             if max_score >= accept_threshold:
-                write_enemy_frame_label(lib, profile, frame, tracked_box, "labeled")
+                # Template matching is an annotation assistant, not a trusted
+                # detector. Every propagated box must be reviewed by a person.
+                write_enemy_frame_label(lib, profile, frame, tracked_box, "review")
                 current_template = image[py:py + t_h, px:px + t_w].copy()
                 previous_box = tracked_box
-                counts["labeled"] += 1
+                counts["review"] += 1
                 counts["processed"] += 1
                 processed += 1
-                track_reports.append({"frame_id": frame.get("id"), "status": "labeled", "score": float(max_score)})
+                track_reports.append({"frame_id": frame.get("id"), "status": "review", "score": float(max_score)})
                 continue
             if max_score >= review_threshold:
                 write_enemy_frame_label(lib, profile, frame, tracked_box, "review")
@@ -884,56 +1155,118 @@ def prepare_enemy_yolo_dataset(enemy_id: str | None = None) -> dict:
     ]
     if not targets:
         raise RuntimeError("No enemy drone profiles selected for YOLO dataset preparation.")
-    dataset_dir = ENEMY_DIR / "yolo_dataset"
-    if dataset_dir.exists():
-        shutil.rmtree(dataset_dir)
-    images_dir = dataset_dir / "images" / "train"
-    labels_dir = dataset_dir / "labels" / "train"
-    images_dir.mkdir(parents=True, exist_ok=True)
-    labels_dir.mkdir(parents=True, exist_ok=True)
+    dataset_id = f"dataset_{time.strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}"
+    dataset_dir = ENEMY_DIR / "datasets" / dataset_id
+    for split in ("train", "val", "test"):
+        (dataset_dir / "images" / split).mkdir(parents=True, exist_ok=True)
+        (dataset_dir / "labels" / split).mkdir(parents=True, exist_ok=True)
 
-    labeled_items = []
+    labeled_items: list[dict] = []
+    negative_items: list[dict] = []
     target_ids = {profile["id"] for profile in targets}
+    class_map = {
+        profile["id"]: {
+            "index": index,
+            "name": profile["name"],
+            "class_name": profile["class_name"],
+        }
+        for index, profile in enumerate(targets)
+    }
+    source_ids = sorted(
+        {
+            str(frame.get("source_video_id") or "")
+            for profile in targets
+            for frame in profile.get("frames", [])
+            if frame.get("status") in {"labeled", "negative"}
+        }
+    )
+    if not source_ids:
+        raise RuntimeError("No reviewed labels or confirmed-negative frames are available.")
+    if len(source_ids) < 2:
+        raise RuntimeError(
+            "Use reviewed frames from at least two different calibration videos so training and validation stay independent."
+        )
+    ranked_sources = sorted(
+        source_ids,
+        key=lambda value: hashlib.sha256(f"{dataset_id}:{value}".encode("utf-8")).hexdigest(),
+    )
+    source_split: dict[str, str] = {}
+    for index, source_id in enumerate(ranked_sources):
+        if len(ranked_sources) == 1:
+            source_split[source_id] = "train"
+        elif index == 0:
+            source_split[source_id] = "val"
+        elif len(ranked_sources) >= 3 and index == 1:
+            source_split[source_id] = "test"
+        else:
+            source_split[source_id] = "train"
+
     for profile in targets:
         for frame in profile.get("frames", []):
-            if frame.get("status") != "labeled":
+            status = str(frame.get("status") or "")
+            if status not in {"labeled", "negative"}:
                 continue
             image_path = enemy_public_path(frame.get("url") or "")
             box = frame.get("box") if isinstance(frame.get("box"), dict) else None
-            if not image_path.exists() or not box:
+            if not image_path.exists() or (status == "labeled" and not box):
                 continue
+            source_id = str(frame.get("source_video_id") or "")
+            split = source_split.get(source_id, "train")
             out_name = f"{profile['id']}_{frame['filename']}"
-            shutil.copy2(image_path, images_dir / out_name)
-            class_id = enemy_class_index(lib, profile["id"])
-            labels_dir.joinpath(f"{Path(out_name).stem}.txt").write_text(
-                (
-                    f"{class_id} {float(box['x_center']):.8f} {float(box['y_center']):.8f} "
-                    f"{float(box['width']):.8f} {float(box['height']):.8f}\n"
-                ),
-                encoding="utf-8",
-            )
-            labeled_items.append({"enemy_id": profile["id"], "frame_id": frame["id"], "image": out_name})
+            shutil.copy2(image_path, dataset_dir / "images" / split / out_name)
+            label_path = dataset_dir / "labels" / split / f"{Path(out_name).stem}.txt"
+            if status == "labeled":
+                class_id = int(class_map[profile["id"]]["index"])
+                label_path.write_text(
+                    (
+                        f"{class_id} {float(box['x_center']):.8f} {float(box['y_center']):.8f} "
+                        f"{float(box['width']):.8f} {float(box['height']):.8f}\n"
+                    ),
+                    encoding="utf-8",
+                )
+                labeled_items.append(
+                    {"enemy_id": profile["id"], "frame_id": frame["id"], "image": out_name, "split": split}
+                )
+            else:
+                label_path.write_text("", encoding="utf-8")
+                negative_items.append(
+                    {"enemy_id": profile["id"], "frame_id": frame["id"], "image": out_name, "split": split}
+                )
     if not labeled_items:
         raise RuntimeError("Extract frames and save at least one bounding-box label before preparing the YOLO dataset.")
 
-    class_names = [profile["class_name"] for profile in lib.get("enemies", [])]
+    class_names = [profile["class_name"] for profile in targets]
+    split_counts = {
+        split: sum(1 for item in labeled_items + negative_items if item["split"] == split)
+        for split in ("train", "val", "test")
+    }
+    if split_counts["train"] == 0 or split_counts["val"] == 0:
+        raise RuntimeError("The prepared dataset needs both training and validation images.")
     yaml_path = dataset_dir / "data.yaml"
     yaml_path.write_text(
-        "path: .\n"
+        f"path: {dataset_dir}\n"
         "train: images/train\n"
-        "val: images/train\n"
+        "val: images/val\n"
+        "test: images/test\n"
         f"nc: {len(class_names)}\n"
         "names:\n"
         + "".join(f"  {idx}: {name}\n" for idx, name in enumerate(class_names)),
         encoding="utf-8",
     )
     dataset_manifest = {
-        "version": 1,
+        "version": 2,
+        "dataset_id": dataset_id,
         "prepared_at": now_label(),
         "status": "ready_for_training",
         "data_yaml": public_rel(yaml_path),
         "labeled_frame_count": len(labeled_items),
+        "negative_frame_count": len(negative_items),
+        "split_counts": split_counts,
+        "source_split": source_split,
+        "warnings": [],
         "items": labeled_items,
+        "negative_items": negative_items,
+        "class_map": class_map,
         "classes": [
             {
                 "id": profile["id"],
@@ -943,7 +1276,7 @@ def prepare_enemy_yolo_dataset(enemy_id: str | None = None) -> dict:
                 "frame_count": len(profile.get("frames", [])),
                 "labeled_frame_count": profile.get("labeled_frame_count", 0),
             }
-            for profile in lib.get("enemies", [])
+            for profile in targets
         ],
     }
     manifest_path = dataset_dir / "dataset_manifest.json"
@@ -954,12 +1287,14 @@ def prepare_enemy_yolo_dataset(enemy_id: str | None = None) -> dict:
             profile["dataset_manifest"] = public_rel(manifest_path)
             profile["updated_at"] = now_label()
     lib["model_status"] = "dataset_ready"
-    lib["selected_model"] = None
     lib["training"] = {
         "status": "dataset_ready",
         "data_yaml": public_rel(yaml_path),
         "dataset_manifest": public_rel(manifest_path),
         "labeled_frame_count": len(labeled_items),
+        "negative_frame_count": len(negative_items),
+        "split_counts": split_counts,
+        "dataset_id": dataset_id,
         "prepared_at": dataset_manifest["prepared_at"],
     }
     save_enemy_library(lib)
@@ -1651,6 +1986,85 @@ def set_map_patrols(map_id: str, patrols) -> dict:
     return entry
 
 
+def map_coordinate_lineage(entry: dict, maps_by_id: dict[str, dict]) -> set[str]:
+    """Return map ids known to share this map's fixed coordinate frame."""
+    lineage: set[str] = set()
+    pending = [str(entry.get("id") or "").strip()]
+    while pending and len(lineage) < 32:
+        map_id = pending.pop()
+        if not map_id or map_id in lineage:
+            continue
+        lineage.add(map_id)
+        current = maps_by_id.get(map_id)
+        if current is None:
+            continue
+        for key in ("source_map_id", "localization_map_id"):
+            parent_id = str(current.get(key) or "").strip()
+            if parent_id and parent_id != map_id and parent_id not in lineage:
+                pending.append(parent_id)
+    return lineage
+
+
+def import_map_patrol(target_map_id: str, source_map_id: str, patrol_id: str) -> tuple[dict, dict]:
+    """Copy one patrol between maps that use the same coordinate frame."""
+    lib = load_library()
+    maps_by_id = {
+        str(entry.get("id") or ""): entry
+        for entry in lib.get("maps", [])
+        if isinstance(entry, dict) and entry.get("id")
+    }
+    target = maps_by_id.get(str(target_map_id or "").strip())
+    source = maps_by_id.get(str(source_map_id or "").strip())
+    if target is None:
+        raise RuntimeError(f"Unknown target map id: {target_map_id}")
+    if source is None:
+        raise RuntimeError(f"Unknown source map id: {source_map_id}")
+    if target is source:
+        raise RuntimeError("Choose a patrol from another map.")
+
+    target_lineage = map_coordinate_lineage(target, maps_by_id)
+    source_lineage = map_coordinate_lineage(source, maps_by_id)
+    if not target_lineage.intersection(source_lineage):
+        raise RuntimeError(
+            "This patrol belongs to a different map coordinate frame and cannot be imported safely."
+        )
+
+    source_patrol = next(
+        (
+            patrol
+            for patrol in source.get("patrols", [])
+            if isinstance(patrol, dict) and str(patrol.get("id") or "") == str(patrol_id or "")
+        ),
+        None,
+    )
+    if source_patrol is None:
+        raise RuntimeError(f"Unknown patrol id for {source_map_id}: {patrol_id}")
+
+    target_patrols = list(target.get("patrols") or [])
+    if any(
+        isinstance(patrol, dict)
+        and str(patrol.get("id") or "") == str(source_patrol.get("id") or "")
+        for patrol in target_patrols
+    ):
+        raise RuntimeError(
+            f'"{source_patrol.get("title") or "Patrol"}" is already present on this map.'
+        )
+    if len(target_patrols) >= 100:
+        raise RuntimeError("This map already has the maximum of 100 saved patrols.")
+
+    sanitized = sanitize_patrols([source_patrol])
+    if not sanitized:
+        raise RuntimeError("The selected patrol has fewer than two valid points.")
+    imported = sanitized[0]
+    now = time.strftime("%Y-%m-%d %H:%M:%S")
+    imported["created_at"] = now
+    imported["updated_at"] = now
+    target["patrols"] = sanitize_patrols([*target_patrols, imported])
+    target["updated_at"] = now
+    save_library(lib)
+    return target, imported
+
+
 def delete_map_entry(map_id: str) -> None:
     lib = load_library()
     entry = next((m for m in lib.get("maps", []) if m["id"] == map_id), None)
@@ -1701,6 +2115,24 @@ def job_is_active(kind: str) -> bool:
         return STATE[kind].get("status") in ACTIVE_JOB_STATES
 
 
+def reserve_and_queue_drone_job(message: str) -> bool:
+    """Atomically reserve the single drone worker before its thread starts."""
+    with DRONE_JOB_LIFECYCLE_LOCK:
+        if DRONE_JOB_ACTIVE.is_set() or job_is_active("drone"):
+            return False
+        DRONE_STOP_EVENT.clear()
+        DRONE_JOB_ACTIVE.set()
+        queue_job("drone", message)
+        return True
+
+
+def release_drone_job() -> None:
+    """Acknowledge cancellation only after the worker has fully cleaned up."""
+    with DRONE_JOB_LIFECYCLE_LOCK:
+        DRONE_JOB_ACTIVE.clear()
+        DRONE_STOP_EVENT.clear()
+
+
 def set_map_capture_state(**fields) -> None:
     with STATE_LOCK:
         STATE["map"].update(fields)
@@ -1711,6 +2143,9 @@ def append_log(kind: str, line: str) -> None:
     line = line.rstrip()
     if not line:
         return
+    if kind.startswith("fleet:"):
+        fleet_event(kind.split(":", 1)[1], line)
+        return
     with STATE_LOCK:
         log = STATE[kind]["log"]
         log.append(line)
@@ -1720,9 +2155,398 @@ def append_log(kind: str, line: str) -> None:
 
 def atomic_write_json(path: Path, payload: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-    tmp.replace(path)
+    tmp = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
+    try:
+        tmp.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        tmp.replace(path)
+    finally:
+        try:
+            tmp.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+
+def default_fleet_manifest() -> dict:
+    return {"version": 1, "updated_at": now_label(), "drones": []}
+
+
+def load_fleet_manifest() -> dict:
+    try:
+        payload = json.loads(FLEET_MANIFEST.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        payload = default_fleet_manifest()
+    drones: list[dict] = []
+    seen: set[str] = set()
+    colors = ["#56ddff", "#a78bfa", "#5ee6a8", "#ffb45c", "#ff6f91", "#66a3ff"]
+    for index, raw in enumerate(payload.get("drones") or []):
+        if not isinstance(raw, dict):
+            continue
+        drone_id = slugify_label(raw.get("id") or raw.get("name"), f"drone_{index + 1}")[:64]
+        if drone_id in seen:
+            continue
+        name = " ".join(str(raw.get("name") or f"Drone {index + 1}").split())[:64]
+        phone_ip = str(raw.get("phone_ip") or "").strip()[:128]
+        color = str(raw.get("color") or colors[index % len(colors)])
+        if len(color) != 7 or not color.startswith("#"):
+            color = colors[index % len(colors)]
+        drones.append(
+            {
+                "id": drone_id,
+                "name": name or f"Drone {index + 1}",
+                "phone_ip": phone_ip,
+                "color": color,
+                "created_at": raw.get("created_at") or now_label(),
+                "updated_at": raw.get("updated_at") or now_label(),
+            }
+        )
+        seen.add(drone_id)
+    return {"version": 1, "updated_at": payload.get("updated_at") or now_label(), "drones": drones}
+
+
+def save_fleet_manifest(payload: dict) -> None:
+    FLEET_DIR.mkdir(parents=True, exist_ok=True)
+    payload["updated_at"] = now_label()
+    atomic_write_json(FLEET_MANIFEST, payload)
+
+
+def upsert_fleet_drone(payload: dict) -> dict:
+    name = " ".join(str(payload.get("name") or "").split())[:64]
+    phone_ip = str(payload.get("phone_ip") or "").strip()[:128]
+    if not name:
+        raise RuntimeError("Enter a name for this drone endpoint.")
+    if not phone_ip:
+        raise RuntimeError("Enter the Android phone IP for this drone.")
+    requested_id = str(payload.get("drone_id") or "").strip()
+    drone_id = slugify_label(requested_id or name, "drone")[:64]
+    with FLEET_LOCK:
+        manifest = load_fleet_manifest()
+        duplicate = next(
+            (
+                item for item in manifest["drones"]
+                if item["phone_ip"] == phone_ip and item["id"] != drone_id
+            ),
+            None,
+        )
+        if duplicate:
+            raise RuntimeError(
+                f"Android endpoint {phone_ip} is already assigned to {duplicate['name']}. "
+                "Each simultaneous drone needs its own phone/controller endpoint."
+            )
+        existing = next((item for item in manifest["drones"] if item["id"] == drone_id), None)
+        if existing is None:
+            palette = ["#56ddff", "#a78bfa", "#5ee6a8", "#ffb45c", "#ff6f91", "#66a3ff"]
+            existing = {
+                "id": drone_id,
+                "created_at": now_label(),
+                "color": palette[len(manifest["drones"]) % len(palette)],
+            }
+            manifest["drones"].append(existing)
+        existing.update({"name": name, "phone_ip": phone_ip, "updated_at": now_label()})
+        save_fleet_manifest(manifest)
+        return json.loads(json.dumps(existing))
+
+
+def delete_fleet_drone(drone_id: str) -> None:
+    drone_id = slugify_label(drone_id, "")
+    with FLEET_LOCK:
+        session = FLEET_SESSIONS.get(drone_id)
+        if session and session.get("status") in ACTIVE_JOB_STATES:
+            raise RuntimeError("Stop this drone session before removing its endpoint.")
+        manifest = load_fleet_manifest()
+        before = len(manifest["drones"])
+        manifest["drones"] = [item for item in manifest["drones"] if item["id"] != drone_id]
+        if len(manifest["drones"]) == before:
+            raise RuntimeError(f"Unknown fleet drone: {drone_id}")
+        save_fleet_manifest(manifest)
+
+
+def fleet_session_public_root(drone_id: str) -> Path:
+    return FLEET_DIR / "drones" / slugify_label(drone_id, "drone") / "live"
+
+
+def fleet_event(drone_id: str, message: str, level: str = "info") -> None:
+    message = " ".join(str(message or "").split())
+    if not message:
+        return
+    with FLEET_LOCK:
+        session = FLEET_SESSIONS.get(drone_id)
+        if not session:
+            return
+        events = session.setdefault("events", [])
+        if events and events[-1].get("message") == message and events[-1].get("level") == level:
+            events[-1]["updated_at"] = time.time()
+        else:
+            events.append(
+                {
+                    "id": uuid.uuid4().hex[:12],
+                    "message": message,
+                    "level": level,
+                    "created_at": time.time(),
+                }
+            )
+            del events[:-160]
+        session["message"] = message
+        session["updated_at"] = time.time()
+
+
+def fleet_update(drone_id: str, **fields) -> None:
+    with FLEET_LOCK:
+        session = FLEET_SESSIONS.get(drone_id)
+        if not session:
+            return
+        session.update(fields)
+        session["updated_at"] = time.time()
+
+
+def fleet_session_snapshot(session: dict) -> dict:
+    ignored = {"stop_event", "thread"}
+    payload = {key: value for key, value in session.items() if key not in ignored}
+    return json.loads(json.dumps(payload))
+
+
+def fleet_snapshot() -> dict:
+    manifest = load_fleet_manifest()
+    for drone in manifest["drones"]:
+        drone_id = drone["id"]
+        bridge_path = fleet_session_public_root(drone_id) / "status.json"
+        control_path = fleet_session_public_root(drone_id) / "control_status.json"
+        try:
+            bridge = json.loads(bridge_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            bridge = {}
+        try:
+            control = json.loads(control_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            control = {}
+        if bridge or control:
+            control_status = control.get("status")
+            if not control_status and control:
+                control_status = "ok" if bool(control.get("ok")) else "error"
+            fields = {
+                "bridge_status": bridge.get("status"),
+                "bridge_message": bridge.get("message"),
+                "bridge_updated_at": bridge.get("updated_at"),
+                "frames_saved": bridge.get("frames_saved", 0),
+            }
+            with FLEET_LOCK:
+                session = FLEET_SESSIONS.get(drone_id) or {}
+                command_matches = bool(control.get("id")) and control.get("id") == session.get("last_command_id")
+            if command_matches:
+                fields.update(
+                    last_control_status=control_status,
+                    last_control_message=control.get("message") or control.get("error"),
+                    last_control_result=control.get("result"),
+                )
+                command = str(control.get("command") or "").strip().lower()
+                pending = control_status in {"queued", "running"}
+                fields["control_pending"] = pending
+                if command == "takeoff":
+                    fields["takeoff_pending"] = pending
+                    if control_status == "ok":
+                        fields["airborne"] = True
+                    elif control_status == "error":
+                        fields["airborne"] = False
+                elif command == "land":
+                    fields["land_pending"] = pending
+                    if control_status == "ok":
+                        fields["airborne"] = False
+                        fields["patrol_running"] = False
+                elif command == "mission":
+                    fields["patrol_pending"] = control_status == "queued"
+                    fields["patrol_running"] = control_status == "running"
+                elif command == "hover" and control_status in {"ok", "running"}:
+                    fields["patrol_running"] = False
+            fleet_update(drone_id, **fields)
+    with FLEET_LOCK:
+        sessions = {drone_id: fleet_session_snapshot(item) for drone_id, item in FLEET_SESSIONS.items()}
+    drones = []
+    for drone in manifest["drones"]:
+        item = dict(drone)
+        item["session"] = sessions.get(drone["id"])
+        drones.append(item)
+    active = [item for item in drones if (item.get("session") or {}).get("status") in ACTIVE_JOB_STATES]
+    airborne = [item for item in drones if bool((item.get("session") or {}).get("airborne"))]
+    attention = [
+        item for item in drones
+        if (item.get("session") or {}).get("status") in {"error", "attention"}
+        or (item.get("session") or {}).get("last_control_status") == "error"
+    ]
+    return {
+        "version": 1,
+        "drones": drones,
+        "summary": {
+            "registered": len(drones),
+            "active": len(active),
+            "airborne": len(airborne),
+            "attention": len(attention),
+        },
+        "hardware": {
+            "architecture": "one_android_endpoint_per_drone",
+            "message": "Each physical drone requires its own Android phone/controller running MSDKRemote.",
+        },
+        "updated_at": time.time(),
+    }
+
+
+def manual_patrol_recording_state_path() -> Path:
+    return PUBLIC / "live_dji" / "manual_patrol_recording.json"
+
+
+def start_manual_patrol_recording(payload: dict) -> dict:
+    state_path = manual_patrol_recording_state_path()
+    if state_path.exists():
+        existing = json.loads(state_path.read_text(encoding="utf-8"))
+        if existing.get("status") == "recording":
+            raise RuntimeError("A manual patrol recording is already active.")
+    live_path = PUBLIC / "live_dji" / "status.json"
+    if not live_path.exists():
+        raise RuntimeError("Start Live Localization before recording a manual patrol.")
+    live = json.loads(live_path.read_text(encoding="utf-8"))
+    if str(live.get("status") or "").lower() != "streaming":
+        raise RuntimeError("The DJI live bridge is not streaming.")
+    pose_stream = Path(str(live.get("pose_stream_path") or ""))
+    frames_csv = Path(str(live.get("frames_csv") or ""))
+    if not pose_stream.is_file() or not frames_csv.is_file():
+        raise RuntimeError("Live poses and synchronized camera frames are not ready yet.")
+    map_id = str(payload.get("map_id") or "").strip()
+    patrol_id = str(payload.get("patrol_id") or "").strip()
+    if not map_id or not patrol_id:
+        raise RuntimeError("Select a saved patrol before recording.")
+    entry = get_map_entry(map_id)
+    recording_id = f"manual_patrol_{time.strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}"
+    state = {
+        "status": "recording",
+        "recording_id": recording_id,
+        "map_id": map_id,
+        "map_title": entry.get("title"),
+        "patrol_id": patrol_id,
+        "patrol_title": str(payload.get("patrol_title") or patrol_id),
+        "started_at": time.time(),
+        "pose_stream_path": str(pose_stream.resolve()),
+        "frames_csv_path": str(frames_csv.resolve()),
+        "control_history_path": str((PUBLIC / "live_dji" / "control_status_history.jsonl").resolve()),
+        "note": (
+            "Manual controller stick telemetry is not exposed by the current DJI bridge; "
+            "replay controls must be derived from this synchronized map trajectory."
+        ),
+    }
+    atomic_write_json(state_path, state)
+    return state
+
+
+def finish_manual_patrol_recording(payload: dict) -> dict:
+    state_path = manual_patrol_recording_state_path()
+    if not state_path.exists():
+        raise RuntimeError("No manual patrol recording is active.")
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    if state.get("status") != "recording":
+        raise RuntimeError("No manual patrol recording is active.")
+    requested_id = str(payload.get("recording_id") or "").strip()
+    if requested_id and requested_id != state.get("recording_id"):
+        raise RuntimeError("The active manual patrol recording changed; reload the page.")
+    finished_at = time.time()
+    started_at = float(state["started_at"])
+    pose_path = Path(state["pose_stream_path"])
+    if pose_path.exists():
+        pose_payload = json.loads(pose_path.read_text(encoding="utf-8"))
+    else:
+        # Stopping Live Localization may finalize/remove the partial viewer
+        # stream before the operator can press Finish. The synchronized camera
+        # frames are still a valid teach recording and can be localized later.
+        pose_payload = {"poses": []}
+    recorded_poses = [
+        pose for pose in pose_payload.get("poses", [])
+        if isinstance(pose, dict)
+        and float(pose.get("received_unix") or 0.0) >= started_at
+        and float(pose.get("received_unix") or 0.0) <= finished_at
+    ]
+    accepted_poses = [
+        pose for pose in recorded_poses
+        if pose.get("success") is not False
+        and not pose.get("held_pose")
+        and not pose.get("output_rejected")
+        and isinstance(pose.get("rcenter"), list)
+        and isinstance(pose.get("rheading"), list)
+    ]
+    entry = get_map_entry(str(state["map_id"]))
+    out_dir = map_asset_dir(entry) / "manual_patrol_recordings" / str(state["recording_id"])
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    frame_rows: list[dict] = []
+    with Path(state["frames_csv_path"]).open("r", encoding="utf-8", newline="") as handle:
+        for row in csv.DictReader(handle):
+            try:
+                received = float(row.get("received_unix") or 0.0)
+            except (TypeError, ValueError):
+                continue
+            if started_at <= received <= finished_at:
+                frame_rows.append(row)
+    if frame_rows:
+        with (out_dir / "frames.csv").open("w", encoding="utf-8", newline="") as handle:
+            writer = csv.DictWriter(handle, fieldnames=list(frame_rows[0].keys()))
+            writer.writeheader()
+            writer.writerows(frame_rows)
+    if not recorded_poses and not frame_rows:
+        raise RuntimeError("No poses or synchronized camera frames were captured.")
+
+    command_events: list[dict] = []
+    history_path = Path(state["control_history_path"])
+    if history_path.exists():
+        for line in history_path.read_text(encoding="utf-8").splitlines():
+            try:
+                event = json.loads(line)
+                event_time = float(event.get("updated_at") or event.get("created_at") or 0.0)
+            except (json.JSONDecodeError, TypeError, ValueError):
+                continue
+            if started_at <= event_time <= finished_at:
+                command_events.append(event)
+
+    recording = {
+        **state,
+        "status": "completed",
+        "finished_at": finished_at,
+        "duration_seconds": finished_at - started_at,
+        "pose_count": len(recorded_poses),
+        "accepted_pose_count": len(accepted_poses),
+        "frame_count": len(frame_rows),
+        "command_event_count": len(command_events),
+        "trajectory_frame": "atlas_room",
+        "requires_offline_pose_recovery": not bool(accepted_poses),
+        "start_rule": "operator begins at patrol point 1",
+        "poses": recorded_poses,
+    }
+    trajectory = {
+        "recording_id": state["recording_id"],
+        "map_id": state["map_id"],
+        "patrol_id": state["patrol_id"],
+        "frame": "atlas_room",
+        "samples": [
+            {
+                "received_unix": pose.get("received_unix"),
+                "time_sec": pose.get("time_sec"),
+                "image_name": pose.get("image_name"),
+                "rcenter": pose.get("rcenter"),
+                "rheading": pose.get("rheading"),
+                "objective": pose.get("objective"),
+                "instance_id": pose.get("instance_id"),
+            }
+            for pose in accepted_poses
+        ],
+    }
+    atomic_write_json(out_dir / "recording.json", recording)
+    atomic_write_json(out_dir / "trajectory.json", trajectory)
+    atomic_write_json(out_dir / "command_events.json", {"events": command_events})
+    completed_state = {
+        **state,
+        "status": "completed",
+        "finished_at": finished_at,
+        "output_dir": str(out_dir.resolve()),
+        "pose_count": len(recorded_poses),
+        "accepted_pose_count": len(accepted_poses),
+        "frame_count": len(frame_rows),
+    }
+    atomic_write_json(state_path, completed_state)
+    return completed_state
 
 
 def camera_center_from_rt(R: list, t: list) -> list[float] | None:
@@ -1801,8 +2625,48 @@ def room_median(values: list[float]) -> float:
     return 0.5 * (arr[mid - 1] + arr[mid])
 
 
-def build_room_transform_from_scene(scene_json: Path | None, display_z_sign: float = -1.0):
+def explicit_room_transform(room_alignment):
+    matrix = room_alignment.get("matrix") if isinstance(room_alignment, dict) else None
+    if not isinstance(matrix, list) or len(matrix) != 3:
+        return None
+    try:
+        rows = [[float(value) for value in row] for row in matrix]
+    except (TypeError, ValueError):
+        return None
+    if any(len(row) != 4 or not all(math.isfinite(value) for value in row) for row in rows):
+        return None
+
+    def transform(xyz):
+        if xyz is None:
+            return None
+        try:
+            p = [float(xyz[0]), float(xyz[1]), float(xyz[2])]
+        except (TypeError, ValueError, IndexError):
+            return None
+        return [sum(row[i] * p[i] for i in range(3)) + row[3] for row in rows]
+
+    def transform_direction(xyz):
+        if xyz is None:
+            return None
+        try:
+            p = [float(xyz[0]), float(xyz[1]), float(xyz[2])]
+        except (TypeError, ValueError, IndexError):
+            return None
+        return [sum(row[i] * p[i] for i in range(3)) for row in rows]
+
+    transform.direction = transform_direction
+    return transform
+
+
+def build_room_transform_from_scene(
+    scene_json: Path | None,
+    display_z_sign: float = -1.0,
+    room_alignment=None,
+):
     """Match viewer/app.js buildRoomFrame() so patrol targets and TSolve poses share one frame."""
+    explicit = explicit_room_transform(room_alignment)
+    if explicit is not None:
+        return explicit
     if scene_json is None or not scene_json.exists():
         return None
     try:
@@ -2098,6 +2962,103 @@ def dji_live_bridge_readiness(live_status: dict, command: str) -> tuple[bool, st
     return False, f"Unsupported DJI command: {command}"
 
 
+def validated_enemy_pursuit_mission(mission: dict) -> dict:
+    if not bool(mission.get("operator_confirmed")):
+        raise RuntimeError("Enemy pursuit requires an explicit operator confirmation.")
+    enemy_id = str(mission.get("enemy_id") or "").strip()
+    lib, profile = get_enemy_profile(enemy_id)
+    if str(lib.get("model_status") or "") != "trained" or not selected_enemy_model_path():
+        raise RuntimeError("Enemy pursuit is locked until the trained detector is selected and available.")
+    calibration = normalize_enemy_range_calibration(profile.get("range_calibration"))
+    if calibration.get("status") != "validated" or not isinstance(calibration.get("model"), dict):
+        raise RuntimeError("Enemy pursuit is locked until live range calibration passes validation.")
+    try:
+        requested_stop = float(mission.get("stop_clearance_m") or 0.50)
+    except (TypeError, ValueError):
+        requested_stop = 0.50
+    stop_clearance = max(0.50, min(2.0, requested_stop))
+    model = dict(calibration["model"])
+    calibrated_stop = max(0.50, float(model.get("stop_clearance_m") or 0.50))
+    if stop_clearance < calibrated_stop:
+        raise RuntimeError(
+            f"Requested {stop_clearance:.2f} m stop clearance is below the validated {calibrated_stop:.2f} m calibration."
+        )
+    map_id = str(mission.get("map_id") or "").strip()
+    map_entry = next((item for item in load_library().get("maps", []) if item.get("id") == map_id), None)
+    if not isinstance(map_entry, dict):
+        raise RuntimeError("Enemy pursuit requires the selected saved map.")
+    safety_barriers = [item for item in map_entry.get("safety_barriers") or [] if isinstance(item, dict)]
+    safety_obstacles = [item for item in map_entry.get("safety_obstacles") or [] if isinstance(item, dict)]
+    if len(safety_barriers) < 3:
+        raise RuntimeError("Enemy pursuit requires a closed saved-wall geofence on the selected map.")
+    initial_pose_offset = mission.get("initial_pose_offset_room")
+    if not isinstance(initial_pose_offset, (list, tuple)) or len(initial_pose_offset) < 3:
+        initial_pose_offset = [0.0, 0.0, 0.0]
+    initial_pose_offset = [float(initial_pose_offset[0]), 0.0, float(initial_pose_offset[2])]
+    if math.hypot(initial_pose_offset[0], initial_pose_offset[2]) > 1.0:
+        raise RuntimeError("Enemy pursuit initial pose correction exceeds the 1.0 m safety limit.")
+    safe = dict(mission)
+    pursuit_yaw_sign = -1.0 if float(mission.get("pursuit_yaw_sign") or 1.0) < 0 else 1.0
+    safe.update(
+        {
+            "client_safety_version": 3,
+            "guided_enabled": True,
+            "enemy_pursuit": True,
+            "enemy_id": profile["id"],
+            "target_class_name": profile["class_name"],
+            "range_model": model,
+            "safety_barriers": safety_barriers,
+            "safety_obstacles": safety_obstacles,
+            "safety_motion_buffer_m": max(0.30, min(1.0, float(mission.get("safety_motion_buffer_m") or 0.30))),
+            "initial_pose_offset_room": initial_pose_offset,
+            "stop_clearance_m": stop_clearance,
+            "pose_max_age_seconds": max(0.5, min(1.8, float(mission.get("pose_max_age_seconds") or 1.2))),
+            "pose_recovery_seconds": max(1.0, min(8.0, float(mission.get("pose_recovery_seconds") or 4.0))),
+            "pulse_seconds": max(0.10, min(0.20, float(mission.get("pulse_seconds") or 0.14))),
+            "max_forward_rc": max(0.01, min(0.03, float(mission.get("max_forward_rc") or 0.025))),
+            "max_yaw_rc": max(0.01, min(0.035, float(mission.get("max_yaw_rc") or 0.028))),
+            "max_vertical_rc": max(0.005, min(0.015, float(mission.get("max_vertical_rc") or 0.010))),
+            "vertical_tracking_enabled": bool(mission.get("vertical_tracking_enabled")),
+            "pursuit_yaw_sign": pursuit_yaw_sign,
+            "detection_max_age_seconds": max(0.60, min(1.50, float(mission.get("detection_max_age_seconds") or 1.0))),
+            "lost_target_abort_seconds": max(2.0, min(8.0, float(mission.get("lost_target_abort_seconds") or 4.0))),
+            "max_pursuit_seconds": max(5.0, min(60.0, float(mission.get("max_pursuit_seconds") or 45.0))),
+        }
+    )
+    return safe
+
+
+def validated_guarded_patrol_mission(mission: dict) -> dict:
+    try:
+        client_safety_version = int(mission.get("client_safety_version") or 0)
+    except (TypeError, ValueError):
+        client_safety_version = 0
+    if client_safety_version < 3:
+        raise RuntimeError("Patrol requires the current wall/obstacle safety code. Reload ATLAS before flight.")
+    map_id = str(mission.get("map_id") or "").strip()
+    map_entry = next((item for item in load_library().get("maps", []) if item.get("id") == map_id), None)
+    if not isinstance(map_entry, dict):
+        raise RuntimeError("Patrol requires the selected saved map.")
+    safety_barriers = [item for item in map_entry.get("safety_barriers") or [] if isinstance(item, dict)]
+    safety_obstacles = [item for item in map_entry.get("safety_obstacles") or [] if isinstance(item, dict)]
+    if len(safety_barriers) < 3:
+        raise RuntimeError("Patrol requires a closed saved-wall geofence on the selected map.")
+    try:
+        requested_buffer = float(mission.get("safety_motion_buffer_m") or 0.30)
+    except (TypeError, ValueError):
+        requested_buffer = 0.30
+    safe = dict(mission)
+    safe.update(
+        {
+            "client_safety_version": 3,
+            "safety_barriers": safety_barriers,
+            "safety_obstacles": safety_obstacles,
+            "safety_motion_buffer_m": max(0.30, min(1.0, requested_buffer)),
+        }
+    )
+    return safe
+
+
 def send_dji_flight_command(payload: dict) -> dict:
     command = str(payload.get("command", "")).strip().lower()
     if command not in {"takeoff", "land", "enable", "disable", "hover", "mission"}:
@@ -2107,6 +3068,10 @@ def send_dji_flight_command(payload: dict) -> dict:
     if height_m is not None:
         height_m = max(0.1, min(2.0, float(height_m)))
     mission = payload.get("mission") if isinstance(payload.get("mission"), dict) else None
+    if command == "mission" and isinstance(mission, dict) and bool(mission.get("enemy_pursuit")):
+        mission = validated_enemy_pursuit_mission(mission)
+    elif command == "mission" and isinstance(mission, dict) and bool(mission.get("patrol")):
+        mission = validated_guarded_patrol_mission(mission)
 
     stream = current_live_stream() or recover_live_stream_from_disk() or {}
     live_status_path = PUBLIC / "live_dji" / "status.json"
@@ -2256,9 +3221,10 @@ def stream_partial_poses(
     localized_model_text: Path | None = None,
     scene_json: Path | None = None,
     display_z_sign: float = -1.0,
+    room_alignment=None,
     started_at: float | None = None,
 ) -> None:
-    room_transform = build_room_transform_from_scene(scene_json, display_z_sign)
+    room_transform = build_room_transform_from_scene(scene_json, display_z_sign, room_alignment)
     last_count = -1
     last_write = 0.0
     while not stop_event.is_set():
@@ -2349,6 +3315,14 @@ def snapshot_state() -> dict:
     with STATE_LOCK:
         state = json.loads(json.dumps(STATE))
     state["library"] = load_library()
+    recording_path = manual_patrol_recording_state_path()
+    if recording_path.exists():
+        try:
+            state["manual_patrol_recording"] = json.loads(recording_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            state["manual_patrol_recording"] = None
+    else:
+        state["manual_patrol_recording"] = None
     return state
 
 
@@ -3058,6 +4032,207 @@ def upload_map_job(videos: list[Path]) -> None:
             set_job("map", "error", str(exc))
 
 
+def room_alignment_matrix_from_scene(scene_json: Path, display_z_sign: float) -> dict | None:
+    transform = build_room_transform_from_scene(scene_json, display_z_sign)
+    if transform is None:
+        return None
+    origin = transform([0.0, 0.0, 0.0])
+    if origin is None:
+        return None
+    columns = []
+    for axis in ([1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]):
+        value = transform(axis)
+        if value is None:
+            return None
+        columns.append([value[index] - origin[index] for index in range(3)])
+    matrix = [
+        [columns[0][row], columns[1][row], columns[2][row], origin[row]]
+        for row in range(3)
+    ]
+    return {
+        "matrix": matrix,
+        "method": "fixed-reference-room-frame",
+    }
+
+
+def enhance_fixed_reference_map_job(selected: dict, videos: list[Path]) -> None:
+    cfg = load_config()
+    py = Path(cfg["python"])
+    scripts = ROOT / "scripts"
+    out_map_id = str(selected["id"])
+    source_map_id = str(selected.get("localization_map_id") or selected.get("source_map_id") or "")
+    if not source_map_id or source_map_id == out_map_id:
+        raise RuntimeError("Fixed-reference enhancement requires a duplicate linked to its original map.")
+    source = get_map_entry(source_map_id)
+    reference_artifacts = colmap_artifacts_for_entry(source)
+    timestamp = time.strftime("%Y%m%d_%H%M%S")
+    work_root = ROOT / "data" / "maps" / out_map_id / f"fixed_enhance_{timestamp}_{uuid.uuid4().hex[:6]}"
+    extracted = work_root / "new_frames"
+    staging_colmap = ROOT / "results" / "maps" / out_map_id / f"colmap_fixed_staging_{timestamp}_{uuid.uuid4().hex[:6]}"
+    staging_asset = MAPS_DIR / f".{out_map_id}.fixed_staging_{uuid.uuid4().hex[:6]}"
+    final_colmap = ROOT / "results" / "maps" / out_map_id / "colmap"
+    final_asset = VIEWER / str(selected["asset_base"])
+    extracted.mkdir(parents=True, exist_ok=True)
+    MAP_STOP_EVENT.clear()
+
+    set_job(
+        "map",
+        "running",
+        f"Extracting {len(videos)} enhancement video{'' if len(videos) == 1 else 's'} for fixed registration into {source['title']}.",
+    )
+    for index, video in enumerate(videos):
+        prefix = f"fixed_{time.strftime('%H%M%S')}_{index:02d}_{uuid.uuid4().hex[:6]}"
+        video_frames = work_root / f"{prefix}_frames"
+        run_cmd(
+            "map",
+            [
+                py,
+                scripts / "extract_frames.py",
+                "--video",
+                video,
+                "--out-dir",
+                video_frames,
+                "--fps",
+                cfg["map_frame_fps"],
+                "--max-size",
+                cfg["max_image_size"],
+                "--prefix",
+                prefix,
+            ],
+            MAP_STOP_EVENT,
+        )
+        copy_frame_bank(video_frames, extracted)
+    new_frame_count = count_frame_images(extracted)
+    if new_frame_count < 8:
+        raise RuntimeError(f"Only {new_frame_count} enhancement frames were extracted.")
+
+    set_job(
+        "map",
+        "running",
+        f"Registering {new_frame_count} new frames into fixed {source['title']} coordinates. Existing cameras are locked.",
+    )
+    run_cmd(
+        "map",
+        [
+            py,
+            scripts / "enhance_colmap_fixed_reference.py",
+            "--colmap",
+            cfg["colmap_bin"],
+            "--reference-colmap",
+            reference_artifacts["root"],
+            "--new-frames",
+            extracted,
+            "--out-dir",
+            staging_colmap,
+            "--max-image-size",
+            cfg["max_image_size"],
+        ],
+        MAP_STOP_EVENT,
+    )
+    summary_path = staging_colmap / "fixed_reference_summary.json"
+    if not summary_path.exists():
+        raise RuntimeError("Fixed-reference enhancement finished without a validation summary.")
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    if not summary.get("coordinate_frame_preserved"):
+        raise RuntimeError("Fixed-reference enhancement did not confirm coordinate preservation.")
+
+    set_job("map", "running", "Building and validating the fixed-reference ATLAS viewer map.")
+    run_cmd(
+        "map",
+        [
+            py,
+            scripts / "build_map_only_viewer_data.py",
+            "--model-text",
+            staging_colmap / "sparse_text",
+            "--out-public",
+            staging_asset,
+        ],
+        MAP_STOP_EVENT,
+    )
+    validation_path = staging_asset / "map_validation.json"
+    run_cmd(
+        "map",
+        [
+            py,
+            scripts / "atlas_map_validation.py",
+            "--frames",
+            staging_colmap / "images",
+            "--colmap-root",
+            staging_colmap,
+            "--asset-dir",
+            staging_asset,
+            "--matcher",
+            "fixed_reference",
+            "--out",
+            validation_path,
+        ],
+        MAP_STOP_EVENT,
+    )
+    counts = read_counts(staging_asset)
+    reference_points = int(summary.get("reference_points") or source.get("counts", {}).get("points") or 0)
+    reference_cameras = int(summary.get("reference_registered_images") or source.get("counts", {}).get("cameras") or 0)
+    if counts["points"] < reference_points or counts["cameras"] < reference_cameras:
+        raise RuntimeError(
+            "Fixed-reference output was weaker than the source map; duplicate was not replaced "
+            f"({counts['points']} points/{counts['cameras']} cameras)."
+        )
+
+    result_backup = None
+    asset_backup = None
+    try:
+        if final_colmap.exists():
+            result_backup = final_colmap.with_name(f"colmap_before_fixed_{timestamp}")
+            shutil.move(str(final_colmap), str(result_backup))
+        shutil.move(str(staging_colmap), str(final_colmap))
+        if final_asset.exists():
+            asset_backup = final_asset.with_name(f"{final_asset.name}_before_fixed_{timestamp}")
+            shutil.move(str(final_asset), str(asset_backup))
+        shutil.move(str(staging_asset), str(final_asset))
+    except Exception:
+        if not final_colmap.exists() and result_backup and result_backup.exists():
+            shutil.move(str(result_backup), str(final_colmap))
+        if not final_asset.exists() and asset_backup and asset_backup.exists():
+            shutil.move(str(asset_backup), str(final_asset))
+        raise
+
+    validation = json.loads((final_asset / "map_validation.json").read_text(encoding="utf-8"))
+    reference_asset = map_asset_dir(source)
+    room_alignment = source.get("room_alignment")
+    if not room_alignment:
+        room_alignment = room_alignment_matrix_from_scene(
+            reference_asset / "scene.json",
+            float(source.get("display_z_sign", -1)),
+        )
+    updated = dict(selected)
+    updated.update(
+        {
+            "description": (
+                f"Fixed-reference enhancement of {source['title']}: "
+                f"{summary.get('registered_new_images', 0)}/{summary.get('new_frame_count', 0)} new frames registered, "
+                f"{summary.get('added_points', 0)} points added."
+            ),
+            "frames_path": str(final_colmap / "images"),
+            "kind": "fixed_reference_map",
+            "updated_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+            "counts": counts,
+            "validation": validation,
+            "source_map_id": source["id"],
+            "localization_map_id": out_map_id,
+            "fixed_reference_summary": summary,
+            "room_alignment": room_alignment,
+        }
+    )
+    add_or_update_map(updated, select=True)
+    set_job(
+        "map",
+        "done",
+        (
+            f"Fixed-reference enhancement complete: {counts['points']} points, {counts['cameras']} cameras. "
+            f"Original {source['title']} was not modified."
+        ),
+    )
+
+
 def enhance_map_job(map_id: str, videos: list[Path]) -> None:
     try:
         if not videos:
@@ -3066,6 +4241,12 @@ def enhance_map_job(map_id: str, videos: list[Path]) -> None:
         py = Path(cfg["python"])
         scripts = ROOT / "scripts"
         selected = get_map_entry(map_id)
+        if (
+            selected.get("kind") == "map_copy"
+            and (selected.get("localization_map_id") or selected.get("source_map_id"))
+        ):
+            enhance_fixed_reference_map_job(selected, videos)
+            return
         frames = frames_for_entry(selected)
         out_map_id = selected["id"]
         out_title = selected["title"]
@@ -3191,10 +4372,13 @@ def dji_live_atlas_job(
     *,
     map_id: str | None = None,
     phone_ip: str = "",
-    fps: float = 2.0,
+    fps: float = 10.0,
     max_size: int = 1200,
 ) -> None:
-    DRONE_STOP_EVENT.clear()
+    # The request handler reserves this worker before starting the thread.
+    # Do not clear DRONE_STOP_EVENT here: Stop may have been pressed during
+    # the small interval between reservation and thread startup.
+    DRONE_JOB_ACTIVE.set()
     bridge_thread: threading.Thread | None = None
     monitor_thread: threading.Thread | None = None
     monitor_stop = threading.Event()
@@ -3290,7 +4474,7 @@ def dji_live_atlas_job(
                     "--enemy-output",
                     PUBLIC / "live_dji" / "enemy_detections.json",
                     "--enemy-detect-fps",
-                    cfg.get("enemy_live_detect_fps", min(float(fps), 2.0)),
+                    cfg.get("enemy_live_detect_fps", min(float(fps), 5.0)),
                     "--enemy-conf",
                     cfg.get("enemy_live_confidence", 0.35),
                 ]
@@ -3393,6 +4577,10 @@ def dji_live_atlas_job(
             cfg.get("live_min_track_points", 80),
             "--min-track-ratio",
             cfg.get("live_min_track_ratio", 0.10),
+            "--proactive-relocalize-points",
+            cfg.get("live_proactive_relocalize_points", 28),
+            "--proactive-relocalize-cooldown-frames",
+            cfg.get("live_proactive_relocalize_cooldown_frames", 60),
             "--global-recovery-after-failures",
             cfg.get("live_global_recovery_after_failures", 2),
             "--prime",
@@ -3413,6 +4601,8 @@ def dji_live_atlas_job(
             base_asset_dir / "scene.json",
             "--display-z-sign",
             selected.get("display_z_sign", -1),
+            "--room-alignment-json",
+            json.dumps(selected.get("room_alignment") or {}),
             "--follow-dir",
             "--stop-file",
             stop_file,
@@ -3462,8 +4652,16 @@ def dji_live_atlas_job(
                 append_log("drone", f"FINALIZE ERROR: {final_exc}")
                 update_live_stream(complete=True, cancelled=True)
                 set_job("drone", "cancelled", "Live ATLAS stopped before a path could be saved.")
-            DRONE_STOP_EVENT.clear()
         else:
+            update_live_stream(
+                complete=True,
+                cancelled=False,
+                failed=True,
+                stopping=False,
+                live_preview_url=None,
+                error=str(exc),
+            )
+            mark_live_dji_status_stopped(f"ATLAS live localization failed: {exc}")
             set_job("drone", "error", str(exc))
     finally:
         monitor_stop.set()
@@ -3471,13 +4669,911 @@ def dji_live_atlas_job(
             monitor_thread.join(timeout=2.0)
         if DRONE_STOP_EVENT.is_set():
             terminate_active_procs("drone")
-            DRONE_STOP_EVENT.clear()
         if bridge_thread is not None:
             bridge_thread.join(timeout=1.0)
+        release_drone_job()
+
+
+def fleet_run_cmd(drone_id: str, cmd: list[object], stop_event: threading.Event | None = None) -> None:
+    """Run one fleet subprocess without sharing the legacy single-drone job state."""
+    cmd = [str(item) for item in cmd]
+    kind = f"fleet:{drone_id}"
+    env = os.environ.copy()
+    env.setdefault("QT_QPA_PLATFORM", "minimal")
+    log_path = fleet_session_public_root(drone_id) / "worker.log"
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    proc = subprocess.Popen(
+        cmd,
+        cwd=str(ROOT),
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        bufsize=1,
+        start_new_session=True,
+    )
+    register_active_proc(kind, proc)
+    fleet_update(drone_id, active_processes=active_proc_count(kind))
+    try:
+        assert proc.stdout is not None
+        with log_path.open("a", encoding="utf-8") as log_handle:
+            log_handle.write("+ " + " ".join(cmd) + "\n")
+            log_handle.flush()
+            while proc.poll() is None:
+                if stop_event is not None and stop_event.is_set():
+                    try:
+                        os.killpg(proc.pid, signal.SIGTERM)
+                    except ProcessLookupError:
+                        pass
+                    try:
+                        proc.wait(timeout=4)
+                    except subprocess.TimeoutExpired:
+                        try:
+                            os.killpg(proc.pid, signal.SIGKILL)
+                        except ProcessLookupError:
+                            pass
+                        proc.wait(timeout=4)
+                    raise RuntimeError("Fleet session cancelled.")
+                ready, _, _ = select.select([proc.stdout], [], [], 0.2)
+                if ready:
+                    line = proc.stdout.readline()
+                    if line:
+                        log_handle.write(line)
+                        log_handle.flush()
+            for line in proc.stdout:
+                log_handle.write(line)
+            rc = proc.wait()
+    finally:
+        unregister_active_proc(kind, proc)
+        fleet_update(drone_id, active_processes=active_proc_count(kind))
+    if stop_event is not None and stop_event.is_set():
+        raise RuntimeError("Fleet session cancelled.")
+    if rc != 0:
+        raise subprocess.CalledProcessError(rc, cmd)
+
+
+def fleet_start_background_cmd(drone_id: str, cmd: list[object], stop_event: threading.Event) -> threading.Thread:
+    def target() -> None:
+        try:
+            fleet_run_cmd(drone_id, cmd, stop_event)
+        except Exception as exc:
+            if not stop_event.is_set():
+                fleet_event(drone_id, f"DJI bridge error: {exc}", "error")
+                fleet_update(drone_id, bridge_error=str(exc))
+
+    thread = threading.Thread(target=target, daemon=True)
+    thread.start()
+    return thread
+
+
+def monitor_fleet_partial_pose(
+    drone_id: str,
+    partial_path: Path,
+    monitor_stop: threading.Event,
+    started_at: float,
+    stage_times_path: Path,
+) -> None:
+    last_count = -1
+    last_stage = ""
+    while not monitor_stop.is_set():
+        try:
+            payload = json.loads(partial_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            payload = {}
+        poses = payload.get("poses") if isinstance(payload.get("poses"), list) else []
+        counts = pose_stream_counts(poses)
+        count = int(payload.get("processed_count") or len(poses))
+        fields = {
+            "pose_count": count,
+            "accepted_pose_count": counts["poses"],
+            "held_pose_count": counts["held"],
+            "failed_pose_count": counts["failed"],
+        }
+        if count > 0:
+            fields["localization_ready"] = counts["poses"] > 0
+            with FLEET_LOCK:
+                session = FLEET_SESSIONS.get(drone_id) or {}
+                if not session.get("first_pose_at"):
+                    fields["first_pose_at"] = time.time()
+                    fields["first_pose_latency_seconds"] = time.time() - started_at
+        fleet_update(drone_id, **fields)
+        if count != last_count and count > 0 and (count <= 3 or count % 10 == 0):
+            fleet_event(
+                drone_id,
+                f"Localization healthy: {counts['poses']} accepted, {counts['held']} held, {counts['failed']} rejected.",
+                "ok" if counts["poses"] else "warning",
+            )
+            last_count = count
+        row = latest_live_stage_row(stage_times_path)
+        if row:
+            frame_index = str(row.get("frame_index") or "")
+            reason = str(row.get("reason") or "processing").strip()
+            key = f"{frame_index}:{reason}"
+            if key != last_stage:
+                fleet_update(
+                    drone_id,
+                    latest_frame_index=frame_index,
+                    latest_localization_reason=reason,
+                    latest_total_frame_ms=row.get("total_frame_ms"),
+                )
+                if reason not in {"processing", "accepted", "fresh_pose"}:
+                    fleet_event(drone_id, f"Localization frame {frame_index}: {reason}", "warning")
+                last_stage = key
+        time.sleep(0.35)
+
+
+def finalize_fleet_replay(
+    *,
+    drone_id: str,
+    selected: dict,
+    replay_id: str,
+    replay_title: str,
+    out_asset_dir: Path,
+    partial_pose_path: Path,
+    query_frames: Path,
+) -> int:
+    payload = json.loads(partial_pose_path.read_text(encoding="utf-8")) if partial_pose_path.exists() else {"poses": []}
+    poses = payload.get("poses") if isinstance(payload.get("poses"), list) else []
+    counts = pose_stream_counts(poses)
+    final_payload = {
+        **payload,
+        "mode": "dji_fleet_live_tsolve_replay",
+        "description": f"ATLAS fleet TSolve R,t estimates for {drone_id}.",
+        "complete": True,
+        "processed_count": len(poses),
+        "accepted_count": counts["poses"],
+        "held_count": counts["held"],
+        "failed_count": counts["failed"],
+        "query_frame_base_url": public_rel(query_frames),
+        "frame_source": public_rel(query_frames),
+        "updated_at": time.time(),
+        "poses": poses,
+    }
+    final_path = out_asset_dir / "poses.json"
+    atomic_write_json(final_path, final_payload)
+    replay = {
+        "id": replay_id,
+        "title": replay_title,
+        "asset_base": public_rel(out_asset_dir),
+        "created_at": now_label(),
+        "source_video": f"DJI fleet live stream ({drone_id})",
+        "query_frame_base_url": public_rel(query_frames),
+        "counts": counts,
+    }
+    with LIBRARY_LOCK:
+        add_replay_to_map(selected["id"], replay, select=False)
+    fleet_update(
+        drone_id,
+        pose_count=len(poses),
+        accepted_pose_count=counts["poses"],
+        held_pose_count=counts["held"],
+        failed_pose_count=counts["failed"],
+        final_pose_url=public_rel(final_path),
+        complete=True,
+    )
+    return counts["poses"]
+
+
+def fleet_live_atlas_job(drone_id: str) -> None:
+    bridge_thread: threading.Thread | None = None
+    monitor_thread: threading.Thread | None = None
+    monitor_stop = threading.Event()
+    with FLEET_LOCK:
+        session = FLEET_SESSIONS.get(drone_id)
+        if not session:
+            return
+        stop_event = session["stop_event"]
+        map_id = str(session["map_id"])
+        patrol_id = str(session["patrol_id"])
+        phone_ip = str(session["phone_ip"])
+        fps = float(session["fps"])
+        max_size = int(session["max_size"])
+    try:
+        cfg = load_config()
+        py = Path(cfg["python"])
+        scripts = ROOT / "scripts"
+        selected = next((item for item in load_library().get("maps", []) if item.get("id") == map_id), None)
+        if not selected:
+            raise RuntimeError(f"Unknown map id: {map_id}")
+        patrol = next((item for item in selected.get("patrols") or [] if item.get("id") == patrol_id), None)
+        if not patrol:
+            raise RuntimeError(f"Unknown patrol {patrol_id} on {selected.get('title') or map_id}.")
+        map_artifacts = colmap_artifacts_for_entry(selected)
+        replay_id = make_map_id(f"fleet_{drone_id}")
+        session_id = f"atlas_{replay_id}"
+        replay_title = f"Fleet {drone_id} {time.strftime('%H:%M:%S')}"
+        base_asset_dir = VIEWER / selected["asset_base"]
+        if not base_asset_dir.exists():
+            base_asset_dir = MAPS_DIR / selected["id"]
+        out_asset_dir = base_asset_dir / "replays" / replay_id
+        out_asset_dir.mkdir(parents=True, exist_ok=True)
+        partial_pose_path = out_asset_dir / "poses_partial.json"
+        stop_file = out_asset_dir / "STOP_LIVE_ATLAS"
+        run_root = ROOT / "results" / "fleet_live_runs" / drone_id / replay_id
+        runtime_dir = run_root / "tsolve_runtime_code"
+        tsolve_runtime = run_root / "tsolve_runtime"
+        tsolve_inputs = run_root / "tsolve_inputs"
+        stream_work = run_root / "live_existing_map_stream"
+        public_sessions_root = PUBLIC / "live_dji_sessions"
+        query_frames = public_sessions_root / session_id / "query_frames"
+        public_root = fleet_session_public_root(drone_id)
+        latest_path = public_root / "latest.jpg"
+        started_at = time.time()
+        atomic_write_json(
+            partial_pose_path,
+            {
+                "mode": "dji_fleet_live_tsolve_partial",
+                "drone_id": drone_id,
+                "replay_id": replay_id,
+                "frame_source": str(query_frames),
+                "query_frame_base_url": public_rel(query_frames),
+                "expected_count": 0,
+                "processed_count": 0,
+                "complete": False,
+                "updated_at": time.time(),
+                "poses": [],
+            },
+        )
+        fleet_update(
+            drone_id,
+            status="running",
+            stage="connecting",
+            replay_id=replay_id,
+            replay_title=replay_title,
+            replay_asset_base=public_rel(out_asset_dir),
+            partial_pose_url=public_rel(partial_pose_path),
+            stop_file=str(stop_file),
+            live_preview_url=public_rel(latest_path),
+            query_frame_base_url=public_rel(query_frames),
+            public_root=public_rel(public_root),
+            started_at=started_at,
+        )
+        fleet_event(drone_id, f"Connecting to Android endpoint {phone_ip}.")
+        bridge_cmd: list[object] = [
+            py,
+            scripts / "atlas_dji_live_bridge.py",
+            "--phone-ip",
+            phone_ip,
+            "--fps",
+            fps,
+            "--max-size",
+            max_size,
+            "--session",
+            session_id,
+            "--out-root",
+            public_sessions_root,
+            "--public-root",
+            public_root,
+            "--pose-stream",
+            partial_pose_path,
+        ]
+        enemy_model = selected_enemy_model_path()
+        if enemy_model:
+            bridge_cmd.extend(
+                [
+                    "--enemy-model",
+                    enemy_model,
+                    "--enemy-output",
+                    public_root / "enemy_detections.json",
+                    "--enemy-detect-fps",
+                    cfg.get("enemy_live_detect_fps", min(fps, 5.0)),
+                    "--enemy-conf",
+                    cfg.get("enemy_live_confidence", 0.35),
+                ]
+            )
+        bridge_thread = fleet_start_background_cmd(drone_id, bridge_cmd, stop_event)
+        fleet_update(drone_id, stage="preparing_localizer")
+        fleet_event(drone_id, "Preparing an isolated TSolve localization runtime.")
+        fleet_run_cmd(
+            drone_id,
+            [
+                py,
+                scripts / "setup_tsolve_runtime.py",
+                "--base-yam-code-dir",
+                cfg["base_yam_code_dir"],
+                "--dropin-patch-dir",
+                cfg["dropin_patch_dir"],
+                "--base-harness-dir",
+                str(ROOT.parent / "pnp-symbolic-research/Yam/exact_ff_ysolve_pnp/harness"),
+                "--out-dir",
+                runtime_dir,
+            ],
+            stop_event,
+        )
+        wait_started = time.time()
+        while not stop_event.is_set() and count_frame_images(query_frames) < 1:
+            if time.time() - wait_started > 60:
+                raise RuntimeError("DJI bridge connected, but no live frames arrived within 60 seconds.")
+            time.sleep(0.5)
+        if stop_event.is_set():
+            raise RuntimeError("Fleet session stopped before the first DJI frame.")
+        fleet_update(drone_id, stage="localizing")
+        fleet_event(drone_id, "First DJI frame received; live map localization is running.", "ok")
+        monitor_thread = threading.Thread(
+            target=monitor_fleet_partial_pose,
+            args=(drone_id, partial_pose_path, monitor_stop, started_at, tsolve_runtime / "live_stage_times.csv"),
+            daemon=True,
+        )
+        monitor_thread.start()
+        live_cmd: list[object] = [
+            py,
+            scripts / "run_bounded_tsolve_video_stream.py",
+            "--colmap", cfg["colmap_bin"],
+            "--map-database", map_artifacts["database"],
+            "--map-images", map_artifacts["images"],
+            "--map-sparse-model", map_artifacts["sparse_model"],
+            "--map-sparse-text", map_artifacts["sparse_text"],
+            "--query-frames", query_frames,
+            "--runtime-dir", runtime_dir,
+            "--solver-dir", cfg["solver_dir"],
+            "--inputs-out-dir", tsolve_inputs,
+            "--out-dir", tsolve_runtime,
+            "--work-dir", stream_work,
+            "--max-image-size", cfg["max_image_size"],
+            "--query-camera-model", cfg["query_camera_model"],
+            "--min-points", cfg["min_query_correspondences"],
+            "--max-points", cfg["max_query_correspondences"],
+            "--max-reference-images", cfg.get("live_reference_image_cap", 24),
+            "--tracking-reference-images", cfg.get("live_tracking_reference_image_cap", 10),
+            "--track-pool-size", cfg.get("live_tracking_pool_size", 900),
+            "--relocalize-every", cfg.get("live_relocalize_every", 0),
+            "--flow-max-error", cfg.get("live_flow_max_error", 34.0),
+            "--flow-backtrack-error", cfg.get("live_flow_backtrack_error", 2.5),
+            "--flow-window", cfg.get("live_flow_window", 21),
+            "--flow-levels", cfg.get("live_flow_levels", 3),
+            "--flow-iterations", cfg.get("live_flow_iterations", 18),
+            "--min-track-points", cfg.get("live_min_track_points", 80),
+            "--min-track-ratio", cfg.get("live_min_track_ratio", 0.10),
+            "--proactive-relocalize-points", cfg.get("live_proactive_relocalize_points", 28),
+            "--proactive-relocalize-cooldown-frames", cfg.get("live_proactive_relocalize_cooldown_frames", 60),
+            "--global-recovery-after-failures", cfg.get("live_global_recovery_after_failures", 2),
+            "--prime", cfg["tsolve_prime"],
+            "--degree", cfg["tsolve_degree"],
+            "--action-weights", cfg["tsolve_action_weights"],
+            "--fallback-action-weights", cfg["tsolve_fallback_action_weights"],
+            "--partial-pose-out", partial_pose_path,
+            "--replay-id", replay_id,
+            "--expected-count", 0,
+            "--scene-json", base_asset_dir / "scene.json",
+            "--display-z-sign", selected.get("display_z_sign", -1),
+            "--room-alignment-json", json.dumps(selected.get("room_alignment") or {}),
+            "--follow-dir",
+            "--stop-file", stop_file,
+        ]
+        if cfg.get("live_blocking_global_recovery", True):
+            live_cmd.append("--blocking-global-recovery")
+        if not cfg.get("live_background_recovery", False):
+            live_cmd.append("--disable-background-recovery")
+        fleet_run_cmd(drone_id, live_cmd, None)
+        fleet_update(drone_id, stage="finalizing")
+        fleet_event(drone_id, "Localization stopped; saving the fleet replay.")
+        accepted = finalize_fleet_replay(
+            drone_id=drone_id,
+            selected=selected,
+            replay_id=replay_id,
+            replay_title=replay_title,
+            out_asset_dir=out_asset_dir,
+            partial_pose_path=partial_pose_path,
+            query_frames=query_frames,
+        )
+        fleet_update(drone_id, status="done", stage="stopped", airborne=False, patrol_running=False)
+        fleet_event(drone_id, f"Session saved with {accepted} accepted poses.", "ok")
+    except Exception as exc:
+        stopping = stop_event.is_set() or (FLEET_SESSIONS.get(drone_id) or {}).get("status") == "stopping"
+        fleet_update(
+            drone_id,
+            status="done" if stopping else "error",
+            stage="stopped" if stopping else "error",
+            airborne=False,
+            patrol_running=False,
+            error=None if stopping else str(exc),
+        )
+        fleet_event(drone_id, "Session stopped by operator." if stopping else f"Session failed: {exc}", "info" if stopping else "error")
+    finally:
+        monitor_stop.set()
+        if monitor_thread is not None:
+            monitor_thread.join(timeout=2.0)
+        stop_event.set()
+        terminate_active_procs(f"fleet:{drone_id}")
+        if bridge_thread is not None:
+            bridge_thread.join(timeout=2.0)
+        fleet_update(drone_id, active_processes=0)
+
+
+def dispatch_fleet_drone(payload: dict) -> dict:
+    drone_id = slugify_label(payload.get("drone_id"), "")
+    map_id = str(payload.get("map_id") or "").strip()
+    patrol_id = str(payload.get("patrol_id") or "").strip()
+    if not drone_id or not map_id or not patrol_id:
+        raise RuntimeError("Choose a drone, map, and saved patrol before dispatching.")
+    manifest = load_fleet_manifest()
+    drone = next((item for item in manifest["drones"] if item["id"] == drone_id), None)
+    if not drone:
+        raise RuntimeError(f"Unknown fleet drone: {drone_id}")
+    map_entry = next((item for item in load_library().get("maps", []) if item.get("id") == map_id), None)
+    if not map_entry:
+        raise RuntimeError(f"Unknown map id: {map_id}")
+    patrol = next((item for item in map_entry.get("patrols") or [] if item.get("id") == patrol_id), None)
+    if not patrol:
+        raise RuntimeError("The selected map does not contain that patrol.")
+    if len(map_entry.get("safety_barriers") or []) < 3:
+        raise RuntimeError("Dispatch requires a saved closed-wall geofence on the selected map.")
+    fps = max(0.5, min(10.0, float(payload.get("fps") or 5.0)))
+    max_size = max(640, min(1600, int(payload.get("max_size") or 1200)))
+    with FLEET_LOCK:
+        existing = FLEET_SESSIONS.get(drone_id)
+        if existing and existing.get("status") in ACTIVE_JOB_STATES:
+            raise RuntimeError(f"{drone['name']} already has an active session.")
+        for other_id, other in FLEET_SESSIONS.items():
+            if (
+                other_id != drone_id
+                and other.get("status") in ACTIVE_JOB_STATES
+                and other.get("phone_ip") == drone["phone_ip"]
+            ):
+                raise RuntimeError(
+                    f"Android endpoint {drone['phone_ip']} is already active for another drone. "
+                    "Each simultaneous drone needs a separate phone/controller."
+                )
+        stop_event = threading.Event()
+        session = {
+            "drone_id": drone_id,
+            "drone_name": drone["name"],
+            "phone_ip": drone["phone_ip"],
+            "map_id": map_id,
+            "map_title": map_entry.get("title") or map_id,
+            "patrol_id": patrol_id,
+            "patrol_title": patrol.get("title") or patrol_id,
+            "fps": fps,
+            "max_size": max_size,
+            "status": "queued",
+            "stage": "queued",
+            "message": "Fleet dispatch queued.",
+            "events": [],
+            "localization_ready": False,
+            "patrol_running": False,
+            "patrol_pending": False,
+            "airborne": False,
+            "control_pending": False,
+            "takeoff_pending": False,
+            "land_pending": False,
+            "active_processes": 0,
+            "created_at": time.time(),
+            "updated_at": time.time(),
+            "stop_event": stop_event,
+            "thread": None,
+        }
+        FLEET_SESSIONS[drone_id] = session
+        thread = threading.Thread(target=fleet_live_atlas_job, args=(drone_id,), daemon=True)
+        session["thread"] = thread
+        fleet_event(drone_id, f"Assigned to {session['map_title']} · {session['patrol_title']}.")
+        thread.start()
+        return fleet_session_snapshot(session)
+
+
+def fleet_bridge_status(drone_id: str) -> dict:
+    path = fleet_session_public_root(drone_id) / "status.json"
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
+def fleet_write_control(drone_id: str, command: str, **fields) -> dict:
+    command = str(command or "").strip().lower()
+    if command not in {"takeoff", "land", "hover", "enable", "disable", "mission"}:
+        raise RuntimeError(f"Unsupported fleet command: {command}")
+    with FLEET_LOCK:
+        session = FLEET_SESSIONS.get(drone_id)
+        if not session or session.get("status") not in ACTIVE_JOB_STATES:
+            raise RuntimeError("This drone does not have an active fleet session.")
+        phone_ip = session["phone_ip"]
+    status = fleet_bridge_status(drone_id)
+    ready, reason = dji_live_bridge_readiness(status, command)
+    if not ready:
+        raise RuntimeError(f"{command.title()} is unavailable: {reason}")
+    command_id = uuid.uuid4().hex
+    payload = {
+        "id": command_id,
+        "command": command,
+        "phone_ip": phone_ip,
+        "created_at": time.time(),
+        **fields,
+    }
+    atomic_write_json(fleet_session_public_root(drone_id) / "control_command.json", payload)
+    fleet_update(
+        drone_id,
+        last_command=command,
+        last_command_id=command_id,
+        last_control_status="queued",
+        last_control_message=f"{command.title()} command is waiting for the DJI bridge.",
+        control_pending=True,
+    )
+    fleet_event(drone_id, f"{command.title()} command queued to the dedicated DJI bridge.", "ok")
+    return {"queued": True, "command": command, "command_id": command_id}
+
+
+def fleet_current_room_center(drone_id: str) -> list[float] | None:
+    with FLEET_LOCK:
+        rel = (FLEET_SESSIONS.get(drone_id) or {}).get("partial_pose_url")
+    if not rel:
+        return None
+    try:
+        payload = json.loads((VIEWER / rel).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    for pose in reversed(payload.get("poses") or []):
+        center = _vec3(pose.get("rcenter") if isinstance(pose, dict) else None)
+        if center and bool(pose.get("success")):
+            return center
+    return None
+
+
+def build_fleet_patrol_mission(drone_id: str) -> dict:
+    with FLEET_LOCK:
+        session = FLEET_SESSIONS.get(drone_id)
+        if not session:
+            raise RuntimeError("Fleet session no longer exists.")
+        map_id = session["map_id"]
+        patrol_id = session["patrol_id"]
+    map_entry = next((item for item in load_library().get("maps", []) if item.get("id") == map_id), None)
+    if not map_entry:
+        raise RuntimeError("Assigned fleet map no longer exists.")
+    patrol = next((item for item in map_entry.get("patrols") or [] if item.get("id") == patrol_id), None)
+    if not patrol:
+        raise RuntimeError("Assigned fleet patrol no longer exists.")
+    raw_points = [_vec3(item.get("rxyz") if isinstance(item, dict) else item) for item in patrol.get("points") or []]
+    raw_points = [item for item in raw_points if item]
+    if len(raw_points) < 2:
+        raise RuntimeError("The assigned patrol needs at least two valid points.")
+    base_asset_dir = VIEWER / map_entry["asset_base"]
+    try:
+        scene = json.loads((base_asset_dir / "scene.json").read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        scene = {}
+    room = scene.get("room") if isinstance(scene.get("room"), dict) else {}
+    bounds = room.get("bounds") if isinstance(room.get("bounds"), dict) else {}
+    floor_y = float(room.get("floorY") if room.get("floorY") is not None else (bounds.get("min") or [0, 0, 0])[1])
+    altitude_m = max(0.3, min(2.0, float(patrol.get("altitude_m") or 1.0)))
+    points = [[point[0], floor_y + altitude_m, point[2]] for point in raw_points]
+    current = fleet_current_room_center(drone_id)
+    entry_index = 0
+    if current:
+        entry_index = min(
+            range(len(points)),
+            key=lambda idx: math.hypot(points[idx][0] - current[0], points[idx][2] - current[2]),
+        )
+    mode = str(patrol.get("patrol_mode") or "circle")
+    if mode == "back-and-forth":
+        if entry_index < len(points) - 1:
+            sequence = points[entry_index:] + list(reversed(points[:-1])) + points[1:entry_index + 1]
+        else:
+            sequence = list(reversed(points[:entry_index + 1])) + points[1:]
+    else:
+        sequence = [points[(entry_index + offset) % len(points)] for offset in range(len(points))]
+        sequence.append(points[entry_index])
+        mode = "circle"
+    speed = max(0.04, min(0.20, float(patrol.get("speed") or 0.10)))
+    dwell = max(0.8, min(8.0, float(patrol.get("dwell_s") or 2.0)))
+    commands: list[dict] = [
+        {
+            "type": "gate",
+            "title": "Fleet operator gate",
+            "detail": "Operator armed this patrol from Fleet Monitor after live localization became valid.",
+            "safety": "operator-confirmed",
+        }
+    ]
+    arrival_indices: list[int] = []
+    previous_heading: float | None = None
+    for index in range(1, len(sequence)):
+        start, end = sequence[index - 1], sequence[index]
+        distance = math.sqrt(sum((end[axis] - start[axis]) ** 2 for axis in range(3)))
+        if distance <= 1e-5:
+            continue
+        heading = math.degrees(math.atan2(end[2] - start[2], end[0] - start[0]))
+        yaw_delta = 0.0 if previous_heading is None else ((heading - previous_heading + 180.0) % 360.0) - 180.0
+        commands.extend(
+            [
+                {
+                    "type": "yaw",
+                    "title": f"Patrol yaw {index}",
+                    "from": start,
+                    "to": end,
+                    "heading_deg": heading,
+                    "reference_heading_deg": previous_heading,
+                    "yaw_delta_deg": yaw_delta,
+                    "duration_s": 1.2,
+                    "safety": "slow-yaw",
+                },
+                {
+                    "type": "cruise",
+                    "title": f"Patrol cruise {index}",
+                    "from": start,
+                    "to": end,
+                    "heading_deg": heading,
+                    "speed_mps": speed,
+                    "distance": distance,
+                    "duration_s": distance / speed,
+                    "safety": "patrol-speed",
+                },
+                {
+                    "type": "hover",
+                    "title": f"Patrol point {index}",
+                    "point_index": index,
+                    "at": end,
+                    "duration_s": dwell,
+                    "safety": "pose-check",
+                },
+            ]
+        )
+        arrival_indices.append(index)
+        previous_heading = heading
+    mission = {
+        "client_safety_version": 3,
+        "guided_enabled": True,
+        "patrol": True,
+        "operator_confirmed": True,
+        "pose_max_age_seconds": 2.5,
+        "pose_recovery_seconds": 45.0,
+        "pulse_seconds": 0.30,
+        "max_forward_rc": 0.035,
+        "max_lateral_rc": 0.010,
+        "allow_lateral_rc": False,
+        "allow_axis_auto_calibration": False,
+        "axis_probe_rc": 0.018,
+        "axis_probe_seconds": 0.55,
+        "max_yaw_rc": 0.050,
+        "max_scan_yaw_rc": 0.025,
+        "allow_patrol_scan_yaw": False,
+        "alignment_grace_seconds": 35.0,
+        "max_vertical_rc": 0.018,
+        "max_step_seconds": 2.0,
+        "max_cruise_seconds": 120.0,
+        "max_pose_step_map_units": 0.30,
+        "max_pose_step_hard_map_units": 0.55,
+        "cross_track_recovery_start_map_units": 0.30,
+        "max_cross_track_map_units": 0.80,
+        "arrival_radius_map_units": 0.24,
+        "arrival_deadband_map_units": 0.14,
+        "target_frame": "atlas_room",
+        "map_id": map_id,
+        "map_title": map_entry.get("title"),
+        "patrol_id": patrol_id,
+        "patrol_title": patrol.get("title"),
+        "entry_index": entry_index,
+        "points": points,
+        "route": sequence,
+        "route_segments": [{"from": sequence[i - 1], "to": sequence[i]} for i in range(1, len(sequence))],
+        "arrival_indices": arrival_indices,
+        "patrol_mode": mode,
+        "loop": mode == "circle",
+        "speed": speed,
+        "altitude_y": floor_y + altitude_m,
+        "altitude_m": altitude_m,
+        "dwell_s": dwell,
+        "scan_mode": patrol.get("scan_mode") or "forward",
+        "commands": commands,
+        "safety_barriers": map_entry.get("safety_barriers") or [],
+        "safety_obstacles": map_entry.get("safety_obstacles") or [],
+        "safety_motion_buffer_m": 0.30,
+        "initial_pose_offset_room": [0.0, 0.0, 0.0],
+        "confirmed_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+    }
+    return validated_guarded_patrol_mission(mission)
+
+
+def control_fleet_drone(payload: dict) -> dict:
+    drone_id = slugify_label(payload.get("drone_id"), "")
+    action = str(payload.get("action") or "").strip().lower()
+    if not drone_id:
+        raise RuntimeError("Choose a fleet drone.")
+    if action == "takeoff":
+        height = max(0.3, min(2.0, float(payload.get("height_m") or 1.0)))
+        result = fleet_write_control(drone_id, "takeoff", height_m=height)
+        fleet_update(drone_id, takeoff_pending=True)
+        return result
+    if action == "start_patrol":
+        with FLEET_LOCK:
+            session = FLEET_SESSIONS.get(drone_id) or {}
+            if not session.get("localization_ready"):
+                raise RuntimeError("Wait for at least one accepted live pose before starting this patrol.")
+            if not session.get("airborne"):
+                raise RuntimeError("Take off and confirm a stable live pose before starting this patrol.")
+        mission = build_fleet_patrol_mission(drone_id)
+        result = fleet_write_control(drone_id, "mission", mission=mission)
+        fleet_update(drone_id, patrol_pending=True)
+        fleet_event(
+            drone_id,
+            f"Patrol {mission['patrol_title']} queued from nearest point {mission['entry_index'] + 1}.",
+            "ok",
+        )
+        return result
+    if action in {"hover", "stop_patrol"}:
+        result = fleet_write_control(drone_id, "hover", emergency_stop=True, fleet_stop=True)
+        fleet_update(drone_id, patrol_running=False)
+        fleet_event(drone_id, "Patrol stopped; the drone is holding position.", "warning")
+        return result
+    if action == "land":
+        result = fleet_write_control(drone_id, "land")
+        fleet_update(drone_id, patrol_running=False, land_pending=True)
+        return result
+    raise RuntimeError(f"Unsupported fleet action: {action}")
+
+
+def stop_fleet_session(drone_id: str) -> bool:
+    drone_id = slugify_label(drone_id, "")
+    with FLEET_LOCK:
+        session = FLEET_SESSIONS.get(drone_id)
+        if not session or session.get("status") not in ACTIVE_JOB_STATES:
+            return False
+        session["status"] = "stopping"
+        session["stage"] = "stopping"
+        session["patrol_running"] = False
+        stop_file = session.get("stop_file")
+    try:
+        atomic_write_json(
+            fleet_session_public_root(drone_id) / "control_command.json",
+            {
+                "id": uuid.uuid4().hex,
+                "command": "hover",
+                "emergency_stop": True,
+                "fleet_stop": True,
+                "created_at": time.time(),
+            },
+        )
+    except OSError:
+        pass
+    touch_stop_file(stop_file, "ATLAS Fleet Monitor stop requested")
+    fleet_event(drone_id, "Stop requested; neutral hover is latched while the live path is saved.", "warning")
+
+    def force_stop() -> None:
+        time.sleep(4.0)
+        with FLEET_LOCK:
+            current = FLEET_SESSIONS.get(drone_id) or {}
+            if current.get("status") != "stopping":
+                return
+            current.get("stop_event", threading.Event()).set()
+        terminate_active_procs(f"fleet:{drone_id}")
+
+    threading.Thread(target=force_stop, daemon=True).start()
+    return True
+
+
+def validate_extracted_video_coverage(
+    query_frames: Path,
+    *,
+    min_temporal_coverage: float,
+) -> dict:
+    metadata_path = query_frames / "metadata.json"
+    frames_path = query_frames / "frames.csv"
+    if not metadata_path.is_file() or not frames_path.is_file():
+        raise RuntimeError("Uploaded-video frame extraction did not produce complete metadata.")
+
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    frame_count = int(metadata.get("frame_count") or 0)
+    step_frames = max(1, int(metadata.get("step_frames") or 1))
+    saved_frames = int(metadata.get("saved_frames") or 0)
+    expected_full = ((frame_count - 1) // step_frames) + 1 if frame_count > 0 else 0
+    with frames_path.open(newline="", encoding="utf-8") as handle:
+        rows = list(csv.DictReader(handle))
+    if saved_frames != len(rows):
+        raise RuntimeError(
+            f"Uploaded-video frame index mismatch: metadata says {saved_frames}, CSV has {len(rows)}."
+        )
+    if not rows or expected_full <= 0:
+        raise RuntimeError("Uploaded video yielded no usable localization frames.")
+
+    last_source_frame = int(rows[-1].get("source_frame") or 0)
+    temporal_coverage = min(1.0, (last_source_frame + step_frames) / frame_count)
+    if saved_frames != expected_full or temporal_coverage < min_temporal_coverage:
+        raise RuntimeError(
+            "Uploaded-video extraction is incomplete: "
+            f"{saved_frames}/{expected_full} frames, temporal coverage "
+            f"{temporal_coverage:.3f} < {min_temporal_coverage:.3f}."
+        )
+    return {
+        "frame_count": frame_count,
+        "step_frames": step_frames,
+        "saved_frames": saved_frames,
+        "expected_full": expected_full,
+        "duration_sec": float(metadata.get("duration_sec") or 0.0),
+        "temporal_coverage": temporal_coverage,
+    }
+
+
+def validate_simulated_live_localization(
+    summary_path: Path,
+    pose_path: Path,
+    *,
+    expected_count: int,
+    video_duration_sec: float,
+    min_temporal_coverage: float,
+    min_acceptance_ratio: float,
+) -> dict:
+    if not summary_path.is_file():
+        raise RuntimeError("Uploaded-video localization summary is missing.")
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    query_count = int(summary.get("query_frames") or 0)
+    processed_count = int(summary.get("processed_frames") or 0)
+    solved_count = int(summary.get("accepted_cases") or 0)
+    output_rejected_count = int(summary.get("output_rejected_cases") or 0)
+    accepted_count = solved_count - output_rejected_count
+    if query_count != expected_count or processed_count != expected_count:
+        raise RuntimeError(
+            "Uploaded-video localization stopped early: "
+            f"processed {processed_count}/{expected_count} frames "
+            f"(visible query frames: {query_count})."
+        )
+    acceptance_ratio = accepted_count / max(1, processed_count)
+    if acceptance_ratio < min_acceptance_ratio:
+        raise RuntimeError(
+            "Uploaded-video localization acceptance is too low: "
+            f"{accepted_count}/{processed_count} = {acceptance_ratio:.3f} "
+            f"< {min_acceptance_ratio:.3f}."
+        )
+
+    if not pose_path.is_file():
+        raise RuntimeError("Uploaded-video localization did not produce a final pose stream.")
+    payload = json.loads(pose_path.read_text(encoding="utf-8"))
+    poses = payload.get("poses", []) if isinstance(payload, dict) else payload
+    if len(poses) != accepted_count:
+        raise RuntimeError(
+            "Uploaded-video final pose count does not match the guarded live output: "
+            f"{len(poses)} exported, {accepted_count} accepted."
+        )
+    times = [
+        float(pose["time_sec"])
+        for pose in poses
+        if isinstance(pose, dict)
+        and pose.get("success") is not False
+        and pose.get("time_sec") is not None
+        and math.isfinite(float(pose["time_sec"]))
+    ]
+    if not times or video_duration_sec <= 0:
+        raise RuntimeError("Uploaded-video localization has no timestamped successful poses.")
+    if any(current <= previous for previous, current in zip(times, times[1:])):
+        raise RuntimeError(
+            "Uploaded-video pose stream is not in strictly increasing timestamp order."
+        )
+    centers = [pose.get("center") for pose in poses if isinstance(pose, dict)]
+    if any(not isinstance(center, list) or len(center) < 3 for center in centers):
+        raise RuntimeError("Uploaded-video final pose stream contains a missing camera center.")
+    max_center_step = max(
+        (
+            math.sqrt(sum((float(right[index]) - float(left[index])) ** 2 for index in range(3)))
+            for left, right in zip(centers, centers[1:])
+        ),
+        default=0.0,
+    )
+    if max_center_step > 0.55:
+        raise RuntimeError(
+            "Uploaded-video final pose stream contains an unguarded position jump: "
+            f"{max_center_step:.3f}m > 0.550m."
+        )
+    temporal_coverage = max(0.0, min(1.0, (times[-1] - times[0]) / video_duration_sec))
+    if temporal_coverage < min_temporal_coverage:
+        raise RuntimeError(
+            "Uploaded-video pose stream is temporally incomplete: "
+            f"{temporal_coverage:.3f} < {min_temporal_coverage:.3f} "
+            f"({times[0]:.3f}s to {times[-1]:.3f}s of {video_duration_sec:.3f}s)."
+        )
+    return {
+        "query_frames": query_count,
+        "processed_frames": processed_count,
+        "accepted_cases": accepted_count,
+        "solved_cases": solved_count,
+        "output_rejected_cases": output_rejected_count,
+        "acceptance_ratio": acceptance_ratio,
+        "first_pose_time_sec": times[0],
+        "last_pose_time_sec": times[-1],
+        "temporal_coverage": temporal_coverage,
+        "max_consecutive_center_step": max_center_step,
+    }
 
 
 def drone_video_job(video: Path, map_id: str | None = None) -> None:
-    DRONE_STOP_EVENT.clear()
+    # The endpoint initializes the cancellation token before reserving this
+    # worker; only final cleanup may acknowledge and clear a Stop request.
+    DRONE_JOB_ACTIVE.set()
     try:
         cfg = load_config()
         py = Path(cfg["python"])
@@ -3527,6 +5623,16 @@ def drone_video_job(video: Path, map_id: str | None = None) -> None:
                 "first_pose_latency_seconds": None,
             }
         )
+        simulated_query_fps = float(
+            cfg.get("simulated_live_query_frame_fps", cfg["query_frame_fps"])
+        )
+        simulated_query_cap = int(cfg.get("simulated_live_query_frame_cap", 0) or 0)
+        minimum_temporal_coverage = float(
+            cfg.get("simulated_live_min_temporal_coverage", 0.98)
+        )
+        minimum_acceptance_ratio = float(
+            cfg.get("simulated_live_min_acceptance_ratio", 0.75)
+        )
         extract_cmd = [
             py,
             scripts / "extract_frames.py",
@@ -3535,18 +5641,21 @@ def drone_video_job(video: Path, map_id: str | None = None) -> None:
             "--out-dir",
             query_frames,
             "--fps",
-            cfg["query_frame_fps"],
+            simulated_query_fps,
             "--max-size",
             cfg["max_image_size"],
             "--prefix",
             "query",
         ]
-        query_cap = int(cfg.get("live_demo_query_frame_cap", 0) or 0)
-        if query_cap > 0:
-            extract_cmd += ["--max-frames", query_cap]
+        if simulated_query_cap > 0:
+            extract_cmd += ["--max-frames", simulated_query_cap]
         run_cmd("drone", extract_cmd, DRONE_STOP_EVENT)
 
         expected_count = count_frame_images(query_frames)
+        extraction_validation = validate_extracted_video_coverage(
+            query_frames,
+            min_temporal_coverage=minimum_temporal_coverage,
+        )
         set_job(
             "drone",
             "running",
@@ -3658,6 +5767,7 @@ def drone_video_job(video: Path, map_id: str | None = None) -> None:
                 map_artifacts["sparse_text"],
                 base_asset_dir / "scene.json",
                 selected.get("display_z_sign", -1),
+                selected.get("room_alignment"),
                 live_started_at,
             ),
             daemon=True,
@@ -3715,6 +5825,8 @@ def drone_video_job(video: Path, map_id: str | None = None) -> None:
                     base_asset_dir / "scene.json",
                     "--display-z-sign",
                     selected.get("display_z_sign", -1),
+                    "--room-alignment-json",
+                    json.dumps(selected.get("room_alignment") or {}),
                 ]
                 + extra_stream_args,
                 DRONE_STOP_EVENT,
@@ -3745,13 +5857,27 @@ def drone_video_job(video: Path, map_id: str | None = None) -> None:
             DRONE_STOP_EVENT,
         )
         counts = read_counts(out_asset_dir)
+        localization_validation = validate_simulated_live_localization(
+            tsolve_runtime / "live_stream_summary.json",
+            out_asset_dir / "poses.json",
+            expected_count=expected_count,
+            video_duration_sec=extraction_validation["duration_sec"],
+            min_temporal_coverage=minimum_temporal_coverage,
+            min_acceptance_ratio=minimum_acceptance_ratio,
+        )
         replay = {
             "id": replay_id,
             "title": replay_title,
             "asset_base": public_rel(out_asset_dir),
             "created_at": time.strftime("%Y-%m-%d %H:%M:%S"),
             "source_video": video.name,
-            "counts": {"poses": counts["poses"]},
+            "counts": {
+                "poses": counts["poses"],
+                "processed": localization_validation["processed_frames"],
+                "accepted": localization_validation["accepted_cases"],
+                "frames": extraction_validation["saved_frames"],
+                "temporal_coverage": localization_validation["temporal_coverage"],
+            },
         }
         update_live_stream(
             pose_count=counts["poses"],
@@ -3767,9 +5893,17 @@ def drone_video_job(video: Path, map_id: str | None = None) -> None:
         if DRONE_STOP_EVENT.is_set():
             update_live_stream(complete=True, cancelled=True)
             set_job("drone", "cancelled", "Live TSolve path creation cancelled.")
-            DRONE_STOP_EVENT.clear()
         else:
+            update_live_stream(
+                complete=True,
+                cancelled=False,
+                failed=True,
+                stopping=False,
+                error=str(exc),
+            )
             set_job("drone", "error", str(exc))
+    finally:
+        release_drone_job()
 
 
 def start_thread(target, *args) -> None:
@@ -3780,6 +5914,14 @@ def start_thread(target, *args) -> None:
 class AtlasHandler(SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=str(VIEWER), **kwargs)
+
+    def end_headers(self) -> None:
+        # ATLAS is an actively edited local control application. Never let an
+        # old HTML/JS bundle hide new flight-safety controls after a restart.
+        self.send_header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+        self.send_header("Pragma", "no-cache")
+        self.send_header("Expires", "0")
+        super().end_headers()
 
     def send_json(self, payload: dict, status: int = 200) -> None:
         data = json.dumps(payload).encode("utf-8")
@@ -3837,10 +5979,98 @@ class AtlasHandler(SimpleHTTPRequestHandler):
                 payload["job"] = json.loads(json.dumps(STATE["enemy"]))
             self.send_json(payload)
             return
+        if url.path == "/api/fleet":
+            payload = fleet_snapshot()
+            payload["maps"] = [
+                {
+                    "id": item.get("id"),
+                    "title": item.get("title") or item.get("id"),
+                    "patrols": [
+                        {
+                            "id": patrol.get("id"),
+                            "title": patrol.get("title") or patrol.get("id"),
+                            "points": len(patrol.get("points") or []),
+                            "speed": patrol.get("speed"),
+                            "patrol_mode": patrol.get("patrol_mode"),
+                        }
+                        for patrol in item.get("patrols") or []
+                    ],
+                    "has_geofence": len(item.get("safety_barriers") or []) >= 3,
+                }
+                for item in load_library().get("maps", [])
+                if item.get("patrols")
+            ]
+            self.send_json(payload)
+            return
         super().do_GET()
 
     def do_POST(self) -> None:
         url = urllib.parse.urlparse(self.path)
+        if url.path == "/api/fleet/drone":
+            length = int(self.headers.get("Content-Length", "0"))
+            body = self.rfile.read(length).decode("utf-8") if length else "{}"
+            try:
+                drone = upsert_fleet_drone(json.loads(body or "{}"))
+            except Exception as exc:
+                self.send_json({"ok": False, "error": str(exc)}, 400)
+                return
+            self.send_json({"ok": True, "drone": drone, "fleet": fleet_snapshot()})
+            return
+
+        if url.path == "/api/fleet/drone/delete":
+            length = int(self.headers.get("Content-Length", "0"))
+            body = self.rfile.read(length).decode("utf-8") if length else "{}"
+            try:
+                payload = json.loads(body or "{}")
+                delete_fleet_drone(str(payload.get("drone_id") or ""))
+            except Exception as exc:
+                self.send_json({"ok": False, "error": str(exc)}, 400)
+                return
+            self.send_json({"ok": True, "fleet": fleet_snapshot()})
+            return
+
+        if url.path == "/api/fleet/dispatch":
+            length = int(self.headers.get("Content-Length", "0"))
+            body = self.rfile.read(length).decode("utf-8") if length else "{}"
+            try:
+                session = dispatch_fleet_drone(json.loads(body or "{}"))
+            except Exception as exc:
+                self.send_json({"ok": False, "error": str(exc)}, 400)
+                return
+            self.send_json({"ok": True, "session": session, "fleet": fleet_snapshot()})
+            return
+
+        if url.path == "/api/fleet/control":
+            length = int(self.headers.get("Content-Length", "0"))
+            body = self.rfile.read(length).decode("utf-8") if length else "{}"
+            try:
+                result = control_fleet_drone(json.loads(body or "{}"))
+            except Exception as exc:
+                self.send_json({"ok": False, "error": str(exc)}, 400)
+                return
+            self.send_json({"ok": True, **result, "fleet": fleet_snapshot()})
+            return
+
+        if url.path == "/api/fleet/stop":
+            length = int(self.headers.get("Content-Length", "0"))
+            body = self.rfile.read(length).decode("utf-8") if length else "{}"
+            try:
+                payload = json.loads(body or "{}")
+                requested = str(payload.get("drone_id") or "").strip()
+                stopped = []
+                if requested:
+                    if stop_fleet_session(requested):
+                        stopped.append(requested)
+                else:
+                    for item in load_fleet_manifest()["drones"]:
+                        if stop_fleet_session(item["id"]):
+                            stopped.append(item["id"])
+            except Exception as exc:
+                self.send_json({"ok": False, "error": str(exc)}, 400)
+                return
+            self.send_json({"ok": True, "stopped": stopped, "fleet": fleet_snapshot()})
+            return
+
         if url.path == "/api/enemy-drone/upload":
             form = cgi.FieldStorage(fp=self.rfile, headers=self.headers, environ={"REQUEST_METHOD": "POST"})
             file_fields = uploaded_video_fields(form)
@@ -3940,6 +6170,48 @@ class AtlasHandler(SimpleHTTPRequestHandler):
             self.send_json({"ok": True, **result})
             return
 
+        if url.path == "/api/enemy-drone/range-sample":
+            length = int(self.headers.get("Content-Length", "0"))
+            body = self.rfile.read(length).decode("utf-8") if length else "{}"
+            payload = json.loads(body or "{}")
+            try:
+                result = capture_enemy_range_sample(
+                    str(payload.get("enemy_id", "")).strip(),
+                    float(payload.get("measured_clearance_m")),
+                )
+            except Exception as exc:
+                self.send_json({"ok": False, "error": str(exc)}, 400)
+                return
+            self.send_json({"ok": True, **result})
+            return
+
+        if url.path == "/api/enemy-drone/range-validate":
+            length = int(self.headers.get("Content-Length", "0"))
+            body = self.rfile.read(length).decode("utf-8") if length else "{}"
+            payload = json.loads(body or "{}")
+            try:
+                result = fit_enemy_range_calibration(
+                    str(payload.get("enemy_id", "")).strip(),
+                    float(payload.get("stop_clearance_m") or 0.50),
+                )
+            except Exception as exc:
+                self.send_json({"ok": False, "error": str(exc)}, 400)
+                return
+            self.send_json({"ok": True, **result})
+            return
+
+        if url.path == "/api/enemy-drone/range-reset":
+            length = int(self.headers.get("Content-Length", "0"))
+            body = self.rfile.read(length).decode("utf-8") if length else "{}"
+            payload = json.loads(body or "{}")
+            try:
+                result = reset_enemy_range_calibration(str(payload.get("enemy_id", "")).strip())
+            except Exception as exc:
+                self.send_json({"ok": False, "error": str(exc)}, 400)
+                return
+            self.send_json({"ok": True, **result})
+            return
+
         if url.path == "/api/enemy-drone/prepare-yolo":
             length = int(self.headers.get("Content-Length", "0"))
             body = self.rfile.read(length).decode("utf-8") if length else "{}"
@@ -4029,31 +6301,34 @@ class AtlasHandler(SimpleHTTPRequestHandler):
             return
 
         if url.path == "/api/drone/stop":
-            DRONE_STOP_EVENT.set()
             stream = current_live_stream() or {}
             if not stream:
                 stream = recover_live_stream_from_disk() or {}
-            if stream.get("live_atlas"):
-                set_job("drone", "stopping", "Stopping DJI live localization and saving the current ATLAS path.")
-                touch_stop_file(stream.get("stop_file"), "ATLAS Stop Live Localization pressed")
-                update_live_stream(stopping=True, live_preview_url=None)
-                mark_live_dji_status_stopped("ATLAS live localization stop requested; saving current path.")
-            else:
-                set_job("drone", "stopping", "Cancelling live TSolve path creation.")
-                update_live_stream(complete=True, cancelled=True)
+            worker_active = DRONE_JOB_ACTIVE.is_set()
+            if worker_active:
+                if stream.get("live_atlas"):
+                    set_job("drone", "stopping", "Stopping DJI live localization and saving the current ATLAS path.")
+                    touch_stop_file(stream.get("stop_file"), "ATLAS Stop Live Localization pressed")
+                    update_live_stream(stopping=True, live_preview_url=None)
+                    mark_live_dji_status_stopped("ATLAS live localization stop requested; saving current path.")
+                else:
+                    set_job("drone", "stopping", "Cancelling live TSolve path creation.")
+                    update_live_stream(stopping=True)
+            # The worker owns clearing this event after it has left every wait
+            # loop and joined its background processes.
+            DRONE_STOP_EVENT.set()
             terminated = terminate_active_procs("drone")
             orphan_count = terminate_orphan_live_drone_procs()
             if orphan_count:
                 append_log("drone", f"Stopped {orphan_count} orphan live subprocess(es).")
             mark_live_dji_status_stopped("ATLAS live localization stopped by user.")
-            if terminated or orphan_count:
+            if not DRONE_JOB_ACTIVE.is_set():
                 update_live_stream(complete=True, cancelled=True, stopping=False, live_preview_url=None)
-                set_job("drone", "cancelled", "Live localization stopped; active live subprocesses were terminated.")
-                DRONE_STOP_EVENT.clear()
-            else:
-                update_live_stream(complete=True, cancelled=True, stopping=False, live_preview_url=None)
-                set_job("drone", "cancelled", "Live localization stopped; no active drone subprocess remained.")
-                DRONE_STOP_EVENT.clear()
+                if terminated or orphan_count:
+                    set_job("drone", "cancelled", "Live localization stopped; active live subprocesses were terminated.")
+                else:
+                    set_job("drone", "cancelled", "Live localization stopped; no active drone worker remained.")
+                release_drone_job()
             self.send_json({"ok": True, "state": snapshot_state()})
             return
 
@@ -4070,9 +6345,6 @@ class AtlasHandler(SimpleHTTPRequestHandler):
             return
 
         if url.path == "/api/drone/live-atlas":
-            if job_is_active("drone"):
-                self.send_json({"ok": False, "error": "Drone live localization is already running. Stop it before starting another live ATLAS session."}, 409)
-                return
             length = int(self.headers.get("Content-Length", "0"))
             body = self.rfile.read(length).decode("utf-8") if length else "{}"
             try:
@@ -4081,20 +6353,28 @@ class AtlasHandler(SimpleHTTPRequestHandler):
                 payload = {}
             map_id = str(payload.get("map_id", "")).strip() or None
             phone_ip = str(payload.get("phone_ip", "")).strip()
-            fps = float(payload.get("fps", 2.0))
+            fps = max(0.5, min(10.0, float(payload.get("fps", 10.0))))
             max_size = int(payload.get("max_size", 1200))
             if not phone_ip:
                 self.send_json({"ok": False, "error": "Missing phone_ip. Enter the Android MSDK phone IP first."}, 400)
                 return
-            queue_job("drone", f"Starting live ATLAS from Android phone {phone_ip}.")
-            start_thread(
-                lambda: dji_live_atlas_job(
-                    map_id=map_id,
-                    phone_ip=phone_ip,
-                    fps=fps,
-                    max_size=max_size,
+            if not reserve_and_queue_drone_job(f"Starting live ATLAS from Android phone {phone_ip}."):
+                self.send_json({"ok": False, "error": "Drone live localization is already running. Stop it before starting another live ATLAS session."}, 409)
+                return
+            try:
+                start_thread(
+                    lambda: dji_live_atlas_job(
+                        map_id=map_id,
+                        phone_ip=phone_ip,
+                        fps=fps,
+                        max_size=max_size,
+                    )
                 )
-            )
+            except Exception as exc:
+                release_drone_job()
+                set_job("drone", "error", f"Could not start live localization worker: {exc}")
+                self.send_json({"ok": False, "error": str(exc)}, 500)
+                return
             self.send_json({"ok": True, "state": snapshot_state()})
             return
 
@@ -4174,6 +6454,53 @@ class AtlasHandler(SimpleHTTPRequestHandler):
                 self.send_json({"ok": False, "error": str(exc)}, 400)
                 return
             self.send_json({"ok": True, "map": entry, "state": snapshot_state()})
+            return
+
+        if url.path == "/api/map/patrol/import":
+            length = int(self.headers.get("Content-Length", "0"))
+            body = self.rfile.read(length).decode("utf-8") if length else "{}"
+            payload = json.loads(body or "{}")
+            try:
+                entry, patrol = import_map_patrol(
+                    str(payload.get("target_map_id", "")),
+                    str(payload.get("source_map_id", "")),
+                    str(payload.get("patrol_id", "")),
+                )
+            except Exception as exc:
+                self.send_json({"ok": False, "error": str(exc)}, 400)
+                return
+            self.send_json(
+                {
+                    "ok": True,
+                    "map": entry,
+                    "patrol": patrol,
+                    "state": snapshot_state(),
+                }
+            )
+            return
+
+        if url.path == "/api/manual-patrol/start":
+            length = int(self.headers.get("Content-Length", "0"))
+            body = self.rfile.read(length).decode("utf-8") if length else "{}"
+            payload = json.loads(body or "{}")
+            try:
+                recording = start_manual_patrol_recording(payload)
+            except Exception as exc:
+                self.send_json({"ok": False, "error": str(exc)}, 400)
+                return
+            self.send_json({"ok": True, "recording": recording})
+            return
+
+        if url.path == "/api/manual-patrol/finish":
+            length = int(self.headers.get("Content-Length", "0"))
+            body = self.rfile.read(length).decode("utf-8") if length else "{}"
+            payload = json.loads(body or "{}")
+            try:
+                recording = finish_manual_patrol_recording(payload)
+            except Exception as exc:
+                self.send_json({"ok": False, "error": str(exc)}, 400)
+                return
+            self.send_json({"ok": True, "recording": recording})
             return
 
         if url.path == "/api/replay/select":
@@ -4284,16 +6611,21 @@ class AtlasHandler(SimpleHTTPRequestHandler):
                 queue_job("map", f"Enhancing map with {len(saved)} video{'' if len(saved) == 1 else 's'}: {names}")
                 start_thread(enhance_map_job, map_id, [path for path, _ in saved])
             else:
-                if job_is_active("drone"):
-                    self.send_json({"ok": False, "error": "Drone live localization is already running. Wait for it to finish before uploading another drone video."}, 409)
-                    return
                 file_field = file_fields[0]
                 map_id = str(form.getfirst("map_id", "")).strip() or None
                 suffix = Path(file_field.filename).suffix or ".mp4"
                 dst = uploads / f"drone_upload_{uuid.uuid4().hex[:8]}{suffix}"
-                save_upload(file_field, dst)
-                queue_job("drone", f"Uploaded drone video: {file_field.filename}")
-                start_thread(drone_video_job, dst, map_id)
+                if not reserve_and_queue_drone_job(f"Uploaded drone video: {file_field.filename}"):
+                    self.send_json({"ok": False, "error": "Drone live localization is already running. Wait for it to finish before uploading another drone video."}, 409)
+                    return
+                try:
+                    save_upload(file_field, dst)
+                    start_thread(drone_video_job, dst, map_id)
+                except Exception as exc:
+                    release_drone_job()
+                    set_job("drone", "error", f"Could not start drone path worker: {exc}")
+                    self.send_json({"ok": False, "error": str(exc)}, 500)
+                    return
             self.send_json({"ok": True, "state": snapshot_state()})
             return
 
