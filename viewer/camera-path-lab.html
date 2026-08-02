@@ -4,6 +4,11 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Camera Path Viewer</title>
+    <script>
+      if (window.location.protocol === "file:") {
+        window.location.replace("http://127.0.0.1:8767/camera-path-lab.html");
+      }
+    </script>
     <link rel="stylesheet" href="./camera-path-lab.css" />
   </head>
   <body>

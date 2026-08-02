@@ -61,6 +61,8 @@ class CameraPathLabTests(unittest.TestCase):
         self.assertIn("rig.scale.setScalar(1.3)", script)
         self.assertIn("colored surface points · GPU display", script)
         self.assertIn('camera-path-lab.js?v=20260802-dark-ombre', html)
+        self.assertIn('window.location.protocol === "file:"', html)
+        self.assertIn('window.location.replace("http://127.0.0.1:8767/camera-path-lab.html")', html)
         stylesheet = (ROOT / "viewer" / "camera-path-lab.css").read_text(encoding="utf-8")
         self.assertIn("color-scheme: dark", stylesheet)
         self.assertIn("linear-gradient(135deg, #061725", stylesheet)
