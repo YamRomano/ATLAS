@@ -567,11 +567,11 @@ function addWalls(entry) {
     const mesh = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({
       color: wall.color || 0x94e3fe,
       transparent: true,
-      opacity: Math.max(0.07, Number(wall.opacity) || 0.1),
+      opacity: Math.min(0.045, Math.max(0.025, (Number(wall.opacity) || 0.1) * 0.4)),
       depthWrite: false,
       side: THREE.DoubleSide,
     }));
-    const edges = new THREE.LineSegments(new THREE.EdgesGeometry(geometry), new THREE.LineBasicMaterial({ color: 0x7edcf5, transparent: true, opacity: 0.44 }));
+    const edges = new THREE.LineSegments(new THREE.EdgesGeometry(geometry), new THREE.LineBasicMaterial({ color: 0x7edcf5, transparent: true, opacity: 0.3 }));
     wallsGroup.add(mesh, edges);
   }
   fallbackDirty = true;
@@ -608,13 +608,12 @@ function loadGlbMesh() {
               .applyMatrix4(node.matrixWorld);
             fallbackTriangles.push({ a: vertex(0), b: vertex(1), c: vertex(2) });
           }
-          node.material = new THREE.MeshStandardMaterial({
-            color: 0xb1cbd3,
+          node.material = new THREE.MeshBasicMaterial({
+            color: node.geometry.getAttribute("color") ? 0xffffff : 0x82adba,
             vertexColors: Boolean(node.geometry.getAttribute("color")),
-            roughness: 0.92,
-            metalness: 0,
             transparent: true,
-            opacity: 0.82,
+            opacity: 0.68,
+            depthWrite: true,
             side: THREE.DoubleSide,
           });
         });
@@ -643,14 +642,24 @@ async function loadVoxelFallback() {
       weight: Number(voxel[6]) || 1,
     }));
   const geometry = new THREE.BoxGeometry(size * 0.95, size * 0.95, size * 0.95);
-  const material = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.94, metalness: 0 });
+  const material = new THREE.MeshBasicMaterial({
+    vertexColors: true,
+    transparent: true,
+    opacity: 0.68,
+    depthWrite: true,
+  });
   const instanced = new THREE.InstancedMesh(geometry, material, voxels.length);
   const matrix = new THREE.Matrix4();
   const color = new THREE.Color();
   voxels.forEach((voxel, index) => {
     matrix.makeTranslation(Number(voxel[0]), Number(voxel[1]), Number(voxel[2]));
     instanced.setMatrixAt(index, matrix);
-    color.setRGB(Number(voxel[3]) / 255, Number(voxel[4]) / 255, Number(voxel[5]) / 255);
+    color.setRGB(
+      Number(voxel[3]) / 255,
+      Number(voxel[4]) / 255,
+      Number(voxel[5]) / 255,
+      THREE.SRGBColorSpace,
+    );
     instanced.setColorAt(index, color);
   });
   instanced.instanceMatrix.needsUpdate = true;
