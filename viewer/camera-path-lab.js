@@ -205,13 +205,38 @@ function poseHeading(pose) {
 
 function makeCameraRig() {
   const rig = new THREE.Group();
-  const bodyMaterial = new THREE.MeshStandardMaterial({ color: 0xf3fbff, roughness: 0.4, metalness: 0.08 });
-  const accentMaterial = new THREE.MeshStandardMaterial({ color: 0x49dfff, emissive: 0x0b7d99, emissiveIntensity: 0.8 });
-  const body = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.22, 0.20), bodyMaterial);
-  const lens = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.09, 0.12, 18), accentMaterial);
+  const shell = new THREE.BoxGeometry(0.34, 0.22, 0.20);
+  const body = new THREE.Mesh(shell, new THREE.MeshBasicMaterial({
+    color: 0x06131b,
+    transparent: true,
+    opacity: 0.9,
+  }));
+  const edges = new THREE.LineSegments(
+    new THREE.EdgesGeometry(shell),
+    new THREE.LineBasicMaterial({ color: 0xe9fbff, transparent: true, opacity: 0.96 }),
+  );
+  const lens = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.065, 0.085, 0.13, 18),
+    new THREE.MeshStandardMaterial({
+      color: 0x163849,
+      emissive: 0x087d9e,
+      emissiveIntensity: 0.9,
+      roughness: 0.35,
+    }),
+  );
   lens.rotation.x = Math.PI / 2;
-  lens.position.z = -0.14;
-  rig.add(body, lens);
+  lens.position.z = -0.15;
+  const frontDot = new THREE.Mesh(
+    new THREE.SphereGeometry(0.027, 12, 8),
+    new THREE.MeshBasicMaterial({ color: 0xff5478 }),
+  );
+  frontDot.position.z = -0.225;
+  const halo = new THREE.Mesh(
+    new THREE.TorusGeometry(0.28, 0.006, 6, 40),
+    new THREE.MeshBasicMaterial({ color: 0x62dcfb, transparent: true, opacity: 0.52 }),
+  );
+  halo.position.z = 0.015;
+  rig.add(body, edges, lens, frontDot, halo);
   const points = [
     [0, 0, -0.18], [-0.32, -0.20, -0.75], [0, 0, -0.18], [0.32, -0.20, -0.75],
     [0, 0, -0.18], [-0.32, 0.20, -0.75], [0, 0, -0.18], [0.32, 0.20, -0.75],
@@ -221,7 +246,7 @@ function makeCameraRig() {
   const frustumGeometry = new THREE.BufferGeometry();
   frustumGeometry.setAttribute("position", new THREE.Float32BufferAttribute(points, 3));
   rig.add(new THREE.LineSegments(frustumGeometry, new THREE.LineBasicMaterial({ color: 0x5ce1ff, transparent: true, opacity: 0.76 })));
-  rig.scale.setScalar(0.75);
+  rig.scale.setScalar(0.72);
   rig.visible = false;
   scene.add(rig);
   return rig;
@@ -383,6 +408,12 @@ async function pollStatus() {
     const payload = await response.json();
     const stream = payload.stream || {};
     setStatus(payload.status || "idle", payload.message);
+    const active = ["queued", "running"].includes(payload.status);
+    if (active && selectedFile && sourceVideo.paused) {
+      sourceVideo.play().catch(() => {});
+    } else if (!active && !sourceVideo.paused) {
+      sourceVideo.pause();
+    }
     el("detail-text").textContent = stream.error || payload.message || "Ready.";
     const processed = Number(stream.pose_count || 0);
     const accepted = Number(stream.accepted_pose_count || 0);
@@ -411,7 +442,7 @@ videoInput.addEventListener("change", () => {
   sourceVideo.src = videoObjectUrl || "";
   el("video-empty").hidden = Boolean(selectedFile);
   el("file-name").textContent = selectedFile?.name || "Choose a lab video";
-  videoInput.closest(".upload-zone").classList.toggle("has-file", Boolean(selectedFile));
+  videoInput.closest(".file-button").classList.toggle("has-file", Boolean(selectedFile));
   startButton.disabled = !selectedFile;
 });
 
@@ -425,6 +456,8 @@ startButton.addEventListener("click", async () => {
     const response = await fetch("/api/camera-path-lab/upload", { method: "POST", body: form });
     const payload = await response.json();
     if (!response.ok || !payload.ok) throw new Error(payload.error || "Upload failed");
+    sourceVideo.currentTime = 0;
+    sourceVideo.play().catch(() => {});
   } catch (error) {
     setStatus("error", error.message);
   }
@@ -432,6 +465,7 @@ startButton.addEventListener("click", async () => {
 
 stopButton.addEventListener("click", async () => {
   setStatus("stopping", "Stopping after the active localization step…");
+  sourceVideo.pause();
   try { await fetch("/api/drone/stop", { method: "POST" }); } catch (_) { /* status poll will report it */ }
 });
 
@@ -440,7 +474,7 @@ el("top-view").addEventListener("click", () => setOrbit(true));
 el("toggle-walls").addEventListener("click", (event) => {
   wallsVisible = !wallsVisible;
   wallsGroup.visible = wallsVisible;
-  event.currentTarget.textContent = wallsVisible ? "Walls on" : "Walls off";
+  event.currentTarget.textContent = wallsVisible ? "Walls" : "Walls off";
   event.currentTarget.setAttribute("aria-pressed", String(wallsVisible));
 });
 

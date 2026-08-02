@@ -3,95 +3,57 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>ATLAS Camera Path Lab</title>
+    <title>ATLAS Camera Path</title>
     <link rel="stylesheet" href="./camera-path-lab.css" />
   </head>
   <body>
-    <main class="lab-shell">
-      <header class="lab-header">
-        <div>
-          <a class="back-link" href="./index.html">← ATLAS</a>
-          <h1>Camera Path Lab</h1>
-          <p>Frame-by-frame camera localization on an isolated 3D mesh.</p>
-        </div>
-        <div class="reference-badge">
-          <span class="badge-dot"></span>
-          <span>
-            <small>READ-ONLY REFERENCE</small>
-            <strong id="map-name">Video Map 20:07:46 Copy</strong>
-          </span>
-        </div>
+    <main class="lab-stage">
+      <div id="lab-canvas" aria-label="3D camera path visualization"></div>
+
+      <header class="atlas-bar">
+        <a href="./index.html" aria-label="Back to ATLAS">ATLAS</a>
+        <span class="bar-divider"></span>
+        <strong id="map-name">Video Map 20:07:46 Copy</strong>
+        <span class="bar-spacer"></span>
+        <span id="status-dot" class="status-dot idle"></span>
+        <span id="status-text">Ready</span>
       </header>
 
-      <section class="workspace">
-        <div class="viewport-card">
-          <div id="lab-canvas" aria-label="3D camera path visualization"></div>
-          <div class="viewport-topbar">
-            <div class="status-cluster">
-              <span id="status-dot" class="status-dot idle"></span>
-              <span id="status-text">Ready for a phone video</span>
-            </div>
-            <div id="mesh-badge" class="mesh-badge">Loading mesh…</div>
-          </div>
-          <div id="camera-label" class="camera-label" hidden>
-            <span>CAMERA</span>
-            <strong id="camera-coordinates">X 0.000 · Y 0.000 · Z 0.000</strong>
-          </div>
-          <div class="viewport-legend">
-            <span><i class="legend-path"></i>localized path</span>
-            <span><i class="legend-camera"></i>current camera</span>
-            <span><i class="legend-held"></i>held / rejected</span>
-          </div>
-          <div class="view-controls" aria-label="3D view controls">
-            <button id="reset-view" type="button">Reset view</button>
-            <button id="top-view" type="button">Top</button>
-            <button id="toggle-walls" type="button" aria-pressed="true">Walls on</button>
-          </div>
+      <div id="camera-label" class="camera-label" hidden>
+        <strong id="camera-coordinates">X 0.000 · Y 0.000 · Z 0.000</strong>
+      </div>
+
+      <aside class="video-card" aria-label="Synchronized source video">
+        <div class="video-frame">
+          <video id="source-video" muted playsinline preload="metadata"></video>
+          <div id="video-empty" class="video-empty">Choose a video</div>
+          <div id="frame-chip" class="frame-chip">FRAME —</div>
         </div>
+        <div class="video-caption">
+          <span id="video-time">00:00.0</span>
+          <span id="detail-text">Waiting for video</span>
+        </div>
+      </aside>
 
-        <aside class="control-card">
-          <section>
-            <div class="section-kicker">01 · SOURCE</div>
-            <h2>Phone video</h2>
-            <label class="upload-zone" for="video-input">
-              <input id="video-input" type="file" accept="video/mp4,video/quicktime,video/*" />
-              <span class="upload-icon">＋</span>
-              <strong id="file-name">Choose a lab video</strong>
-              <small>MP4 or MOV · the source map will not be edited</small>
-            </label>
-            <div class="action-row">
-              <button id="start-button" class="primary" type="button" disabled>Create camera path</button>
-              <button id="stop-button" class="secondary" type="button" disabled>Stop</button>
-            </div>
-          </section>
+      <div class="run-bar">
+        <label class="file-button" for="video-input">
+          <input id="video-input" type="file" accept="video/mp4,video/quicktime,video/*" />
+          <span id="file-name">Choose video</span>
+        </label>
+        <button id="start-button" class="run-button" type="button" disabled>Run</button>
+        <button id="stop-button" class="stop-button" type="button" disabled>Stop</button>
+        <div class="progress-track"><span id="progress-fill"></span></div>
+        <span class="pose-count"><strong id="accepted-count">0</strong>/<span id="processed-count">0</span></span>
+        <span id="target-count" class="target-count">0</span>
+      </div>
 
-          <section>
-            <div class="section-kicker">02 · LIVE FRAME</div>
-            <div class="video-frame">
-              <video id="source-video" muted playsinline preload="metadata"></video>
-              <div id="video-empty" class="video-empty">Video preview appears here</div>
-              <div id="frame-chip" class="frame-chip">FRAME —</div>
-            </div>
-          </section>
+      <div class="view-controls" aria-label="3D view controls">
+        <button id="reset-view" type="button">Reset</button>
+        <button id="top-view" type="button">Top</button>
+        <button id="toggle-walls" type="button" aria-pressed="true">Walls</button>
+      </div>
 
-          <section>
-            <div class="section-kicker">03 · LOCALIZATION</div>
-            <div class="metrics-grid">
-              <div><small>ACCEPTED</small><strong id="accepted-count">0</strong></div>
-              <div><small>PROCESSED</small><strong id="processed-count">0</strong></div>
-              <div><small>TARGET</small><strong id="target-count">0</strong></div>
-              <div><small>VIDEO TIME</small><strong id="video-time">00:00.0</strong></div>
-            </div>
-            <div class="progress-track"><span id="progress-fill"></span></div>
-            <p id="detail-text" class="detail-text">Select one video to begin. The first valid frame establishes the global map anchor.</p>
-          </section>
-
-          <section class="integrity-card">
-            <span class="shield">◇</span>
-            <div><strong>Isolated experiment</strong><small>Uploads and pose results are stored outside the map library. Points, cameras, patrols, walls and the original map remain unchanged.</small></div>
-          </section>
-        </aside>
-      </section>
+      <div id="mesh-badge" class="mesh-badge">Loading mesh…</div>
     </main>
     <script type="module" src="./camera-path-lab.js"></script>
   </body>
