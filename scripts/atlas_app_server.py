@@ -38,6 +38,7 @@ ENEMY_DIR = PUBLIC / "enemy_drones"
 ENEMY_MANIFEST = ENEMY_DIR / "manifest.json"
 FLEET_DIR = PUBLIC / "fleet"
 FLEET_MANIFEST = FLEET_DIR / "manifest.json"
+CAMERA_PATH_LAB_DIR = PUBLIC / "camera_path_lab"
 CONFIG = ROOT / "config.json"
 DEFAULT_PORT = 8765
 
@@ -79,6 +80,13 @@ ACTIVE_PROCS: dict[str, set[subprocess.Popen]] = {"map": set(), "drone": set(), 
 FLEET_LOCK = threading.RLock()
 FLEET_SESSIONS: dict[str, dict] = {}
 LIBRARY_LOCK = threading.RLock()
+CAMERA_PATH_LAB_LOCK = threading.RLock()
+CAMERA_PATH_LAB_STATE = {
+    "status": "idle",
+    "message": "Choose a phone video to begin camera tracking.",
+    "updated_at": None,
+    "stream": None,
+}
 
 
 def register_active_proc(kind: str, proc: subprocess.Popen) -> None:
@@ -2133,6 +2141,35 @@ def release_drone_job() -> None:
         DRONE_STOP_EVENT.clear()
 
 
+def set_camera_path_lab_job(status: str, message: str | None = None) -> None:
+    with CAMERA_PATH_LAB_LOCK:
+        CAMERA_PATH_LAB_STATE["status"] = status
+        if message is not None:
+            CAMERA_PATH_LAB_STATE["message"] = message
+        CAMERA_PATH_LAB_STATE["updated_at"] = time.time()
+
+
+def set_camera_path_lab_stream(stream: dict | None) -> None:
+    with CAMERA_PATH_LAB_LOCK:
+        CAMERA_PATH_LAB_STATE["stream"] = json.loads(json.dumps(stream)) if stream else None
+        CAMERA_PATH_LAB_STATE["updated_at"] = time.time()
+
+
+def update_camera_path_lab_stream(**fields) -> None:
+    with CAMERA_PATH_LAB_LOCK:
+        stream = CAMERA_PATH_LAB_STATE.get("stream")
+        if not isinstance(stream, dict):
+            stream = {}
+        stream.update(fields)
+        CAMERA_PATH_LAB_STATE["stream"] = stream
+        CAMERA_PATH_LAB_STATE["updated_at"] = time.time()
+
+
+def camera_path_lab_snapshot() -> dict:
+    with CAMERA_PATH_LAB_LOCK:
+        return json.loads(json.dumps(CAMERA_PATH_LAB_STATE))
+
+
 def set_map_capture_state(**fields) -> None:
     with STATE_LOCK:
         STATE["map"].update(fields)
@@ -3223,7 +3260,11 @@ def stream_partial_poses(
     display_z_sign: float = -1.0,
     room_alignment=None,
     started_at: float | None = None,
+    stream_update_callback=None,
+    status_callback=None,
 ) -> None:
+    publish_stream = stream_update_callback or update_live_stream
+    publish_status = status_callback or (lambda message: set_job("drone", "running", message))
     room_transform = build_room_transform_from_scene(scene_json, display_z_sign, room_alignment)
     last_count = -1
     last_write = 0.0
@@ -3257,15 +3298,12 @@ def stream_partial_poses(
                 "expected_count": expected_count,
                 "partial_pose_url": public_rel(partial_path),
             }
-            current = current_live_stream() or {}
-            if count > 0 and started_at is not None and not current.get("first_pose_at"):
+            if count > 0 and started_at is not None and last_count <= 0:
                 stream_update["first_pose_at"] = now
                 stream_update["first_pose_latency_seconds"] = now - started_at
-            update_live_stream(**stream_update)
+            publish_stream(**stream_update)
             if count != last_count and count > 0:
-                set_job(
-                    "drone",
-                    "running",
+                publish_status(
                     f"Live TSolve self-localization: {counts['poses']}/{count}/{expected_count or '?'} accepted/processed/target.",
                 )
             last_count = count
@@ -3300,12 +3338,11 @@ def stream_partial_poses(
         "partial_pose_url": public_rel(partial_path),
         "complete": True,
     }
-    current = current_live_stream() or {}
-    if final_count > 0 and started_at is not None and not current.get("first_pose_at"):
+    if final_count > 0 and started_at is not None and last_count <= 0:
         now = time.time()
         stream_update["first_pose_at"] = now
         stream_update["first_pose_latency_seconds"] = now - started_at
-    update_live_stream(
+    publish_stream(
         **stream_update,
     )
 
@@ -5570,7 +5607,12 @@ def validate_simulated_live_localization(
     }
 
 
-def drone_video_job(video: Path, map_id: str | None = None) -> None:
+def drone_video_job(
+    video: Path,
+    map_id: str | None = None,
+    *,
+    publish_to_map: bool = True,
+) -> None:
     # The endpoint initializes the cancellation token before reserving this
     # worker; only final cleanup may acknowledge and clear a Stop request.
     DRONE_JOB_ACTIVE.set()
@@ -5578,14 +5620,23 @@ def drone_video_job(video: Path, map_id: str | None = None) -> None:
         cfg = load_config()
         py = Path(cfg["python"])
         scripts = ROOT / "scripts"
-        selected = set_selected_map(map_id) if map_id else selected_map_entry()
+        if publish_to_map:
+            selected = set_selected_map(map_id) if map_id else selected_map_entry()
+        else:
+            selected = get_map_entry(map_id) if map_id else selected_map_entry()
         full_map_frames = frames_for_entry(selected)
-        replay_id = make_map_id("replay")
-        base_asset_dir = VIEWER / selected["asset_base"]
-        if not base_asset_dir.exists():
-            base_asset_dir = MAPS_DIR / selected["id"]
-        out_asset_dir = base_asset_dir / "replays" / replay_id
-        run_root = ROOT / "results" / "drone_runs" / selected["id"] / replay_id
+        replay_id = make_map_id("replay" if publish_to_map else "camera_lab")
+        base_asset_dir = map_asset_dir(selected)
+        if publish_to_map:
+            out_asset_dir = base_asset_dir / "replays" / replay_id
+            run_root = ROOT / "results" / "drone_runs" / selected["id"] / replay_id
+            query_frames = ROOT / "data" / "drone_runs" / selected["id"] / replay_id / "query_frames"
+            replay_title = f"Drone Path {time.strftime('%H:%M:%S')}"
+        else:
+            out_asset_dir = CAMERA_PATH_LAB_DIR / "runs" / replay_id
+            run_root = ROOT / "results" / "camera_path_lab_runs" / selected["id"] / replay_id
+            query_frames = ROOT / "data" / "camera_path_lab_runs" / selected["id"] / replay_id / "query_frames"
+            replay_title = f"Camera Track {time.strftime('%H:%M:%S')}"
         map_frames = make_frame_subset(
             full_map_frames,
             run_root / "map_frame_subset",
@@ -5593,21 +5644,43 @@ def drone_video_job(video: Path, map_id: str | None = None) -> None:
         )
         map_artifacts = colmap_artifacts_for_entry(selected)
         append_log("drone", f"Using COLMAP reference artifacts: {map_artifacts['root']}")
-        query_frames = ROOT / "data" / "drone_runs" / selected["id"] / replay_id / "query_frames"
         tsolve_inputs = run_root / "tsolve_inputs"
         runtime_dir = run_root / "tsolve_runtime_code"
         tsolve_runtime = run_root / "tsolve_runtime"
         stream_work = run_root / "live_existing_map_stream"
-        replay_title = f"Drone Path {time.strftime('%H:%M:%S')}"
         partial_pose_path = out_asset_dir / "poses_partial.json"
         partial_stop = threading.Event()
         partial_thread: threading.Thread | None = None
         live_started_at = time.time()
 
-        set_job("drone", "running", "Reading uploaded drone video as a simulated live camera stream.")
+        def report(status: str, message: str) -> None:
+            set_job("drone", status, message)
+            if not publish_to_map:
+                set_camera_path_lab_job(status, message)
+
+        def start_stream(stream: dict) -> None:
+            if publish_to_map:
+                set_live_stream(stream)
+            else:
+                set_camera_path_lab_stream(stream)
+
+        def publish_stream(**fields) -> None:
+            if publish_to_map:
+                update_live_stream(**fields)
+            else:
+                update_camera_path_lab_stream(**fields)
+
+        report(
+            "running",
+            (
+                "Reading uploaded drone video as a simulated live camera stream."
+                if publish_to_map
+                else "Reading uploaded phone video as a frame-by-frame camera stream."
+            ),
+        )
         out_asset_dir.mkdir(parents=True, exist_ok=True)
         copy_video_to_public(video, out_asset_dir)
-        set_live_stream(
+        start_stream(
             {
                 "map_id": selected["id"],
                 "replay_id": replay_id,
@@ -5618,6 +5691,8 @@ def drone_video_job(video: Path, map_id: str | None = None) -> None:
                 "pose_count": 0,
                 "expected_count": 0,
                 "complete": False,
+                "side_project": not publish_to_map,
+                "source_map_title": selected.get("title") or selected["id"],
                 "started_at": live_started_at,
                 "first_pose_at": None,
                 "first_pose_latency_seconds": None,
@@ -5656,8 +5731,7 @@ def drone_video_job(video: Path, map_id: str | None = None) -> None:
             query_frames,
             min_temporal_coverage=minimum_temporal_coverage,
         )
-        set_job(
-            "drone",
+        report(
             "running",
             (
                 "Live replay localization: "
@@ -5666,7 +5740,7 @@ def drone_video_job(video: Path, map_id: str | None = None) -> None:
             ),
         )
 
-        set_job("drone", "running", "Preparing TSolve online runtime; first frame initializes the branch/template.")
+        report("running", "Preparing TSolve online runtime; first frame initializes the branch/template.")
         run_cmd(
             "drone",
             [
@@ -5697,7 +5771,7 @@ def drone_video_job(video: Path, map_id: str | None = None) -> None:
                 "poses": [],
             },
         )
-        update_live_stream(
+        publish_stream(
             partial_pose_url=public_rel(partial_pose_path),
             expected_count=expected_count,
             pose_count=0,
@@ -5754,7 +5828,7 @@ def drone_video_job(video: Path, map_id: str | None = None) -> None:
             if cfg.get("simulated_live_blocking_global_recovery", True):
                 extra_stream_args.append("--blocking-global-recovery")
 
-        set_job("drone", "running", stream_mode_message)
+        report("running", stream_mode_message)
         partial_thread = threading.Thread(
             target=stream_partial_poses,
             args=(
@@ -5769,6 +5843,8 @@ def drone_video_job(video: Path, map_id: str | None = None) -> None:
                 selected.get("display_z_sign", -1),
                 selected.get("room_alignment"),
                 live_started_at,
+                None if publish_to_map else update_camera_path_lab_stream,
+                None if publish_to_map else (lambda message: report("running", message)),
             ),
             daemon=True,
         )
@@ -5839,7 +5915,14 @@ def drone_video_job(video: Path, map_id: str | None = None) -> None:
         if DRONE_STOP_EVENT.is_set():
             raise RuntimeError("Live TSolve path creation cancelled.")
 
-        set_job("drone", "running", "Exporting timestamped live R,t stream to the ATLAS viewer.")
+        report(
+            "running",
+            (
+                "Exporting timestamped live R,t stream to the ATLAS viewer."
+                if publish_to_map
+                else "Exporting timestamped live R,t stream to the Camera Path Lab viewer."
+            ),
+        )
         run_cmd(
             "drone",
             [
@@ -5879,31 +5962,55 @@ def drone_video_job(video: Path, map_id: str | None = None) -> None:
                 "temporal_coverage": localization_validation["temporal_coverage"],
             },
         }
-        update_live_stream(
+        publish_stream(
             pose_count=counts["poses"],
             expected_count=expected_count,
             partial_pose_url=public_rel(out_asset_dir / "poses.json"),
             final_pose_url=public_rel(out_asset_dir / "poses.json"),
             complete=True,
         )
-        add_replay_to_map(selected["id"], replay, select=True)
-        set_job("drone", "done", f"Live TSolve path ready: {replay_title} on {selected['title']}. Press Play Live Replay to play it.")
+        if publish_to_map:
+            add_replay_to_map(selected["id"], replay, select=True)
+            report("done", f"Live TSolve path ready: {replay_title} on {selected['title']}. Press Play Live Replay to play it.")
+        else:
+            report(
+                "done",
+                f"Camera path complete: {localization_validation['accepted_cases']} accepted frames on the read-only {selected['title']} mesh.",
+            )
     except Exception as exc:
         append_log("drone", f"ERROR: {exc}")
         if DRONE_STOP_EVENT.is_set():
-            update_live_stream(complete=True, cancelled=True)
+            if publish_to_map:
+                update_live_stream(complete=True, cancelled=True)
+            else:
+                update_camera_path_lab_stream(complete=True, cancelled=True)
+                set_camera_path_lab_job("cancelled", "Camera path creation cancelled.")
             set_job("drone", "cancelled", "Live TSolve path creation cancelled.")
         else:
-            update_live_stream(
-                complete=True,
-                cancelled=False,
-                failed=True,
-                stopping=False,
-                error=str(exc),
-            )
+            if publish_to_map:
+                update_live_stream(
+                    complete=True,
+                    cancelled=False,
+                    failed=True,
+                    stopping=False,
+                    error=str(exc),
+                )
+            else:
+                update_camera_path_lab_stream(
+                    complete=True,
+                    cancelled=False,
+                    failed=True,
+                    stopping=False,
+                    error=str(exc),
+                )
+                set_camera_path_lab_job("error", str(exc))
             set_job("drone", "error", str(exc))
     finally:
         release_drone_job()
+
+
+def camera_path_lab_video_job(video: Path, map_id: str) -> None:
+    drone_video_job(video, map_id, publish_to_map=False)
 
 
 def start_thread(target, *args) -> None:
@@ -5935,6 +6042,9 @@ class AtlasHandler(SimpleHTTPRequestHandler):
         url = urllib.parse.urlparse(self.path)
         if url.path == "/api/status":
             self.send_json(snapshot_state())
+            return
+        if url.path == "/api/camera-path-lab/status":
+            self.send_json({"ok": True, **camera_path_lab_snapshot()})
             return
         if url.path == "/api/live-replay":
             stream = current_live_stream()
@@ -6301,6 +6411,27 @@ class AtlasHandler(SimpleHTTPRequestHandler):
             return
 
         if url.path == "/api/drone/stop":
+            camera_lab_active = camera_path_lab_snapshot().get("status") in ACTIVE_JOB_STATES
+            if camera_lab_active:
+                set_camera_path_lab_job("stopping", "Stopping camera path creation.")
+                update_camera_path_lab_stream(stopping=True)
+                set_job("drone", "stopping", "Cancelling Camera Path Lab localization.")
+                DRONE_STOP_EVENT.set()
+                terminated = terminate_active_procs("drone")
+                if not DRONE_JOB_ACTIVE.is_set():
+                    update_camera_path_lab_stream(complete=True, cancelled=True, stopping=False)
+                    set_camera_path_lab_job(
+                        "cancelled",
+                        (
+                            "Camera path creation stopped; the active localization process was terminated."
+                            if terminated
+                            else "Camera path creation stopped; no active localization process remained."
+                        ),
+                    )
+                    set_job("drone", "cancelled", "Camera Path Lab localization stopped.")
+                    release_drone_job()
+                self.send_json({"ok": True, "state": snapshot_state()})
+                return
             stream = current_live_stream() or {}
             if not stream:
                 stream = recover_live_stream_from_disk() or {}
@@ -6579,7 +6710,7 @@ class AtlasHandler(SimpleHTTPRequestHandler):
             self.send_json({"ok": True, "state": snapshot_state()})
             return
 
-        if url.path in {"/api/map/upload", "/api/map/enhance", "/api/drone/upload"}:
+        if url.path in {"/api/map/upload", "/api/map/enhance", "/api/drone/upload", "/api/camera-path-lab/upload"}:
             form = cgi.FieldStorage(fp=self.rfile, headers=self.headers, environ={"REQUEST_METHOD": "POST"})
             file_fields = uploaded_video_fields(form)
             if not file_fields:
@@ -6610,6 +6741,35 @@ class AtlasHandler(SimpleHTTPRequestHandler):
                     names += f", +{len(saved) - 3} more"
                 queue_job("map", f"Enhancing map with {len(saved)} video{'' if len(saved) == 1 else 's'}: {names}")
                 start_thread(enhance_map_job, map_id, [path for path, _ in saved])
+            elif url.path == "/api/camera-path-lab/upload":
+                file_field = file_fields[0]
+                map_id = str(form.getfirst("map_id", "")).strip()
+                if not map_id:
+                    self.send_json({"ok": False, "error": "Missing reference map for Camera Path Lab."}, 400)
+                    return
+                try:
+                    reference = get_map_entry(map_id)
+                    map_asset_dir(reference)
+                    colmap_artifacts_for_entry(reference)
+                except Exception as exc:
+                    self.send_json({"ok": False, "error": str(exc)}, 400)
+                    return
+                suffix = Path(file_field.filename).suffix or ".mp4"
+                dst = uploads / f"camera_path_lab_{uuid.uuid4().hex[:8]}{suffix}"
+                if not reserve_and_queue_drone_job(f"Camera Path Lab video: {file_field.filename}"):
+                    self.send_json({"ok": False, "error": "Another localization worker is active. Wait for it to finish or stop it first."}, 409)
+                    return
+                set_camera_path_lab_stream(None)
+                set_camera_path_lab_job("queued", f"Uploading {file_field.filename} against {reference.get('title') or map_id}.")
+                try:
+                    save_upload(file_field, dst)
+                    start_thread(camera_path_lab_video_job, dst, map_id)
+                except Exception as exc:
+                    release_drone_job()
+                    set_camera_path_lab_job("error", f"Could not start Camera Path Lab: {exc}")
+                    set_job("drone", "error", f"Could not start Camera Path Lab: {exc}")
+                    self.send_json({"ok": False, "error": str(exc)}, 500)
+                    return
             else:
                 file_field = file_fields[0]
                 map_id = str(form.getfirst("map_id", "")).strip() or None

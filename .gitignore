@@ -16,6 +16,7 @@ viewer/public/enemy_drones/datasets/
 viewer/public/enemy_drones/training_runs/
 viewer/public/enemy_drones/enemy_*/
 viewer/public/fleet/
+viewer/public/camera_path_lab/
 .atlas_runtime/
 runs/
 runtime/
