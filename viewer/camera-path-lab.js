@@ -14,6 +14,12 @@ const statusDot = el("status-dot");
 const statusText = el("status-text");
 const cameraLabel = el("camera-label");
 const coordinates = el("camera-coordinates");
+const coordinateKicker = el("coordinate-kicker");
+const coordinateLink = el("coordinate-link");
+const coordinateLinkPath = el("coordinate-link-path");
+const coordinateCameraRing = el("coordinate-camera-ring");
+const coordinateCameraDot = el("coordinate-camera-dot");
+const coordinateLabelDot = el("coordinate-label-dot");
 const meshBadge = el("mesh-badge");
 const startButton = el("start-button");
 const stopButton = el("stop-button");
@@ -88,6 +94,9 @@ let replayActive = false;
 let replayPoseIndex = -1;
 let replayPathIndex = -1;
 let loadedStreamMediaUrl = "";
+let roomCeilingY = 2.42;
+let currentInputFrameIndex = null;
+let latestPoseFrameIndex = null;
 
 function setOrbit(top = false) {
   if (top) {
@@ -336,16 +345,41 @@ function animate(now = performance.now()) {
 function updateCameraLabel() {
   if (!cameraPosePosition || !cameraRig?.visible) {
     cameraLabel.hidden = true;
+    coordinateLink.hidden = true;
     return;
   }
-  const projected = cameraPosePosition.clone().project(camera);
-  if (projected.z < -1 || projected.z > 1) {
+  const cameraProjected = cameraPosePosition.clone().project(camera);
+  const elevatedPosition = cameraPosePosition.clone();
+  elevatedPosition.y = Math.max(roomCeilingY + 0.68, cameraPosePosition.y + 1.5);
+  const labelProjected = elevatedPosition.project(camera);
+  if (
+    cameraProjected.z < -1 || cameraProjected.z > 1
+    || labelProjected.z < -1 || labelProjected.z > 1
+  ) {
     cameraLabel.hidden = true;
+    coordinateLink.hidden = true;
     return;
   }
+  const width = container.clientWidth;
+  const height = container.clientHeight;
+  const cameraX = (cameraProjected.x * 0.5 + 0.5) * width;
+  const cameraY = (-cameraProjected.y * 0.5 + 0.5) * height;
+  const rawLabelX = (labelProjected.x * 0.5 + 0.5) * width;
+  const rawLabelY = (-labelProjected.y * 0.5 + 0.5) * height;
+  const labelX = THREE.MathUtils.clamp(rawLabelX, 132, Math.max(132, width - 132));
+  const labelY = THREE.MathUtils.clamp(rawLabelY, 112, Math.max(112, height - 72));
   cameraLabel.hidden = false;
-  cameraLabel.style.left = `${(projected.x * 0.5 + 0.5) * container.clientWidth}px`;
-  cameraLabel.style.top = `${(-projected.y * 0.5 + 0.5) * container.clientHeight}px`;
+  coordinateLink.hidden = false;
+  cameraLabel.style.left = `${labelX}px`;
+  cameraLabel.style.top = `${labelY}px`;
+  const bendY = labelY + Math.max(18, (cameraY - labelY) * 0.28);
+  coordinateLinkPath.setAttribute("d", `M ${cameraX.toFixed(1)} ${cameraY.toFixed(1)} L ${cameraX.toFixed(1)} ${bendY.toFixed(1)} Q ${cameraX.toFixed(1)} ${labelY.toFixed(1)} ${labelX.toFixed(1)} ${labelY.toFixed(1)}`);
+  for (const marker of (coordinateCameraRing, coordinateCameraDot)) {
+    marker.setAttribute("cx", cameraX.toFixed(1));
+    marker.setAttribute("cy", cameraY.toFixed(1));
+  }
+  coordinateLabelDot.setAttribute("cx", labelX.toFixed(1));
+  coordinateLabelDot.setAttribute("cy", labelY.toFixed(1));
 }
 
 function installPointerControls() {
@@ -520,6 +554,26 @@ function poseKey(pose) {
   return `${pose?.image_name || pose?.instance_id || "pose"}:${Number(pose?.time_sec || 0).toFixed(6)}`;
 }
 
+function poseFrameIndex(pose) {
+  const match = String(pose?.image_name || "").match(/_(\d+)\.[^.]+$/);
+  return match ? Number(match[1]) : null;
+}
+
+function updateCoordinateKicker({ replayFrame = null } = {}) {
+  if (replayFrame !== null) {
+    cameraLabel.classList.remove("localizing");
+    coordinateKicker.textContent = `REPLAY · FRAME ${replayFrame}`;
+    return;
+  }
+  const localizing = Number.isFinite(currentInputFrameIndex)
+    && Number.isFinite(latestPoseFrameIndex)
+    && currentInputFrameIndex > latestPoseFrameIndex + 1;
+  cameraLabel.classList.toggle("localizing", localizing);
+  coordinateKicker.textContent = localizing
+    ? `LOCALIZING FRAME ${currentInputFrameIndex} · LAST POSE ${latestPoseFrameIndex}`
+    : `LIVE CAMERA POSITION${Number.isFinite(latestPoseFrameIndex) ? ` · FRAME ${latestPoseFrameIndex}` : ""}`;
+}
+
 function renderPath(positions) {
   fallbackPath = positions;
   if (pathLine) {
@@ -574,6 +628,10 @@ function updatePath(payload) {
   const poses = all.filter(acceptedPose);
   localizedPoses = poses;
   const latest = poses.at(-1);
+  const incomingFrame = Number(payload?.current_frame?.frame_index);
+  currentInputFrameIndex = Number.isFinite(incomingFrame) ? incomingFrame : null;
+  latestPoseFrameIndex = latest ? poseFrameIndex(latest) : null;
+  if (!replayActive) updateCoordinateKicker();
   const pathSignature = `${poses.length}:${latest ? poseKey(latest) : "none"}:${Boolean(payload?.complete)}`;
   if (!replayActive && pathSignature !== latestPathSignature) {
     latestPathSignature = pathSignature;
@@ -609,6 +667,10 @@ function resetLivePresentation() {
   cameraPosePosition = null;
   targetHeading = null;
   displayedHeading = null;
+  currentInputFrameIndex = null;
+  latestPoseFrameIndex = null;
+  updateCoordinateKicker();
+  coordinateLink.hidden = true;
   renderPath([]);
   sourceVideo.pause();
   if (sourceVideo.readyState >= HTMLMediaElement.HAVE_METADATA) sourceVideo.currentTime = 0;
@@ -648,6 +710,7 @@ function updateReplayFrame() {
     renderPath(replayPoints);
     el("frame-chip").textContent = `FRAME ${index + 1}`;
   }
+  updateCoordinateKicker({ replayFrame: index + 1 });
   el("video-time").textContent = formatTime(playbackTime);
   const lastTime = Number(localizedPoses.at(-1)?.time_sec || 0);
   if (playbackTime >= lastTime || sourceVideo.ended) stopReplay(true);
@@ -664,6 +727,7 @@ function stopReplay(restoreFullPath = true) {
     const latest = localizedPoses.at(-1);
     latestRenderedPoseKey = poseKey(latest);
     applyCameraPose(latest, { syncVideo: true });
+    updateCoordinateKicker();
   }
 }
 
@@ -691,6 +755,8 @@ function addWalls(entry) {
   fallbackWalls = walls
     .map((wall) => (wall.corners || []).map((point) => new THREE.Vector3(...point.map(Number))))
     .filter((corners) => corners.length >= 4);
+  const wallHeights = fallbackWalls.flatMap((corners) => corners.map((point) => point.y));
+  if (wallHeights.length) roomCeilingY = Math.max(...wallHeights);
   for (const wall of walls) {
     const corners = wall.corners || [];
     if (corners.length < 4) continue;

@@ -125,18 +125,41 @@ button:focus-visible, .file-button:focus-within { outline: 2px solid rgba(86, 17
 
 .camera-label {
   position: absolute;
-  z-index: 6;
-  transform: translate(13px, -50%);
+  z-index: 7;
+  min-width: 230px;
+  transform: translate(-50%, calc(-100% - 12px));
   pointer-events: none;
-  padding: 5px 7px;
-  border-left: 1px solid var(--blue);
-  background: linear-gradient(110deg, rgba(6, 26, 43, .92), rgba(21, 72, 103, .86));
-  box-shadow: 0 8px 24px rgba(0, 10, 22, .28);
+  padding: 9px 11px 10px;
+  border: 1px solid rgba(166, 224, 247, .38);
+  border-top-color: rgba(226, 247, 255, .72);
+  background: linear-gradient(125deg, rgba(5, 27, 45, .96), rgba(27, 88, 121, .9));
+  box-shadow: 0 14px 38px rgba(0, 10, 22, .42), inset 0 1px rgba(255, 255, 255, .08);
+  backdrop-filter: blur(12px);
 }
 .camera-label[hidden] { display: none; }
-.camera-label strong { color: #ffffff; font: 9px "SFMono-Regular", Consolas, monospace; font-weight: 500; }
+.camera-label::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: -5px;
+  width: 8px;
+  height: 8px;
+  border-right: 1px solid rgba(166, 224, 247, .45);
+  border-bottom: 1px solid rgba(166, 224, 247, .45);
+  background: #1a5879;
+  transform: translateX(-50%) rotate(45deg);
+}
+.coordinate-kicker { display: block; margin-bottom: 5px; color: #8fd8f5; font-size: 7px; font-weight: 750; letter-spacing: .14em; }
+.camera-label strong { display: block; color: #ffffff; font: 10px "SFMono-Regular", Consolas, monospace; font-weight: 520; white-space: nowrap; }
+.camera-label.localizing .coordinate-kicker { color: #d8f3fd; animation: callout-pulse 1.1s ease-in-out infinite; }
+.coordinate-link { position: absolute; z-index: 6; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
+.coordinate-link[hidden] { display: none; }
+.coordinate-link-path { fill: none; stroke: rgba(111, 202, 239, .88); stroke-width: 1.25; stroke-dasharray: 3 5; filter: url(#coordinate-glow); }
+.coordinate-camera-ring { fill: rgba(95, 190, 229, .08); stroke: rgba(127, 214, 247, .76); stroke-width: 1; filter: url(#coordinate-glow); }
+.coordinate-camera-dot, .coordinate-label-dot { fill: #dff7ff; stroke: rgba(67, 164, 204, .95); stroke-width: 1; }
 
 @keyframes pulse { 50% { opacity: .45; transform: scale(.78); } }
+@keyframes callout-pulse { 50% { opacity: .48; } }
 @media (max-width: 760px) {
   .app-bar { top: 8px; left: 8px; right: 8px; }
   .video-card { top: 54px; right: 8px; width: min(42vw, 280px); }

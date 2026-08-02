@@ -38,6 +38,8 @@ class CameraPathLabTests(unittest.TestCase):
             "replay-button",
             "camera-label",
             "camera-coordinates",
+            "coordinate-kicker",
+            "coordinate-link",
             "accepted-count",
             "processed-count",
         ):
@@ -64,13 +66,17 @@ class CameraPathLabTests(unittest.TestCase):
         self.assertIn("function syncVideoToLocalizedFrame(time)", script)
         self.assertIn("function startReplay()", script)
         self.assertIn("function updateReplayFrame()", script)
+        self.assertIn("function updateCoordinateKicker(", script)
+        self.assertIn("roomCeilingY + 0.68", script)
+        self.assertIn('coordinateLinkPath.setAttribute("d"', script)
+        self.assertIn("LOCALIZING FRAME ${currentInputFrameIndex}", script)
         self.assertIn("function loadStoredStreamVideo(mediaUrl", script)
         self.assertIn("loadStoredStreamVideo(stream.media_url", script)
         self.assertIn('sourceVideo.addEventListener("loadedmetadata"', script)
         self.assertIn("window.setTimeout(pollStatus, 300)", script)
         self.assertNotIn("active && selectedFile && sourceVideo.paused", script)
         self.assertIn("colored surface points · GPU display", script)
-        self.assertIn('camera-path-lab.js?v=20260802-live-synchronized', html)
+        self.assertIn('camera-path-lab.js?v=20260802-elevated-callout', html)
         self.assertIn('window.location.protocol === "file:"', html)
         self.assertIn('window.location.replace("http://127.0.0.1:8767/camera-path-lab.html")', html)
         stylesheet = (ROOT / "viewer" / "camera-path-lab.css").read_text(encoding="utf-8")
