@@ -49,6 +49,10 @@ class RoomMeshColabTests(unittest.TestCase):
         self.assertIn("scene_pilot", source)
         self.assertIn("RUN_LARGER = False", source)
         self.assertIn("RUN_DENSE = False", source)
+        self.assertIn("make_reduced_pilot", source)
+        self.assertIn("scene_pilot_24", source)
+        self.assertIn("VGGT/COLMAP failed with exit code", source)
+        self.assertIn("pilot_query_points = 1024 if gpu_gb < 20 else 2048", source)
         self.assertIn("pycolmap.patch_match_stereo", source)
         self.assertIn("pycolmap.poisson_meshing", source)
 
