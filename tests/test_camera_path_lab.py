@@ -43,6 +43,9 @@ class CameraPathLabTests(unittest.TestCase):
         self.assertIn('fallbackCanvas.className = "fallback-canvas"', script)
         self.assertIn("function drawFallbackScene()", script)
         self.assertIn("function drawFallbackCamera(context)", script)
+        self.assertIn("function applyDisplayedHeading(heading)", script)
+        self.assertIn("displayedHeading.angleTo(targetHeading)", script)
+        self.assertIn("YAW ${yaw.toFixed(1)}°", script)
         self.assertNotIn("3D preview unavailable here", script)
 
     def test_server_keeps_side_project_out_of_map_manifest(self):

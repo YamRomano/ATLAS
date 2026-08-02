@@ -26,6 +26,9 @@ let fallbackWalls = [];
 let fallbackPath = [];
 let fallbackHeading = null;
 let fallbackDirty = true;
+let targetHeading = null;
+let displayedHeading = null;
+let previousAnimationTime = performance.now();
 try {
   renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
@@ -217,27 +220,36 @@ function drawFallbackCamera(context) {
   context.fillStyle = "rgba(3, 17, 26, 0.94)";
   context.strokeStyle = "#e9fbff";
   context.lineWidth = 1.35;
-  context.fillRect(-9, -7, 16, 14);
-  context.strokeRect(-9, -7, 16, 14);
+  context.fillRect(-12, -6, 20, 12);
+  context.strokeRect(-12, -6, 20, 12);
   context.beginPath();
-  context.moveTo(7, -4.5);
-  context.lineTo(12, -6.5);
-  context.lineTo(12, 6.5);
-  context.lineTo(7, 4.5);
+  context.moveTo(8, -4.5);
+  context.lineTo(14, -6.5);
+  context.lineTo(14, 6.5);
+  context.lineTo(8, 4.5);
   context.closePath();
   context.fillStyle = "#123746";
   context.fill();
   context.stroke();
   context.strokeStyle = "rgba(92, 225, 255, 0.65)";
   context.beginPath();
-  context.moveTo(12, -6.5);
-  context.lineTo(30, -15);
-  context.moveTo(12, 6.5);
-  context.lineTo(30, 15);
+  context.moveTo(14, -6.5);
+  context.lineTo(34, -16);
+  context.moveTo(14, 6.5);
+  context.lineTo(34, 16);
+  context.stroke();
+  context.strokeStyle = "#ff5478";
+  context.lineWidth = 1.8;
+  context.beginPath();
+  context.moveTo(15, 0);
+  context.lineTo(40, 0);
+  context.lineTo(34, -4);
+  context.moveTo(40, 0);
+  context.lineTo(34, 4);
   context.stroke();
   context.fillStyle = "#ff5478";
   context.beginPath();
-  context.arc(13.5, 0, 2.2, 0, Math.PI * 2);
+  context.arc(15.5, 0, 2.4, 0, Math.PI * 2);
   context.fill();
   context.restore();
 }
@@ -262,8 +274,31 @@ function drawFallbackScene() {
   fallbackDirty = false;
 }
 
-function animate() {
+function applyDisplayedHeading(heading) {
+  if (!heading || !cameraRig || !cameraPosePosition) return;
+  fallbackHeading = heading.clone();
+  const target = cameraPosePosition.clone().add(heading);
+  cameraRig.up.set(0, 1, 0);
+  cameraRig.lookAt(target);
+  cameraRig.rotateY(Math.PI);
+}
+
+function animate(now = performance.now()) {
   requestAnimationFrame(animate);
+  const deltaSeconds = Math.min(0.1, Math.max(0, (now - previousAnimationTime) / 1000));
+  previousAnimationTime = now;
+  if (targetHeading) {
+    if (!displayedHeading) displayedHeading = targetHeading.clone();
+    const angleBefore = displayedHeading.angleTo(targetHeading);
+    if (angleBefore > 0.0005) {
+      const blend = 1 - Math.exp(-5.2 * deltaSeconds);
+      displayedHeading.lerp(targetHeading, blend).normalize();
+      fallbackDirty = true;
+    } else {
+      displayedHeading.copy(targetHeading);
+    }
+    applyDisplayedHeading(displayedHeading);
+  }
   updateOrbitCamera();
   updateCameraLabel();
   if (renderer) renderer.render(scene, camera);
@@ -447,15 +482,17 @@ function updatePath(payload) {
     cameraPosePosition = position;
     cameraRig.position.copy(position);
     const heading = poseHeading(latest);
-    fallbackHeading = heading || fallbackHeading || new THREE.Vector3(1, 0, 0);
     if (heading) {
-      const target = position.clone().add(heading);
-      cameraRig.up.set(0, 1, 0);
-      cameraRig.lookAt(target);
-      cameraRig.rotateY(Math.PI);
+      targetHeading = heading.clone();
+      if (!displayedHeading) displayedHeading = heading.clone();
+      applyDisplayedHeading(displayedHeading);
     }
     cameraRig.visible = true;
-    coordinates.textContent = `X ${position.x.toFixed(3)} · Y ${position.y.toFixed(3)} · Z ${position.z.toFixed(3)}`;
+    const yaw = targetHeading
+      ? THREE.MathUtils.radToDeg(Math.atan2(targetHeading.x, targetHeading.z))
+      : null;
+    coordinates.textContent = `X ${position.x.toFixed(3)} · Y ${position.y.toFixed(3)} · Z ${position.z.toFixed(3)}`
+      + (yaw === null ? "" : ` · YAW ${yaw.toFixed(1)}°`);
     const time = Number(latest.time_sec) || 0;
     el("video-time").textContent = formatTime(time);
     if (sourceVideo.src && Math.abs(sourceVideo.currentTime - time) > 0.26) sourceVideo.currentTime = time;
