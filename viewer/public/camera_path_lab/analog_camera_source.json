@@ -1,0 +1,7 @@
+{
+  "title": "Camara Analogica",
+  "creator_hint": "byquuimey",
+  "source_archive": "96-camara-analogica_byquuimey.rar",
+  "source_formats": ["OBJ", "BLEND", "DAE", "FBX"],
+  "conversion": "OBJ geometry converted locally to GLB and recolored for the ATLAS camera-path display"
+}

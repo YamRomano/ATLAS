@@ -4,6 +4,7 @@ import { GLTFLoader } from "./vendor/GLTFLoader.js";
 const REFERENCE_MAP_ID = "map_copy_20260730_114851_cfefdc";
 const MESH_GLB_URL = "./public/camera_path_lab/good_copy_mesh.glb";
 const MESH_FALLBACK_URL = "./public/camera_path_lab/good_copy_mesh.json";
+const CAMERA_MODEL_URL = "./public/camera_path_lab/analog_camera.glb";
 
 const el = (id) => document.getElementById(id);
 const container = el("lab-canvas");
@@ -220,23 +221,35 @@ function drawFallbackCamera(context) {
   context.fillStyle = "rgba(3, 17, 26, 0.94)";
   context.strokeStyle = "#e9fbff";
   context.lineWidth = 1.35;
-  context.fillRect(-12, -6, 20, 12);
-  context.strokeRect(-12, -6, 20, 12);
+  context.fillRect(-14, -8, 23, 16);
+  context.strokeRect(-14, -8, 23, 16);
+  context.fillStyle = "#193644";
+  context.fillRect(-8, -11, 10, 4);
+  context.strokeRect(-8, -11, 10, 4);
   context.beginPath();
-  context.moveTo(8, -4.5);
-  context.lineTo(14, -6.5);
-  context.lineTo(14, 6.5);
-  context.lineTo(8, 4.5);
+  context.arc(-10, -4, 2, 0, Math.PI * 2);
+  context.stroke();
+  context.beginPath();
+  context.moveTo(9, -5.5);
+  context.lineTo(16, -6.5);
+  context.lineTo(16, 6.5);
+  context.lineTo(9, 5.5);
   context.closePath();
   context.fillStyle = "#123746";
   context.fill();
   context.stroke();
   context.strokeStyle = "rgba(92, 225, 255, 0.65)";
   context.beginPath();
-  context.moveTo(14, -6.5);
+  context.moveTo(16, -6.5);
   context.lineTo(34, -16);
-  context.moveTo(14, 6.5);
+  context.moveTo(16, 6.5);
   context.lineTo(34, 16);
+  context.stroke();
+  context.strokeStyle = "#62dcfb";
+  context.lineWidth = 1.2;
+  context.beginPath();
+  context.ellipse(14, 0, 3, 6, 0, 0, Math.PI * 2);
+  context.ellipse(17, 0, 2, 5, 0, 0, Math.PI * 2);
   context.stroke();
   context.strokeStyle = "#ff5478";
   context.lineWidth = 1.8;
@@ -443,6 +456,7 @@ function makeCameraRig() {
   );
   halo.position.z = 0.015;
   rig.add(body, edges, lens, frontDot, halo);
+  rig.userData.proceduralBody = [body, edges, lens];
   const points = [
     [0, 0, -0.18], [-0.32, -0.20, -0.75], [0, 0, -0.18], [0.32, -0.20, -0.75],
     [0, 0, -0.18], [-0.32, 0.20, -0.75], [0, 0, -0.18], [0.32, 0.20, -0.75],
@@ -452,10 +466,37 @@ function makeCameraRig() {
   const frustumGeometry = new THREE.BufferGeometry();
   frustumGeometry.setAttribute("position", new THREE.Float32BufferAttribute(points, 3));
   rig.add(new THREE.LineSegments(frustumGeometry, new THREE.LineBasicMaterial({ color: 0x5ce1ff, transparent: true, opacity: 0.76 })));
-  rig.scale.setScalar(0.72);
+  rig.scale.setScalar(0.9);
   rig.visible = false;
   scene.add(rig);
   return rig;
+}
+
+function loadAnalogCameraModel() {
+  if (!renderer) return Promise.resolve(null);
+  return new Promise((resolve, reject) => {
+    new GLTFLoader().load(
+      CAMERA_MODEL_URL,
+      (gltf) => {
+        const model = gltf.scene;
+        model.name = "Camara Analogica byquuimey";
+        model.traverse((node) => {
+          if (!node.isMesh) return;
+          node.material = new THREE.MeshStandardMaterial({
+            color: 0xffffff,
+            vertexColors: Boolean(node.geometry.getAttribute("color")),
+            roughness: 0.56,
+            metalness: 0.16,
+          });
+        });
+        cameraRig.add(model);
+        for (const part of cameraRig.userData.proceduralBody || []) part.visible = false;
+        resolve(model);
+      },
+      undefined,
+      reject,
+    );
+  });
 }
 
 function updatePath(payload) {
@@ -721,6 +762,7 @@ el("toggle-walls").addEventListener("click", (event) => {
 });
 
 cameraRig = makeCameraRig();
+loadAnalogCameraModel().catch(() => { /* Procedural ATLAS camera remains available. */ });
 setOrbit(false);
 installPointerControls();
 window.addEventListener("resize", resize);

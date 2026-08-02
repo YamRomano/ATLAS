@@ -1,4 +1,6 @@
 import importlib.util
+import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -6,8 +8,10 @@ import numpy as np
 
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "scripts"))
 SERVER_PATH = ROOT / "scripts" / "atlas_app_server.py"
 CONVERTER_PATH = ROOT / "scripts" / "convert_camera_path_lab_mesh.py"
+CAMERA_CONVERTER_PATH = ROOT / "scripts" / "convert_analog_camera_asset.py"
 
 
 def load_module(name: str, path: Path):
@@ -20,6 +24,7 @@ def load_module(name: str, path: Path):
 
 SERVER = load_module("atlas_app_server_camera_path_lab_test", SERVER_PATH)
 CONVERTER = load_module("convert_camera_path_lab_mesh_test", CONVERTER_PATH)
+CAMERA_CONVERTER = load_module("convert_analog_camera_asset_test", CAMERA_CONVERTER_PATH)
 
 
 class CameraPathLabTests(unittest.TestCase):
@@ -46,7 +51,32 @@ class CameraPathLabTests(unittest.TestCase):
         self.assertIn("function applyDisplayedHeading(heading)", script)
         self.assertIn("displayedHeading.angleTo(targetHeading)", script)
         self.assertIn("YAW ${yaw.toFixed(1)}°", script)
+        self.assertIn('const CAMERA_MODEL_URL = "./public/camera_path_lab/analog_camera.glb"', script)
+        self.assertIn("function loadAnalogCameraModel()", script)
         self.assertNotIn("3D preview unavailable here", script)
+
+    def test_analog_camera_converter_preserves_material_color_and_scale(self):
+        with tempfile.TemporaryDirectory() as directory:
+            obj = Path(directory) / "camera.obj"
+            obj.write_text(
+                "\n".join(
+                    (
+                        "v 0 0 0",
+                        "v 2 0 0",
+                        "v 0 1 0",
+                        "vn 0 0 1",
+                        "usemtl Lente",
+                        "f 1//1 2//1 3//1",
+                    )
+                ),
+                encoding="utf-8",
+            )
+            positions, normals, indices, colors = CAMERA_CONVERTER.read_obj(obj)
+            scaled = CAMERA_CONVERTER.center_and_scale(positions, 0.42)
+        self.assertEqual(len(indices), 3)
+        self.assertTrue(np.all(colors == np.asarray(CAMERA_CONVERTER.MATERIAL_COLORS["Lente"])))
+        self.assertTrue(np.allclose(normals, [[0, 0, 1]] * 3))
+        self.assertAlmostEqual(float(np.ptp(scaled[:, 0])), 0.42)
 
     def test_server_keeps_side_project_out_of_map_manifest(self):
         source = SERVER_PATH.read_text(encoding="utf-8")
