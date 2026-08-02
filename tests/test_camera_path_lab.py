@@ -53,9 +53,14 @@ class CameraPathLabTests(unittest.TestCase):
         self.assertIn("YAW ${yaw.toFixed(1)}°", script)
         self.assertIn('const CAMERA_MODEL_URL = "./public/camera_path_lab/analog_camera.glb"', script)
         self.assertIn("function loadAnalogCameraModel()", script)
-        self.assertIn("const material = new THREE.MeshBasicMaterial({", script)
+        self.assertIn("node.material = new THREE.MeshBasicMaterial({", script)
         self.assertIn("THREE.SRGBColorSpace", script)
         self.assertIn("opacity: 0.68", script)
+        self.assertIn("new THREE.PointsMaterial({", script)
+        self.assertIn("new THREE.Points(geometry, material)", script)
+        self.assertIn("opacity: 0.55", script)
+        self.assertIn("colored surface points · GPU display", script)
+        self.assertIn('camera-path-lab.js?v=20260802-colored-points', html)
         self.assertNotIn("3D preview unavailable here", script)
 
     def test_analog_camera_converter_preserves_material_color_and_scale(self):

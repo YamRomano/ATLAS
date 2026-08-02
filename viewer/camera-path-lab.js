@@ -162,7 +162,7 @@ function drawFallbackMesh(context) {
   }).filter(Boolean).sort((a, b) => b.z - a.z);
   for (const point of points) {
     const radius = 1.15 + Math.min(1.15, Number(point.weight || 1) * 0.04);
-    context.globalAlpha = 0.68;
+    context.globalAlpha = 0.55;
     context.fillStyle = point.color;
     context.fillRect(point.x - radius, point.y - radius, radius * 2, radius * 2);
   }
@@ -641,30 +641,40 @@ async function loadVoxelFallback() {
       color: `rgb(${Number(voxel[3])}, ${Number(voxel[4])}, ${Number(voxel[5])})`,
       weight: Number(voxel[6]) || 1,
     }));
-  const geometry = new THREE.BoxGeometry(size * 0.95, size * 0.95, size * 0.95);
-  const material = new THREE.MeshBasicMaterial({
-    vertexColors: true,
-    transparent: true,
-    opacity: 0.68,
-    depthWrite: true,
-  });
-  const instanced = new THREE.InstancedMesh(geometry, material, voxels.length);
-  const matrix = new THREE.Matrix4();
+  const positions = new Float32Array(voxels.length * 3);
+  const colors = new Float32Array(voxels.length * 3);
   const color = new THREE.Color();
   voxels.forEach((voxel, index) => {
-    matrix.makeTranslation(Number(voxel[0]), Number(voxel[1]), Number(voxel[2]));
-    instanced.setMatrixAt(index, matrix);
+    const offset = index * 3;
+    positions[offset] = Number(voxel[0]);
+    positions[offset + 1] = Number(voxel[1]);
+    positions[offset + 2] = Number(voxel[2]);
     color.setRGB(
       Number(voxel[3]) / 255,
       Number(voxel[4]) / 255,
       Number(voxel[5]) / 255,
       THREE.SRGBColorSpace,
     );
-    instanced.setColorAt(index, color);
+    colors[offset] = color.r;
+    colors[offset + 1] = color.g;
+    colors[offset + 2] = color.b;
   });
-  instanced.instanceMatrix.needsUpdate = true;
-  if (instanced.instanceColor) instanced.instanceColor.needsUpdate = true;
-  scene.add(instanced);
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+  geometry.setAttribute("color", new THREE.BufferAttribute(colors, 3));
+  geometry.computeBoundingSphere();
+  const material = new THREE.PointsMaterial({
+    color: 0xffffff,
+    vertexColors: true,
+    size: Math.max(0.065, size * 0.82),
+    sizeAttenuation: true,
+    transparent: true,
+    opacity: 0.55,
+    depthWrite: false,
+    toneMapped: false,
+  });
+  const points = new THREE.Points(geometry, material);
+  scene.add(points);
   fallbackDirty = true;
   return { count: voxels.length };
 }
@@ -677,8 +687,8 @@ async function loadDisplayMesh() {
     try {
       const fallback = await loadVoxelFallback();
       meshBadge.textContent = renderer
-        ? `${fallback.count.toLocaleString()} surface cells · GPU display`
-        : `${fallback.count.toLocaleString()} surface cells`;
+        ? `${fallback.count.toLocaleString()} colored surface points · GPU display`
+        : `${fallback.count.toLocaleString()} colored surface points`;
     } catch (error) {
       meshBadge.textContent = "Room shell only · mesh pending";
       el("detail-text").textContent = `The page is ready; ${error.message}.`;
