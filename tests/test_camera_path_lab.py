@@ -60,7 +60,11 @@ class CameraPathLabTests(unittest.TestCase):
         self.assertIn("new THREE.Points(geometry, material)", script)
         self.assertIn("opacity: 0.55", script)
         self.assertIn("colored surface points · GPU display", script)
-        self.assertIn('camera-path-lab.js?v=20260802-colored-points', html)
+        self.assertIn('camera-path-lab.js?v=20260802-light-studio', html)
+        stylesheet = (ROOT / "viewer" / "camera-path-lab.css").read_text(encoding="utf-8")
+        self.assertIn("color-scheme: light", stylesheet)
+        self.assertIn("CAMERA PATH", html)
+        self.assertNotIn("atlas", (html + script + stylesheet).lower())
         self.assertNotIn("3D preview unavailable here", script)
 
     def test_analog_camera_converter_preserves_material_color_and_scale(self):

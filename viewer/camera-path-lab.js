@@ -33,14 +33,14 @@ let previousAnimationTime = performance.now();
 try {
   renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
-  renderer.setClearColor(0x03101a, 1);
+  renderer.setClearColor(0xf4fbfe, 1);
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   container.appendChild(renderer.domElement);
 } catch (_) {
   container.classList.add("canvas-fallback");
   fallbackCanvas = document.createElement("canvas");
   fallbackCanvas.className = "fallback-canvas";
-  fallbackCanvas.setAttribute("aria-label", "ATLAS camera path map");
+  fallbackCanvas.setAttribute("aria-label", "Camera path map");
   fallbackContext = fallbackCanvas.getContext("2d", { alpha: false });
   container.appendChild(fallbackCanvas);
   if (!fallbackContext) {
@@ -52,18 +52,18 @@ try {
 }
 
 const scene = new THREE.Scene();
-scene.fog = new THREE.FogExp2(0x03101a, 0.018);
+scene.fog = new THREE.FogExp2(0xf4fbfe, 0.012);
 const camera = new THREE.PerspectiveCamera(44, 1, 0.02, 180);
 const orbit = { target: new THREE.Vector3(-1.7, 0.4, 0.2), yaw: -0.84, pitch: 0.52, distance: 17.5 };
 const wallsGroup = new THREE.Group();
 const pathGroup = new THREE.Group();
 scene.add(wallsGroup, pathGroup);
 
-scene.add(new THREE.HemisphereLight(0xc8efff, 0x071018, 1.25));
-const keyLight = new THREE.DirectionalLight(0xb8e9ff, 1.1);
+scene.add(new THREE.HemisphereLight(0xffffff, 0xd9eef7, 1.45));
+const keyLight = new THREE.DirectionalLight(0xffffff, 1.05);
 keyLight.position.set(5, 11, 4);
 scene.add(keyLight);
-const floorGrid = new THREE.GridHelper(24, 24, 0x24637a, 0x103548);
+const floorGrid = new THREE.GridHelper(24, 24, 0x77b9d5, 0xc9e7f3);
 floorGrid.position.y = -1.075;
 floorGrid.material.opacity = 0.32;
 floorGrid.material.transparent = true;
@@ -149,8 +149,8 @@ function drawFallbackMesh(context) {
       context.lineTo(triangle.b.x, triangle.b.y);
       context.lineTo(triangle.c.x, triangle.c.y);
       context.closePath();
-      context.fillStyle = "rgba(76, 126, 145, 0.34)";
-      context.strokeStyle = "rgba(106, 189, 216, 0.12)";
+      context.fillStyle = "rgba(174, 220, 239, 0.32)";
+      context.strokeStyle = "rgba(82, 155, 187, 0.14)";
       context.fill();
       context.stroke();
     }
@@ -179,8 +179,8 @@ function drawFallbackWalls(context) {
     context.moveTo(points[0].x, points[0].y);
     points.slice(1).forEach((point) => context.lineTo(point.x, point.y));
     context.closePath();
-    context.fillStyle = "rgba(98, 220, 251, 0.035)";
-    context.strokeStyle = "rgba(98, 220, 251, 0.34)";
+    context.fillStyle = "rgba(111, 190, 224, 0.045)";
+    context.strokeStyle = "rgba(71, 147, 181, 0.32)";
     context.fill();
     context.stroke();
   }
@@ -193,9 +193,9 @@ function drawFallbackPath(context) {
   context.beginPath();
   context.moveTo(points[0].x, points[0].y);
   points.slice(1).forEach((point) => context.lineTo(point.x, point.y));
-  context.strokeStyle = "#62dcfb";
+  context.strokeStyle = "#3d9bc6";
   context.lineWidth = 2.1;
-  context.shadowColor = "rgba(98, 220, 251, 0.72)";
+  context.shadowColor = "rgba(86, 173, 213, 0.42)";
   context.shadowBlur = 8;
   context.stroke();
   context.restore();
@@ -210,20 +210,20 @@ function drawFallbackCamera(context) {
   context.save();
   context.translate(position.x, position.y);
   context.rotate(angle);
-  context.shadowColor = "rgba(98, 220, 251, 0.78)";
+  context.shadowColor = "rgba(86, 173, 213, 0.38)";
   context.shadowBlur = 12;
-  context.strokeStyle = "rgba(98, 220, 251, 0.48)";
+  context.strokeStyle = "rgba(79, 158, 193, 0.46)";
   context.lineWidth = 1;
   context.beginPath();
   context.arc(0, 0, 15, 0, Math.PI * 2);
   context.stroke();
   context.shadowBlur = 0;
-  context.fillStyle = "rgba(3, 17, 26, 0.94)";
-  context.strokeStyle = "#e9fbff";
+  context.fillStyle = "rgba(255, 255, 255, 0.96)";
+  context.strokeStyle = "#467f99";
   context.lineWidth = 1.35;
   context.fillRect(-14, -8, 23, 16);
   context.strokeRect(-14, -8, 23, 16);
-  context.fillStyle = "#193644";
+  context.fillStyle = "#d8edf6";
   context.fillRect(-8, -11, 10, 4);
   context.strokeRect(-8, -11, 10, 4);
   context.beginPath();
@@ -235,23 +235,23 @@ function drawFallbackCamera(context) {
   context.lineTo(16, 6.5);
   context.lineTo(9, 5.5);
   context.closePath();
-  context.fillStyle = "#123746";
+  context.fillStyle = "#c1e2ef";
   context.fill();
   context.stroke();
-  context.strokeStyle = "rgba(92, 225, 255, 0.65)";
+  context.strokeStyle = "rgba(70, 146, 181, 0.6)";
   context.beginPath();
   context.moveTo(16, -6.5);
   context.lineTo(34, -16);
   context.moveTo(16, 6.5);
   context.lineTo(34, 16);
   context.stroke();
-  context.strokeStyle = "#62dcfb";
+  context.strokeStyle = "#4b9fc5";
   context.lineWidth = 1.2;
   context.beginPath();
   context.ellipse(14, 0, 3, 6, 0, 0, Math.PI * 2);
   context.ellipse(17, 0, 2, 5, 0, 0, Math.PI * 2);
   context.stroke();
-  context.strokeStyle = "#ff5478";
+  context.strokeStyle = "#347fa2";
   context.lineWidth = 1.8;
   context.beginPath();
   context.moveTo(15, 0);
@@ -260,7 +260,7 @@ function drawFallbackCamera(context) {
   context.moveTo(40, 0);
   context.lineTo(34, 4);
   context.stroke();
-  context.fillStyle = "#ff5478";
+  context.fillStyle = "#347fa2";
   context.beginPath();
   context.arc(15.5, 0, 2.4, 0, Math.PI * 2);
   context.fill();
@@ -273,11 +273,11 @@ function drawFallbackScene() {
   const height = container.clientHeight;
   const context = fallbackContext;
   context.clearRect(0, 0, width, height);
-  context.fillStyle = "#020b12";
+  context.fillStyle = "#f4fbfe";
   context.fillRect(0, 0, width, height);
   const glow = context.createRadialGradient(width * 0.48, height * 0.44, 0, width * 0.48, height * 0.44, Math.max(width, height) * 0.62);
-  glow.addColorStop(0, "rgba(14, 62, 84, 0.34)");
-  glow.addColorStop(1, "rgba(2, 11, 18, 0)");
+  glow.addColorStop(0, "rgba(184, 224, 241, 0.34)");
+  glow.addColorStop(1, "rgba(244, 251, 254, 0)");
   context.fillStyle = glow;
   context.fillRect(0, 0, width, height);
   drawFallbackMesh(context);
@@ -426,20 +426,20 @@ function makeCameraRig() {
   const rig = new THREE.Group();
   const shell = new THREE.BoxGeometry(0.34, 0.22, 0.20);
   const body = new THREE.Mesh(shell, new THREE.MeshBasicMaterial({
-    color: 0x06131b,
+    color: 0xffffff,
     transparent: true,
     opacity: 0.9,
   }));
   const edges = new THREE.LineSegments(
     new THREE.EdgesGeometry(shell),
-    new THREE.LineBasicMaterial({ color: 0xe9fbff, transparent: true, opacity: 0.96 }),
+    new THREE.LineBasicMaterial({ color: 0x477f99, transparent: true, opacity: 0.92 }),
   );
   const lens = new THREE.Mesh(
     new THREE.CylinderGeometry(0.065, 0.085, 0.13, 18),
     new THREE.MeshStandardMaterial({
-      color: 0x163849,
-      emissive: 0x087d9e,
-      emissiveIntensity: 0.9,
+      color: 0xb9ddeb,
+      emissive: 0x6eb7d5,
+      emissiveIntensity: 0.28,
       roughness: 0.35,
     }),
   );
@@ -447,12 +447,12 @@ function makeCameraRig() {
   lens.position.z = -0.15;
   const frontDot = new THREE.Mesh(
     new THREE.SphereGeometry(0.027, 12, 8),
-    new THREE.MeshBasicMaterial({ color: 0xff5478 }),
+    new THREE.MeshBasicMaterial({ color: 0x347fa2 }),
   );
   frontDot.position.z = -0.225;
   const halo = new THREE.Mesh(
     new THREE.TorusGeometry(0.28, 0.006, 6, 40),
-    new THREE.MeshBasicMaterial({ color: 0x62dcfb, transparent: true, opacity: 0.52 }),
+    new THREE.MeshBasicMaterial({ color: 0x65b7d9, transparent: true, opacity: 0.42 }),
   );
   halo.position.z = 0.015;
   rig.add(body, edges, lens, frontDot, halo);
@@ -465,7 +465,7 @@ function makeCameraRig() {
   ].flat();
   const frustumGeometry = new THREE.BufferGeometry();
   frustumGeometry.setAttribute("position", new THREE.Float32BufferAttribute(points, 3));
-  rig.add(new THREE.LineSegments(frustumGeometry, new THREE.LineBasicMaterial({ color: 0x5ce1ff, transparent: true, opacity: 0.76 })));
+  rig.add(new THREE.LineSegments(frustumGeometry, new THREE.LineBasicMaterial({ color: 0x4a9fc5, transparent: true, opacity: 0.68 })));
   rig.scale.setScalar(0.9);
   rig.visible = false;
   scene.add(rig);
@@ -514,7 +514,7 @@ function updatePath(payload) {
   }
   if (positions.length >= 2) {
     const geometry = new THREE.BufferGeometry().setFromPoints(positions);
-    pathLine = new THREE.Line(geometry, new THREE.LineBasicMaterial({ color: 0x5ce1ff, transparent: true, opacity: 0.98 }));
+    pathLine = new THREE.Line(geometry, new THREE.LineBasicMaterial({ color: 0x3d91b8, transparent: true, opacity: 0.92 }));
     pathGroup.add(pathLine);
   }
   const latest = poses.at(-1);
@@ -565,13 +565,13 @@ function addWalls(entry) {
     ], 3));
     geometry.computeVertexNormals();
     const mesh = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({
-      color: wall.color || 0x94e3fe,
+      color: 0x9bd8ef,
       transparent: true,
       opacity: Math.min(0.045, Math.max(0.025, (Number(wall.opacity) || 0.1) * 0.4)),
       depthWrite: false,
       side: THREE.DoubleSide,
     }));
-    const edges = new THREE.LineSegments(new THREE.EdgesGeometry(geometry), new THREE.LineBasicMaterial({ color: 0x7edcf5, transparent: true, opacity: 0.3 }));
+    const edges = new THREE.LineSegments(new THREE.EdgesGeometry(geometry), new THREE.LineBasicMaterial({ color: 0x65afd0, transparent: true, opacity: 0.28 }));
     wallsGroup.add(mesh, edges);
   }
   fallbackDirty = true;
@@ -729,8 +729,8 @@ async function pollStatus() {
       await fetchPoseStream(poseUrl);
     }
   } catch (_) {
-    setStatus("error", "ATLAS server is unavailable");
-    el("detail-text").textContent = "Start the local ATLAS server, then reopen this page.";
+    setStatus("error", "Local processing service is unavailable");
+    el("detail-text").textContent = "Start the local processing service, then reopen this page.";
   } finally {
     window.setTimeout(pollStatus, 850);
   }
@@ -781,7 +781,7 @@ el("toggle-walls").addEventListener("click", (event) => {
 });
 
 cameraRig = makeCameraRig();
-loadAnalogCameraModel().catch(() => { /* Procedural ATLAS camera remains available. */ });
+loadAnalogCameraModel().catch(() => { /* Procedural camera remains available. */ });
 setOrbit(false);
 installPointerControls();
 window.addEventListener("resize", resize);
