@@ -28,8 +28,9 @@ def basename(value: object) -> str:
     return Path(str(value or "")).name
 
 
-def frame_name(index: int) -> str:
-    return f"manual_patrol_{index:06d}.jpg"
+def frame_name(index: int, prefix: str = "manual_patrol_", suffix: str = ".jpg") -> str:
+    """Return a source frame name without assuming a manual-recording prefix."""
+    return f"{prefix}{index:06d}{suffix}"
 
 
 def load_frame_rows(source_dir: Path) -> dict[str, dict[str, str]]:
@@ -87,6 +88,16 @@ def main() -> None:
     parser.add_argument("--end-index", required=True, type=int)
     parser.add_argument("--out-dir", required=True, type=Path)
     parser.add_argument("--alias-prefix", default="gap")
+    parser.add_argument(
+        "--frame-prefix",
+        default="manual_patrol_",
+        help="Source frame filename prefix, for example query_ for a DJI live session.",
+    )
+    parser.add_argument(
+        "--frame-suffix",
+        default=".jpg",
+        help="Source frame filename suffix, including the leading dot.",
+    )
     args = parser.parse_args()
 
     source_dir = args.source_frames.resolve()
@@ -108,7 +119,7 @@ def main() -> None:
         raise ValueError("The query must include an anchor and at least one subsequent frame")
 
     frame_rows = load_frame_rows(source_dir)
-    anchor_source_name = frame_name(args.anchor_index)
+    anchor_source_name = frame_name(args.anchor_index, args.frame_prefix, args.frame_suffix)
     anchor_pose = trusted_anchor_pose(
         pose_stream, anchor_source_name, args.anchor_index, alias_mapping
     )
@@ -135,7 +146,7 @@ def main() -> None:
     mapping: list[dict[str, Any]] = []
     csv_rows: list[dict[str, Any]] = []
     for sequence_index, source_index in enumerate(indices):
-        source_name = frame_name(source_index)
+        source_name = frame_name(source_index, args.frame_prefix, args.frame_suffix)
         source_path = source_dir / source_name
         if not source_path.is_file():
             raise FileNotFoundError(source_path)
@@ -210,6 +221,8 @@ def main() -> None:
         "anchor_index": args.anchor_index,
         "end_index": args.end_index,
         "direction": "forward" if step > 0 else "backward",
+        "frame_prefix": args.frame_prefix,
+        "frame_suffix": args.frame_suffix,
         "query_frame_count": len(mapping),
         "query_frames_to_process": len(mapping) - 1,
         "query_dir": str(query_dir),

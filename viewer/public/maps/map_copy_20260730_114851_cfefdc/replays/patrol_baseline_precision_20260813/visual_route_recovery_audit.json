@@ -1,0 +1,146 @@
+{
+  "passed": true,
+  "baseline": "/Users/yamromano/Documents/PythonF4/PythonF4/drone_phase1_replay_demo_20260706/viewer/public/maps/map_copy_20260730_114851_cfefdc/replays/patrol_baseline_precision_20260813/reference_candidate.json",
+  "bank": "/Users/yamromano/Documents/PythonF4/PythonF4/drone_phase1_replay_demo_20260706/viewer/public/maps/map_copy_20260730_114851_cfefdc/replays/patrol_baseline_precision_20260813/visual_route_recovery.npz",
+  "laps": 2,
+  "held_out_query_count": 460,
+  "expected_after_acquisition": 452,
+  "accepted_after_acquisition": 452,
+  "acceptance_ratio": 1.0,
+  "max_progress_error": 0.07639505239867472,
+  "mean_progress_error": 0.00645164744745813,
+  "median_runtime_ms": 60.4897710000003,
+  "p95_runtime_ms": 74.1329705500001,
+  "max_runtime_ms": 89.94387500000012,
+  "wrong_leg_accepts": [],
+  "per_leg": [
+    {
+      "lap": 1,
+      "leg": 1,
+      "from_point": 1,
+      "to_point": 2,
+      "query_count": 44,
+      "expected_after_acquisition": 43,
+      "accepted": 43,
+      "acceptance_ratio": 1.0,
+      "max_progress_error": 0.04435979687480762,
+      "median_runtime_ms": 32.60595849999997,
+      "p95_runtime_ms": 86.85002314999976,
+      "rejections": {
+        "visual_route_acquiring": 1
+      }
+    },
+    {
+      "lap": 1,
+      "leg": 2,
+      "from_point": 2,
+      "to_point": 3,
+      "query_count": 50,
+      "expected_after_acquisition": 49,
+      "accepted": 49,
+      "acceptance_ratio": 1.0,
+      "max_progress_error": 0.07639505239867472,
+      "median_runtime_ms": 31.589749999999974,
+      "p95_runtime_ms": 71.10380624999988,
+      "rejections": {
+        "visual_route_acquiring": 1
+      }
+    },
+    {
+      "lap": 1,
+      "leg": 3,
+      "from_point": 3,
+      "to_point": 4,
+      "query_count": 103,
+      "expected_after_acquisition": 102,
+      "accepted": 102,
+      "acceptance_ratio": 1.0,
+      "max_progress_error": 0.011560693641618509,
+      "median_runtime_ms": 63.36499999999923,
+      "p95_runtime_ms": 64.68130029999966,
+      "rejections": {
+        "visual_route_acquiring": 1
+      }
+    },
+    {
+      "lap": 1,
+      "leg": 4,
+      "from_point": 4,
+      "to_point": 1,
+      "query_count": 33,
+      "expected_after_acquisition": 32,
+      "accepted": 32,
+      "acceptance_ratio": 1.0,
+      "max_progress_error": 0.005986360725420692,
+      "median_runtime_ms": 54.37579200000009,
+      "p95_runtime_ms": 58.043566799999624,
+      "rejections": {
+        "visual_route_acquiring": 1
+      }
+    },
+    {
+      "lap": 2,
+      "leg": 1,
+      "from_point": 1,
+      "to_point": 2,
+      "query_count": 44,
+      "expected_after_acquisition": 43,
+      "accepted": 43,
+      "acceptance_ratio": 1.0,
+      "max_progress_error": 0.04435979687480762,
+      "median_runtime_ms": 33.91443800000005,
+      "p95_runtime_ms": 85.90391250000008,
+      "rejections": {
+        "visual_route_acquiring": 1
+      }
+    },
+    {
+      "lap": 2,
+      "leg": 2,
+      "from_point": 2,
+      "to_point": 3,
+      "query_count": 50,
+      "expected_after_acquisition": 49,
+      "accepted": 49,
+      "acceptance_ratio": 1.0,
+      "max_progress_error": 0.07639505239867472,
+      "median_runtime_ms": 32.42999999999974,
+      "p95_runtime_ms": 70.99773780000102,
+      "rejections": {
+        "visual_route_acquiring": 1
+      }
+    },
+    {
+      "lap": 2,
+      "leg": 3,
+      "from_point": 3,
+      "to_point": 4,
+      "query_count": 103,
+      "expected_after_acquisition": 102,
+      "accepted": 102,
+      "acceptance_ratio": 1.0,
+      "max_progress_error": 0.011560693641618509,
+      "median_runtime_ms": 62.03912499999831,
+      "p95_runtime_ms": 64.29016720000149,
+      "rejections": {
+        "visual_route_acquiring": 1
+      }
+    },
+    {
+      "lap": 2,
+      "leg": 4,
+      "from_point": 4,
+      "to_point": 1,
+      "query_count": 33,
+      "expected_after_acquisition": 32,
+      "accepted": 32,
+      "acceptance_ratio": 1.0,
+      "max_progress_error": 0.005986360725420692,
+      "median_runtime_ms": 53.02812500000087,
+      "p95_runtime_ms": 56.21284960000068,
+      "rejections": {
+        "visual_route_acquiring": 1
+      }
+    }
+  ]
+}

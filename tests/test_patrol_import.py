@@ -100,6 +100,20 @@ class PatrolImportTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "different map coordinate frame"):
             server.import_map_patrol("unrelated_map", "source_map", "patrol_lab_1")
 
+    def test_active_recovery_banks_include_full_loop_but_exclude_backups(self):
+        asset_dir = Path(self.temporary.name) / "map_assets"
+        patrol_dir = asset_dir / "taught_patrols" / "patrol_lab_1"
+        patrol_dir.mkdir(parents=True)
+        current = patrol_dir / "recovery_bank.npz"
+        full_loop = patrol_dir / "recovery_bank_full_loop_154714.npz"
+        backup = patrol_dir / "recovery_bank_before_20260809.npz"
+        for path in (current, full_loop, backup):
+            path.touch()
+
+        banks = server.active_taught_recovery_banks(asset_dir)
+
+        self.assertEqual(banks, sorted([current.resolve(), full_loop.resolve()]))
+
 
 if __name__ == "__main__":
     unittest.main()

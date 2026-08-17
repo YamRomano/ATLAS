@@ -13,6 +13,7 @@ sys.modules.setdefault("cv2", types.ModuleType("cv2"))
 ROOT = Path(__file__).resolve().parents[1]
 SERVER_PATH = ROOT / "scripts" / "atlas_app_server.py"
 APP_PATH = ROOT / "viewer" / "app.js"
+INDEX_PATH = ROOT / "viewer" / "index.html"
 TRAIN_PATH = ROOT / "scripts" / "train_enemy_yolo.py"
 FIXED_ENHANCE_PATH = ROOT / "scripts" / "enhance_colmap_fixed_reference.py"
 BRIDGE_PATH = ROOT / "scripts" / "atlas_dji_live_bridge.py"
@@ -29,6 +30,18 @@ BRIDGE_SPEC.loader.exec_module(bridge)
 
 
 class EnemyLabSafetyTests(unittest.TestCase):
+    def test_live_check_mode_blocks_every_flight_command(self):
+        status = {
+            "status": "streaming",
+            "updated_at": time.time(),
+            "control_enabled": False,
+            "view_only": True,
+        }
+        for command in ("takeoff", "land", "hover", "enable", "disable", "mission"):
+            ready, reason = server.dji_live_bridge_readiness(status, command)
+            self.assertFalse(ready)
+            self.assertIn("disabled", reason)
+
     def test_training_entry_point_exists_and_compiles(self):
         self.assertTrue(TRAIN_PATH.exists())
         compile(TRAIN_PATH.read_text(encoding="utf-8"), str(TRAIN_PATH), "exec")
@@ -38,6 +51,42 @@ class EnemyLabSafetyTests(unittest.TestCase):
         self.assertIn("ENEMY_CONFIRM_HITS = 3", source)
         self.assertIn("ENEMY_CONFIRM_WINDOW = 5", source)
         self.assertIn("enemyDetectionIsFresh(payload)", source)
+
+    def test_enemy_detection_is_operator_opt_in_and_cannot_interrupt_when_off(self):
+        source = APP_PATH.read_text(encoding="utf-8")
+        html = INDEX_PATH.read_text(encoding="utf-8")
+        self.assertIn('id="enemy-detection-enabled"', html)
+        self.assertNotIn('id="enemy-detection-enabled" type="checkbox" checked', html)
+        self.assertIn('localStorage.getItem(ENEMY_DETECTION_ENABLED_STORAGE_KEY) === "true"', source)
+        poll_start = source.index("async function pollEnemyLiveDetections")
+        poll_fetch = source.index("fetch(`public/live_dji/enemy_detections.json", poll_start)
+        self.assertLess(source.index("if (!enemyDetectionEnabled())", poll_start), poll_fetch)
+        pause_start = source.index("async function pauseForEnemyDetection")
+        self.assertIn("if (!enemyDetectionEnabled()) return;", source[pause_start:pause_start + 180])
+        self.assertIn("Enemy detection is off. Detector results cannot interrupt this patrol.", source)
+        self.assertIn('postJson("/api/enemy-drone/live-detection", { enabled: Boolean(enabled) })', source)
+
+    def test_runtime_enemy_detection_gate_fails_closed_and_clears_results(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            control = root / "enemy_detection_control.json"
+            detections = root / "enemy_detections.json"
+            self.assertFalse(bridge.enemy_detection_control_enabled(control))
+            control.write_text(json.dumps({"enabled": True}), encoding="utf-8")
+            self.assertTrue(bridge.enemy_detection_control_enabled(control))
+            payload = server.set_live_enemy_detection_enabled(False, control, detections)
+            self.assertFalse(payload["enabled"])
+            self.assertFalse(bridge.enemy_detection_control_enabled(control))
+            cleared = json.loads(detections.read_text(encoding="utf-8"))
+            self.assertEqual(cleared["status"], "disabled")
+            self.assertEqual(cleared["detections"], [])
+
+    def test_bridge_checks_runtime_gate_before_yolo_inference(self):
+        source = BRIDGE_PATH.read_text(encoding="utf-8")
+        loop = source.index("enemy_detection_is_enabled = enemy_detection_control_enabled")
+        inference = source.index("detections = detect_enemy_drones", loop)
+        self.assertLess(loop, inference)
+        self.assertIn("enemy_detector is not None and enemy_detection_is_enabled", source[loop:inference])
 
     def test_lock_on_plan_has_no_forward_cruise(self):
         source = APP_PATH.read_text(encoding="utf-8")
@@ -303,6 +352,7 @@ class EnemyLabSafetyTests(unittest.TestCase):
             server.load_library = lambda: {
                 "maps": [{
                     "id": "map_safe",
+                    "patrols": [{"id": "patrol_safe", "title": "Safe patrol"}],
                     "safety_barriers": [{"id": "wall_1"}, {"id": "wall_2"}, {"id": "wall_3"}, {"id": "wall_4"}],
                     "safety_obstacles": [{"id": "desk"}],
                 }]
@@ -311,6 +361,7 @@ class EnemyLabSafetyTests(unittest.TestCase):
                 "client_safety_version": 3,
                 "patrol": True,
                 "map_id": "map_safe",
+                "patrol_id": "patrol_safe",
                 "safety_barriers": [{"id": "forged"}],
                 "safety_motion_buffer_m": 0.05,
             })
@@ -319,6 +370,132 @@ class EnemyLabSafetyTests(unittest.TestCase):
             self.assertAlmostEqual(mission["safety_motion_buffer_m"], 0.30)
         finally:
             server.load_library = original_load_library
+
+    def test_live_patrol_lock_rejects_a_different_map_or_patrol(self):
+        original_load_library = server.load_library
+        try:
+            server.load_library = lambda: {
+                "live_patrol_lock": {
+                    "enabled": True,
+                    "map_id": "map_pinned",
+                    "patrol_id": "patrol_1",
+                },
+                "maps": [
+                    {
+                        "id": "map_pinned",
+                        "title": "Video Map 20:07:46 Copy",
+                        "patrols": [{"id": "patrol_1", "title": "Patrol 1"}],
+                        "safety_barriers": [{"id": "w1"}, {"id": "w2"}, {"id": "w3"}],
+                    },
+                    {
+                        "id": "map_other",
+                        "patrols": [{"id": "patrol_other"}],
+                        "safety_barriers": [{"id": "w1"}, {"id": "w2"}, {"id": "w3"}],
+                    },
+                ],
+            }
+            with self.assertRaisesRegex(RuntimeError, "pinned to Video Map 20:07:46 Copy / Patrol 1"):
+                server.validated_guarded_patrol_mission(
+                    {
+                        "client_safety_version": 3,
+                        "patrol": True,
+                        "map_id": "map_other",
+                        "patrol_id": "patrol_other",
+                    }
+                )
+        finally:
+            server.load_library = original_load_library
+
+    def test_suspended_live_patrol_is_rejected_before_mission_queueing(self):
+        original_load_library = server.load_library
+        try:
+            server.load_library = lambda: {
+                "live_patrol_lock": {
+                    "enabled": True,
+                    "flight_enabled": False,
+                    "map_id": "map_pinned",
+                    "patrol_id": "patrol_1",
+                    "suspension_reason": "raw and published poses diverged",
+                },
+                "maps": [{
+                    "id": "map_pinned",
+                    "title": "Video Map 20:07:46 Copy",
+                    "patrols": [{"id": "patrol_1", "title": "Patrol 1"}],
+                    "safety_barriers": [{"id": "w1"}, {"id": "w2"}, {"id": "w3"}],
+                }],
+            }
+            with self.assertRaisesRegex(RuntimeError, "Live Patrol is suspended"):
+                server.validated_guarded_patrol_mission(
+                    {
+                        "client_safety_version": 3,
+                        "patrol": True,
+                        "map_id": "map_pinned",
+                        "patrol_id": "patrol_1",
+                    }
+                )
+        finally:
+            server.load_library = original_load_library
+
+    def test_server_accepts_one_connected_entry_then_pins_exactly_two_laps(self):
+        original_load_library = server.load_library
+        original_resolved_lock = server.resolved_live_patrol_lock
+        points = [
+            [0.0, 1.0, 0.0],
+            [2.0, 1.0, 0.0],
+            [2.0, 1.0, 2.0],
+            [0.0, 1.0, 2.0],
+        ]
+        try:
+            server.load_library = lambda: {
+                "maps": [{
+                    "id": "map_pinned",
+                    "title": "Video Map 20:07:46 Copy",
+                    "patrols": [{
+                        "id": "patrol_1",
+                        "title": "Patrol 1",
+                        "points": [{"rxyz": point} for point in points],
+                    }],
+                    "safety_barriers": [{"id": "w1"}, {"id": "w2"}, {"id": "w3"}],
+                }],
+            }
+            server.resolved_live_patrol_lock = lambda _library: {
+                "map_id": "map_pinned",
+                "map_title": "Video Map 20:07:46 Copy",
+                "patrol_id": "patrol_1",
+                "patrol_title": "Patrol 1",
+                "flight_enabled": True,
+                "suspension_reason": "",
+                "reference_profile": "off",
+                "baseline_replay_id": "baseline_full",
+                "patrol_laps": 2,
+            }
+            connected_route = [[-1.0, 1.0, -0.4], points[0], *points[1:], points[0]]
+            mission = server.validated_guarded_patrol_mission({
+                "client_safety_version": 3,
+                "patrol": True,
+                "patrol_stage": "combined",
+                "map_id": "map_pinned",
+                "patrol_id": "patrol_1",
+                "route": connected_route,
+                "loop": True,
+            })
+            self.assertEqual(mission["patrol_stage"], "combined")
+            self.assertEqual(mission["patrol_laps"], 2)
+            self.assertTrue(mission["continuous_relocalization"])
+
+            with self.assertRaisesRegex(RuntimeError, "Connected patrol must enter Point 1"):
+                server.validated_guarded_patrol_mission({
+                    "client_safety_version": 3,
+                    "patrol": True,
+                    "patrol_stage": "combined",
+                    "map_id": "map_pinned",
+                    "patrol_id": "patrol_1",
+                    "route": [[-1.0, 1.0, -0.4], points[0], points[2], points[1], points[3], points[0]],
+                    "loop": True,
+                })
+        finally:
+            server.load_library = original_load_library
+            server.resolved_live_patrol_lock = original_resolved_lock
 
     def test_successful_pursuit_resumes_interrupted_patrol_from_nearest_point(self):
         source = APP_PATH.read_text(encoding="utf-8")

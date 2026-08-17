@@ -158,7 +158,19 @@ def main() -> None:
     parser.add_argument("--map-id", required=True)
     parser.add_argument("--patrol-id", required=True)
     parser.add_argument("--forward-replay", required=True, help="Replay containing point 1 -> 2 -> 3.")
-    parser.add_argument("--return-replay", required=True, help="Replay containing point 1 -> 4 -> 3; it is reversed into 3 -> 4 -> 1.")
+    second_source = parser.add_mutually_exclusive_group(required=True)
+    second_source.add_argument(
+        "--return-replay",
+        help="Replay containing point 1 -> 4 -> 3; it is reversed into 3 -> 4 -> 1.",
+    )
+    second_source.add_argument(
+        "--continuation-replay",
+        help="Replay taught directly from point 3 -> 4 -> 1; use this to finish an existing 1 -> 2 -> 3 run.",
+    )
+    second_source.add_argument(
+        "--final-leg-replay",
+        help="Replay taught directly from point 4 -> 1; the forward replay must already contain 1 -> 2 -> 3 -> 4.",
+    )
     parser.add_argument("--max-point-error", type=float, default=0.55)
     parser.add_argument("--max-junction-error", type=float, default=0.55)
     parser.add_argument("--out", type=Path)
@@ -168,31 +180,71 @@ def main() -> None:
     points = [point_xyz(point) for point in patrol["points"][:4]]
     map_dir = MAPS_DIR / args.map_id
     forward_path = replay_pose_path(map_dir, args.forward_replay)
-    return_path = replay_pose_path(map_dir, args.return_replay)
+    second_replay = str(args.final_leg_replay or args.continuation_replay or args.return_replay)
+    second_path = replay_pose_path(map_dir, second_replay)
     forward = accepted_poses(forward_path)
-    returning = accepted_poses(return_path)
+    returning = accepted_poses(second_path)
 
     f1, f1_error = nearest_index(forward, points[0])
     f2, f2_error = nearest_index(forward, points[1])
     f3, f3_error = nearest_index(forward, points[2])
+    f4, f4_error = nearest_index(forward, points[3])
     r1, r1_error = nearest_index(returning, points[0])
     r4, r4_error = nearest_index(returning, points[3])
     r3, r3_error = nearest_index(returning, points[2])
     if not (f1 < f2 < f3):
         raise RuntimeError("Forward replay does not visit patrol points 1 -> 2 -> 3 in order.")
-    if not (r1 < r4 < r3):
-        raise RuntimeError("Return replay does not visit patrol points 1 -> 4 -> 3 in order for safe reversal.")
+    point_4_junction = 0.0
+    if args.final_leg_replay:
+        if not (f1 < f2 < f3 < f4):
+            raise RuntimeError("Forward replay does not visit patrol points 1 -> 2 -> 3 -> 4 in order.")
+        if not (r4 < r1):
+            raise RuntimeError("Final-leg replay does not visit patrol points 4 -> 1 in order.")
+        leg_34_poses = forward[f3:f4 + 1]
+        leg_41_poses = returning[r4:r1 + 1]
+        leg_34_indices = (f3, f4)
+        leg_41_indices = (r4, r1)
+        leg_34_replay = args.forward_replay
+        leg_34_direction = "forward"
+        leg_41_direction = "forward_final_leg"
+        point_4_junction = horizontal_distance(forward[f4]["rcenter"], returning[r4]["rcenter"])
+        reversed_trace_note = None
+    elif args.continuation_replay:
+        if not (r3 < r4 < r1):
+            raise RuntimeError("Continuation replay does not visit patrol points 3 -> 4 -> 1 in order.")
+        leg_34_poses = returning[r3:r4 + 1]
+        leg_41_poses = returning[r4:r1 + 1]
+        leg_34_indices = (r3, r4)
+        leg_41_indices = (r4, r1)
+        leg_34_replay = second_replay
+        leg_34_direction = "forward_continuation"
+        leg_41_direction = "forward_continuation"
+        reversed_trace_note = None
+    else:
+        if not (r1 < r4 < r3):
+            raise RuntimeError("Return replay does not visit patrol points 1 -> 4 -> 3 in order for safe reversal.")
 
-    # The second recording is physically traversed 1 -> 4 -> 3.  Its accepted
-    # position trace is reversed to form a reference *path* 3 -> 4 -> 1.  Its
-    # camera headings are intentionally not copied as control headings: the
-    # aircraft must face the opposite way on the reversed route.
-    return_reversed = list(reversed(returning[r1:r3 + 1]))
-    reverse_p3_index = len(return_reversed) - 1 - (r3 - r1)
-    reverse_p4_index = len(return_reversed) - 1 - (r4 - r1)
-    reverse_p1_index = len(return_reversed) - 1
-    if not (0 <= reverse_p3_index < reverse_p4_index < reverse_p1_index):
-        raise RuntimeError("Unable to form an ordered reversed 3 -> 4 -> 1 trace.")
+        # The second recording is physically traversed 1 -> 4 -> 3.  Its accepted
+        # position trace is reversed to form a reference *path* 3 -> 4 -> 1.  Its
+        # camera headings are intentionally not copied as control headings: the
+        # aircraft must face the opposite way on the reversed route.
+        return_reversed = list(reversed(returning[r1:r3 + 1]))
+        reverse_p3_index = len(return_reversed) - 1 - (r3 - r1)
+        reverse_p4_index = len(return_reversed) - 1 - (r4 - r1)
+        reverse_p1_index = len(return_reversed) - 1
+        if not (0 <= reverse_p3_index < reverse_p4_index < reverse_p1_index):
+            raise RuntimeError("Unable to form an ordered reversed 3 -> 4 -> 1 trace.")
+        leg_34_poses = return_reversed[reverse_p3_index:reverse_p4_index + 1]
+        leg_41_poses = return_reversed[reverse_p4_index:reverse_p1_index + 1]
+        leg_34_indices = (r3, r4)
+        leg_41_indices = (r4, r1)
+        leg_34_replay = second_replay
+        leg_34_direction = "reversed_position_trace"
+        leg_41_direction = "reversed_position_trace"
+        reversed_trace_note = (
+            "Legs 3->4 and 4->1 use reversed position traces; their original camera headings "
+            "must not be replayed because the aircraft faces the opposite direction."
+        )
 
     legs = [
         make_leg(
@@ -220,20 +272,20 @@ def main() -> None:
             point_to=4,
             start=points[2],
             end=points[3],
-            source_replay=args.return_replay,
-            source_direction="reversed_position_trace",
-            poses=return_reversed[reverse_p3_index:reverse_p4_index + 1],
-            source_indices=(r3, r4),
+            source_replay=leg_34_replay,
+            source_direction=leg_34_direction,
+            poses=leg_34_poses,
+            source_indices=leg_34_indices,
         ),
         make_leg(
             point_from=4,
             point_to=1,
             start=points[3],
             end=points[0],
-            source_replay=args.return_replay,
-            source_direction="reversed_position_trace",
-            poses=return_reversed[reverse_p4_index:reverse_p1_index + 1],
-            source_indices=(r4, r1),
+            source_replay=second_replay,
+            source_direction=leg_41_direction,
+            poses=leg_41_poses,
+            source_indices=leg_41_indices,
         ),
     ]
     headings = [leg["expected_heading_deg"] for leg in legs]
@@ -244,20 +296,25 @@ def main() -> None:
         "point_1_forward_error": f1_error,
         "point_2_error": f2_error,
         "point_3_forward_error": f3_error,
-        "point_3_return_error": r3_error,
-        "point_4_error": r4_error,
+        "point_3_return_error": f3_error if args.final_leg_replay else r3_error,
+        "point_4_error": max(f4_error, r4_error) if args.final_leg_replay else r4_error,
         "point_1_return_error": r1_error,
     }
-    p3_junction = horizontal_distance(forward[f3]["rcenter"], returning[r3]["rcenter"])
+    p3_junction = (
+        0.0
+        if args.final_leg_replay
+        else horizontal_distance(forward[f3]["rcenter"], returning[r3]["rcenter"])
+    )
     p1_junction = horizontal_distance(returning[r1]["rcenter"], forward[f1]["rcenter"])
     coverage["point_3_junction_error"] = p3_junction
     coverage["point_1_junction_error"] = p1_junction
+    coverage["point_4_junction_error"] = point_4_junction
     complete = (
         max(coverage[key] for key in (
             "point_1_forward_error", "point_2_error", "point_3_forward_error",
             "point_3_return_error", "point_4_error", "point_1_return_error",
         )) <= args.max_point_error
-        and max(p3_junction, p1_junction) <= args.max_junction_error
+        and max(p3_junction, point_4_junction, p1_junction) <= args.max_junction_error
     )
 
     output = {
@@ -266,7 +323,12 @@ def main() -> None:
         "map_id": args.map_id,
         "patrol_id": args.patrol_id,
         "created_at": __import__("time").strftime("%Y-%m-%dT%H:%M:%SZ", __import__("time").gmtime()),
-        "source_replays": [args.forward_replay, args.return_replay],
+        "source_replays": [args.forward_replay, second_replay],
+        "second_replay_mode": (
+            "direct_final_leg"
+            if args.final_leg_replay
+            else ("direct_continuation" if args.continuation_replay else "reversed_return")
+        ),
         "frame": "atlas_room",
         "complete_loop": complete,
         "enabled_for_turn_recovery": complete,
@@ -278,10 +340,7 @@ def main() -> None:
             "Reference supplies expected turn headings only. It never authorizes forward movement "
             "without a fresh accepted TSolve room position."
         ),
-        "reversed_trace_note": (
-            "Legs 3->4 and 4->1 use reversed position traces; their original camera headings "
-            "must not be replayed because the aircraft faces the opposite direction."
-        ),
+        "reversed_trace_note": reversed_trace_note,
     }
     out_path = args.out or (map_dir / "taught_patrols" / args.patrol_id / "reference.json")
     out_path.parent.mkdir(parents=True, exist_ok=True)

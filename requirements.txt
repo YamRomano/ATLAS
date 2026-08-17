@@ -1,0 +1,10 @@
+# Versions used by the current ATLAS workstation on 2026-08-17.
+numpy==2.0.2
+opencv-python==4.13.0.92
+scipy==1.13.1
+sympy==1.14.0
+Pillow==11.3.0
+av==15.1.0
+
+# Enemy-drone detection/training. Optional if that part of the UI is unused.
+ultralytics==8.4.96

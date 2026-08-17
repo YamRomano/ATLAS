@@ -9,6 +9,7 @@ import json
 import math
 import mimetypes
 import os
+import re
 import select
 import shutil
 import signal
@@ -36,11 +37,19 @@ MAPS_DIR = PUBLIC / "maps"
 MAP_MANIFEST = MAPS_DIR / "manifest.json"
 ENEMY_DIR = PUBLIC / "enemy_drones"
 ENEMY_MANIFEST = ENEMY_DIR / "manifest.json"
+LIVE_ENEMY_DETECTION_CONTROL = PUBLIC / "live_dji" / "enemy_detection_control.json"
+LIVE_ENEMY_DETECTION_OUTPUT = PUBLIC / "live_dji" / "enemy_detections.json"
 FLEET_DIR = PUBLIC / "fleet"
 FLEET_MANIFEST = FLEET_DIR / "manifest.json"
 CAMERA_PATH_LAB_DIR = PUBLIC / "camera_path_lab"
+CAMERA_PATH_PREVIEW_CALIBRATIONS = CAMERA_PATH_LAB_DIR / "preview_calibrations.json"
 CONFIG = ROOT / "config.json"
 DEFAULT_PORT = 8765
+VIDEO_REVIEW_MEDIA = ROOT / "outputs" / "spy_demo" / "ATLAS_CINEMATIC_PRODUCT_STORY_2MIN.mp4"
+VIDEO_REVIEW_DIR = ROOT / "outputs" / "spy_demo" / "reviews"
+VIDEO_REVIEW_JSON = VIDEO_REVIEW_DIR / "ATLAS_CINEMATIC_PRODUCT_STORY_review.json"
+VIDEO_REVIEW_BRIEF = VIDEO_REVIEW_DIR / "ATLAS_CINEMATIC_PRODUCT_STORY_adjustment_brief.md"
+VIDEO_REVIEW_LOCK = threading.RLock()
 
 STATE_LOCK = threading.Lock()
 STATE = {
@@ -73,6 +82,7 @@ MAP_STOP_EVENT = threading.Event()
 DRONE_STOP_EVENT = threading.Event()
 DRONE_JOB_ACTIVE = threading.Event()
 DRONE_JOB_LIFECYCLE_LOCK = threading.Lock()
+DRONE_JOB_WORKER_IDENT: int | None = None
 ACTIVE_JOB_STATES = {"queued", "running", "stopping"}
 COLMAP_QUERY_POSE_CACHE: dict[str, tuple[float, dict[str, dict]]] = {}
 ACTIVE_PROCS_LOCK = threading.Lock()
@@ -87,6 +97,144 @@ CAMERA_PATH_LAB_STATE = {
     "updated_at": None,
     "stream": None,
 }
+
+
+def empty_video_review() -> dict:
+    return {
+        "version": 1,
+        "video": VIDEO_REVIEW_MEDIA.name,
+        "updated_at": None,
+        "annotations": [],
+    }
+
+
+def normalize_video_review(payload: object) -> dict:
+    if not isinstance(payload, dict):
+        raise RuntimeError("Review payload must be a JSON object.")
+    raw_annotations = payload.get("annotations")
+    if raw_annotations is None:
+        raw_annotations = []
+    if not isinstance(raw_annotations, list):
+        raise RuntimeError("annotations must be a list.")
+    if len(raw_annotations) > 500:
+        raise RuntimeError("A review can contain at most 500 annotations.")
+
+    categories = {"visual", "edit", "music", "text", "technical", "other"}
+    priorities = {"P1", "P2", "P3"}
+    normalized = []
+    for index, item in enumerate(raw_annotations):
+        if not isinstance(item, dict):
+            raise RuntimeError(f"Annotation {index + 1} must be an object.")
+        note = str(item.get("note") or "").strip()
+        if not note:
+            raise RuntimeError(f"Annotation {index + 1} is missing its note.")
+        if len(note) > 2000:
+            raise RuntimeError(f"Annotation {index + 1} is longer than 2,000 characters.")
+        try:
+            start = max(0.0, float(item.get("start", 0)))
+        except (TypeError, ValueError):
+            raise RuntimeError(f"Annotation {index + 1} has an invalid start time.")
+        raw_end = item.get("end")
+        try:
+            end = None if raw_end in (None, "") else max(start, float(raw_end))
+        except (TypeError, ValueError):
+            raise RuntimeError(f"Annotation {index + 1} has an invalid end time.")
+        category = str(item.get("category") or "visual").lower()
+        priority = str(item.get("priority") or "P2").upper()
+        if category not in categories:
+            category = "other"
+        if priority not in priorities:
+            priority = "P2"
+        point = item.get("point")
+        normalized_point = None
+        if isinstance(point, dict):
+            try:
+                x = min(1.0, max(0.0, float(point.get("x"))))
+                y = min(1.0, max(0.0, float(point.get("y"))))
+                normalized_point = {"x": round(x, 5), "y": round(y, 5)}
+            except (TypeError, ValueError):
+                normalized_point = None
+        normalized.append(
+            {
+                "id": re.sub(r"[^A-Za-z0-9_-]", "", str(item.get("id") or uuid.uuid4().hex))[:80],
+                "start": round(start, 3),
+                "end": None if end is None else round(end, 3),
+                "category": category,
+                "priority": priority,
+                "note": note,
+                "point": normalized_point,
+                "created_at": str(item.get("created_at") or "")[:64] or None,
+            }
+        )
+    normalized.sort(key=lambda item: (item["start"], item["priority"], item["id"]))
+    return {
+        "version": 1,
+        "video": VIDEO_REVIEW_MEDIA.name,
+        "updated_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+        "annotations": normalized,
+    }
+
+
+def video_review_timecode(seconds: float) -> str:
+    total_ms = max(0, round(float(seconds) * 1000))
+    minutes, remainder = divmod(total_ms, 60_000)
+    whole_seconds, milliseconds = divmod(remainder, 1000)
+    return f"{minutes:02d}:{whole_seconds:02d}.{milliseconds:03d}"
+
+
+def video_review_markdown(review: dict) -> str:
+    lines = [
+        "# ATLAS Cinematic Product Story — Adjustment Brief",
+        "",
+        f"Video: `{review.get('video') or VIDEO_REVIEW_MEDIA.name}`  ",
+        f"Updated: {review.get('updated_at') or 'not saved'}  ",
+        f"Annotations: {len(review.get('annotations') or [])}",
+        "",
+    ]
+    annotations = review.get("annotations") or []
+    if not annotations:
+        lines.append("No annotations yet.")
+    for index, item in enumerate(annotations, start=1):
+        start = video_review_timecode(item["start"])
+        end = item.get("end")
+        timing = start if end is None else f"{start}–{video_review_timecode(end)}"
+        point = item.get("point")
+        location = ""
+        if point:
+            location = f" · frame position {point['x'] * 100:.1f}% x, {point['y'] * 100:.1f}% y"
+        lines.extend(
+            [
+                f"## {index}. {timing} · {item['priority']} · {item['category'].title()}",
+                "",
+                f"{item['note']}{location}",
+                "",
+            ]
+        )
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def load_video_review() -> dict:
+    with VIDEO_REVIEW_LOCK:
+        if not VIDEO_REVIEW_JSON.is_file():
+            return empty_video_review()
+        try:
+            return normalize_video_review(json.loads(VIDEO_REVIEW_JSON.read_text(encoding="utf-8")))
+        except Exception:
+            return empty_video_review()
+
+
+def save_video_review(payload: object) -> dict:
+    review = normalize_video_review(payload)
+    brief = video_review_markdown(review)
+    with VIDEO_REVIEW_LOCK:
+        VIDEO_REVIEW_DIR.mkdir(parents=True, exist_ok=True)
+        json_tmp = VIDEO_REVIEW_JSON.with_suffix(".json.tmp")
+        brief_tmp = VIDEO_REVIEW_BRIEF.with_suffix(".md.tmp")
+        json_tmp.write_text(json.dumps(review, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        brief_tmp.write_text(brief, encoding="utf-8")
+        json_tmp.replace(VIDEO_REVIEW_JSON)
+        brief_tmp.replace(VIDEO_REVIEW_BRIEF)
+    return review
 
 
 def parse_http_byte_range(value: str, size: int) -> tuple[int, int]:
@@ -222,17 +370,45 @@ def touch_stop_file(path: str | Path | None, reason: str = "stop requested") -> 
 
 
 def mark_live_dji_status_stopped(message: str) -> None:
+    def read_status(path: Path) -> dict:
+        try:
+            text = path.read_text(encoding="utf-8")
+        except OSError:
+            return {}
+        try:
+            payload = json.loads(text)
+        except json.JSONDecodeError:
+            # A legacy non-atomic writer could leave bytes after an otherwise
+            # complete JSON object when Stop overlapped the bridge heartbeat.
+            # Recover that first object so Stop can still terminate the worker.
+            try:
+                payload, _end = json.JSONDecoder().raw_decode(text.lstrip())
+            except json.JSONDecodeError:
+                return {}
+        return payload if isinstance(payload, dict) else {}
+
+    def cancel_running_control(control: dict) -> dict:
+        if not isinstance(control, dict) or control.get("status") != "running":
+            return control
+        return {
+            **control,
+            "ok": False,
+            "status": "cancelled",
+            "message": message,
+            "error": message,
+            "aborted": True,
+            "cancelled_at": time.time(),
+            "updated_at": time.time(),
+        }
+
     status_paths = [PUBLIC / "live_dji" / "status.json"]
-    try:
-        latest = json.loads(status_paths[0].read_text(encoding="utf-8"))
-        session = latest.get("session")
-        if session:
-            status_paths.append(PUBLIC / "live_dji_sessions" / str(session) / "status.json")
-    except (OSError, json.JSONDecodeError):
-        latest = {}
+    latest = read_status(status_paths[0])
+    session = latest.get("session")
+    if session:
+        status_paths.append(PUBLIC / "live_dji_sessions" / str(session) / "status.json")
     for path in status_paths:
         try:
-            payload = json.loads(path.read_text(encoding="utf-8")) if path.exists() else dict(latest)
+            payload = read_status(path) if path.exists() else dict(latest)
             payload.update(
                 {
                     "status": "stopped",
@@ -241,10 +417,15 @@ def mark_live_dji_status_stopped(message: str) -> None:
                     "updated_at": time.time(),
                 }
             )
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+            if isinstance(payload.get("last_control"), dict):
+                payload["last_control"] = cancel_running_control(payload["last_control"])
+            atomic_write_json(path, payload)
         except OSError as exc:
             append_log("drone", f"Could not mark DJI live status stopped at {path}: {exc}")
+    control_path = PUBLIC / "live_dji" / "control_status.json"
+    control = read_status(control_path)
+    if control.get("status") == "running":
+        atomic_write_json(control_path, cancel_running_control(control))
 
 
 def load_config() -> dict:
@@ -288,7 +469,7 @@ def pose_stream_counts(poses: list[dict] | object) -> dict:
             continue
         if pose.get("held_pose"):
             held += 1
-        elif bool(pose.get("success")) and pose.get("center"):
+        elif bool(pose.get("success")) and (pose.get("center") or pose.get("rcenter")):
             accepted += 1
         else:
             failed += 1
@@ -391,6 +572,100 @@ def save_library(lib: dict) -> None:
     # requests. Replace the complete file atomically so readers never observe
     # the zero-length interval created by Path.write_text().
     atomic_write_json(MAP_MANIFEST, lib)
+
+
+def resolved_live_patrol_lock(lib: dict) -> dict | None:
+    """Resolve the optional map/patrol pair reserved for live patrol flights."""
+    raw = lib.get("live_patrol_lock") if isinstance(lib, dict) else None
+    if not isinstance(raw, dict) or raw.get("enabled") is not True:
+        return None
+    map_id = str(raw.get("map_id") or "").strip()
+    patrol_id = str(raw.get("patrol_id") or "").strip()
+    map_entry = next(
+        (item for item in lib.get("maps", []) if isinstance(item, dict) and item.get("id") == map_id),
+        None,
+    )
+    if map_entry is None:
+        raise RuntimeError(f"Pinned live patrol map no longer exists: {map_id or 'missing map id'}")
+    patrol = next(
+        (item for item in map_entry.get("patrols", []) if isinstance(item, dict) and item.get("id") == patrol_id),
+        None,
+    )
+    if patrol is None:
+        raise RuntimeError(f"Pinned live patrol no longer exists on {map_entry.get('title') or map_id}.")
+    baseline_replay_id = str(raw.get("baseline_replay_id") or "").strip()
+    if baseline_replay_id:
+        replay = next(
+            (
+                item
+                for item in map_entry.get("replays", [])
+                if isinstance(item, dict) and str(item.get("id") or "") == baseline_replay_id
+            ),
+            None,
+        )
+        if replay is None or str(replay.get("kind") or "") != "route_constrained_taught_baseline":
+            raise RuntimeError(
+                f"Pinned live patrol baseline is unavailable or invalid: {baseline_replay_id}"
+            )
+        baseline_reference = (
+            map_asset_dir(map_entry)
+            / "replays"
+            / baseline_replay_id
+            / "reference_candidate.json"
+        )
+        try:
+            baseline = json.loads(baseline_reference.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise RuntimeError(f"Pinned live patrol baseline cannot be read: {exc}") from exc
+        if (
+            baseline.get("map_id") != map_id
+            or baseline.get("patrol_id") != patrol_id
+            or baseline.get("complete_loop") is not True
+            or baseline.get("enabled_for_live_route_gate") is not True
+        ):
+            raise RuntimeError("Pinned live patrol baseline failed its route-gate metadata check.")
+        visual_recovery_path = ""
+        if baseline.get("enabled_for_visual_route_recovery") is True:
+            bank_name = str(baseline.get("visual_route_recovery_bank") or "").strip()
+            audit_name = str(baseline.get("visual_route_recovery_audit") or "").strip()
+            if (
+                not re.fullmatch(r"[A-Za-z0-9_.-]{1,128}", bank_name)
+                or not re.fullmatch(r"[A-Za-z0-9_.-]{1,128}", audit_name)
+            ):
+                raise RuntimeError("Pinned patrol visual recovery metadata is invalid.")
+            visual_bank = baseline_reference.parent / bank_name
+            visual_audit_path = baseline_reference.parent / audit_name
+            try:
+                visual_audit = json.loads(visual_audit_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError) as exc:
+                raise RuntimeError(f"Pinned patrol visual recovery audit cannot be read: {exc}") from exc
+            if not visual_bank.is_file() or visual_audit.get("passed") is not True:
+                raise RuntimeError("Pinned patrol visual recovery bank has not passed its offline audit.")
+            visual_recovery_path = str(visual_bank)
+    else:
+        baseline_reference = None
+        visual_recovery_path = ""
+    try:
+        patrol_laps = int(raw.get("patrol_laps") or 0)
+    except (TypeError, ValueError):
+        patrol_laps = 0
+    return {
+        "map_id": map_id,
+        "map_title": str(map_entry.get("title") or map_id),
+        "patrol_id": patrol_id,
+        "patrol_title": str(patrol.get("title") or patrol_id),
+        "flight_enabled": raw.get("flight_enabled") is not False,
+        "suspension_reason": str(raw.get("suspension_reason") or "").strip(),
+        "reference_profile": (
+            "live-atlas-141441"
+            if str(raw.get("reference_profile") or "").strip().lower() == "live-atlas-141441"
+            else "off"
+        ),
+        "baseline_replay_id": baseline_replay_id,
+        "baseline_reference_path": str(baseline_reference) if baseline_reference else "",
+        "visual_recovery_path": visual_recovery_path,
+        "patrol_laps": max(0, min(20, patrol_laps)),
+    }
 
 
 def default_enemy_library() -> dict:
@@ -600,7 +875,7 @@ def percentile(values: list[float], quantile: float) -> float:
 
 
 def live_enemy_detection_payload() -> dict:
-    path = PUBLIC / "live_dji" / "enemy_detections.json"
+    path = LIVE_ENEMY_DETECTION_OUTPUT
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError as exc:
@@ -613,6 +888,34 @@ def live_enemy_detection_payload() -> dict:
         age = float("inf")
     if age < 0 or age > 2.0:
         raise RuntimeError(f"The live enemy detection is stale ({age:.1f}s old). Hold the NEO in view and try again.")
+    return payload
+
+
+def set_live_enemy_detection_enabled(
+    enabled: bool,
+    control_path: Path | None = None,
+    detection_path: Path | None = None,
+) -> dict:
+    """Set the live detector gate without issuing any DJI flight command."""
+    control = control_path or LIVE_ENEMY_DETECTION_CONTROL
+    detections = detection_path or LIVE_ENEMY_DETECTION_OUTPUT
+    now = time.time()
+    payload = {
+        "enabled": bool(enabled),
+        "updated_at": now,
+        "source": "operator_ui",
+    }
+    atomic_write_json(control, payload)
+    if not enabled:
+        atomic_write_json(
+            detections,
+            {
+                "status": "disabled",
+                "message": "Enemy detection is disabled by the operator.",
+                "detections": [],
+                "updated_at": now,
+            },
+        )
     return payload
 
 
@@ -1669,6 +1972,67 @@ def map_asset_dir(entry: dict) -> Path:
     raise RuntimeError(f"Map assets not found for {entry.get('title') or entry.get('id')}.")
 
 
+def active_taught_recovery_banks(base_asset_dir: Path) -> list[Path]:
+    """Return active patrol recovery banks, excluding timestamped backups."""
+    taught_root = Path(base_asset_dir) / "taught_patrols"
+    banks = list(taught_root.glob("*/recovery_bank.npz"))
+    banks.extend(taught_root.glob("*/recovery_bank_full_loop_*.npz"))
+    return sorted({path.resolve() for path in banks if path.is_file()})
+
+
+def patrol_geometry_points(patrol: dict) -> list[list[float]]:
+    """Return a patrol's ordered point coordinates, or an empty list if invalid."""
+    if not isinstance(patrol, dict):
+        return []
+    points: list[list[float]] = []
+    for raw_point in patrol.get("points", []):
+        raw_xyz = raw_point.get("rxyz") if isinstance(raw_point, dict) else raw_point
+        xyz = _vec3(raw_xyz)
+        if xyz is None:
+            return []
+        points.append(xyz)
+    return points
+
+
+def taught_patrol_geometry_lock_path(entry: dict, patrol_id: str) -> Path:
+    """Resolve a patrol lock inside its map asset directory without path traversal."""
+    patrol_id = str(patrol_id or "").strip()
+    root = (map_asset_dir(entry) / "taught_patrols").resolve()
+    lock_path = (root / patrol_id / "geometry_lock.json").resolve()
+    if not patrol_id or not lock_path.is_relative_to(root):
+        raise RuntimeError("Invalid patrol id for taught geometry lock.")
+    return lock_path
+
+
+def load_taught_patrol_geometry_lock(entry: dict, patrol_id: str) -> dict | None:
+    lock_path = taught_patrol_geometry_lock_path(entry, patrol_id)
+    if not lock_path.exists():
+        return None
+    try:
+        lock = json.loads(lock_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise RuntimeError(
+            f"Taught patrol geometry lock is unreadable: {lock_path.name}."
+        ) from exc
+    if not isinstance(lock, dict) or len(patrol_geometry_points(lock)) < 2:
+        raise RuntimeError(
+            "Taught patrol geometry lock is invalid; refusing to change the patrol."
+        )
+    return lock
+
+
+def patrol_geometry_matches(first: dict, second: dict, tolerance: float = 1e-6) -> bool:
+    first_points = patrol_geometry_points(first)
+    second_points = patrol_geometry_points(second)
+    if len(first_points) != len(second_points) or len(first_points) < 2:
+        return False
+    return all(
+        math.isclose(a, b, rel_tol=0.0, abs_tol=tolerance)
+        for first_point, second_point in zip(first_points, second_points)
+        for a, b in zip(first_point, second_point)
+    )
+
+
 def copy_map_without_replays(src_asset_dir: Path, dst_asset_dir: Path) -> None:
     if dst_asset_dir.exists():
         shutil.rmtree(dst_asset_dir)
@@ -2000,6 +2364,7 @@ def sanitize_patrols(raw_patrols) -> list[dict]:
 
 def set_map_patrols(map_id: str, patrols) -> dict:
     lib = load_library()
+    live_patrol_lock = resolved_live_patrol_lock(lib)
     entry = None
     for candidate in lib.get("maps", []):
         if candidate["id"] == map_id:
@@ -2007,7 +2372,28 @@ def set_map_patrols(map_id: str, patrols) -> dict:
             break
     if entry is None:
         raise RuntimeError(f"Unknown map id: {map_id}")
-    entry["patrols"] = sanitize_patrols(patrols)
+    sanitized_patrols = sanitize_patrols(patrols)
+    if (
+        live_patrol_lock is not None
+        and map_id == live_patrol_lock["map_id"]
+        and not any(
+            str(patrol.get("id") or "") == live_patrol_lock["patrol_id"]
+            for patrol in sanitized_patrols
+        )
+    ):
+        raise RuntimeError(
+            f"{live_patrol_lock['patrol_title']} is pinned for live patrol and cannot be deleted "
+            "until a replacement live patrol is explicitly selected."
+        )
+    for patrol in sanitized_patrols:
+        patrol_id = str(patrol.get("id") or "").strip()
+        geometry_lock = load_taught_patrol_geometry_lock(entry, patrol_id)
+        if geometry_lock is not None and not patrol_geometry_matches(patrol, geometry_lock):
+            raise RuntimeError(
+                "Patrol geometry is locked to its taught recovery data. "
+                "Create a new patrol or explicitly reset teaching before moving its points."
+            )
+    entry["patrols"] = sanitized_patrols
     entry["updated_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
     save_library(lib)
     return entry
@@ -2094,6 +2480,12 @@ def import_map_patrol(target_map_id: str, source_map_id: str, patrol_id: str) ->
 
 def delete_map_entry(map_id: str) -> None:
     lib = load_library()
+    live_patrol_lock = resolved_live_patrol_lock(lib)
+    if live_patrol_lock is not None and map_id == live_patrol_lock["map_id"]:
+        raise RuntimeError(
+            f"{live_patrol_lock['map_title']} is pinned for live patrol and cannot be deleted "
+            "until a replacement live patrol map is explicitly selected."
+        )
     entry = next((m for m in lib.get("maps", []) if m["id"] == map_id), None)
     if entry is None:
         raise RuntimeError(f"Unknown map id: {map_id}")
@@ -2153,9 +2545,37 @@ def reserve_and_queue_drone_job(message: str) -> bool:
         return True
 
 
+def mark_drone_job_worker_started() -> None:
+    """Record the thread that owns the reserved drone job.
+
+    The active Event is set by the request handler before the worker starts so
+    two requests cannot race.  Recording the eventual worker separately lets
+    Stop distinguish that short queued interval from a stale Event left behind
+    by a worker thread that has already disappeared.
+    """
+    global DRONE_JOB_WORKER_IDENT
+    with DRONE_JOB_LIFECYCLE_LOCK:
+        DRONE_JOB_ACTIVE.set()
+        DRONE_JOB_WORKER_IDENT = threading.get_ident()
+
+
+def drone_job_worker_liveness() -> bool | None:
+    """Return True/False for a known worker, or None before it has started."""
+    with DRONE_JOB_LIFECYCLE_LOCK:
+        worker_ident = DRONE_JOB_WORKER_IDENT
+    if worker_ident is None:
+        return None
+    return any(
+        thread.ident == worker_ident and thread.is_alive()
+        for thread in threading.enumerate()
+    )
+
+
 def release_drone_job() -> None:
     """Acknowledge cancellation only after the worker has fully cleaned up."""
+    global DRONE_JOB_WORKER_IDENT
     with DRONE_JOB_LIFECYCLE_LOCK:
+        DRONE_JOB_WORKER_IDENT = None
         DRONE_JOB_ACTIVE.clear()
         DRONE_STOP_EVENT.clear()
 
@@ -2184,9 +2604,52 @@ def update_camera_path_lab_stream(**fields) -> None:
         CAMERA_PATH_LAB_STATE["updated_at"] = time.time()
 
 
+def load_camera_path_preview_calibration(replay_id: str) -> dict | None:
+    replay_id = str(replay_id or "").strip()
+    if not replay_id or not CAMERA_PATH_PREVIEW_CALIBRATIONS.is_file():
+        return None
+    try:
+        payload = json.loads(CAMERA_PATH_PREVIEW_CALIBRATIONS.read_text(encoding="utf-8"))
+        calibration = (payload.get("calibrations") or {}).get(replay_id)
+        return json.loads(json.dumps(calibration)) if isinstance(calibration, dict) else None
+    except (OSError, TypeError, ValueError, json.JSONDecodeError):
+        return None
+
+
+def attach_camera_path_preview_calibration(snapshot: dict) -> dict:
+    stream = snapshot.get("stream")
+    if not isinstance(stream, dict) or not stream.get("validation_preview"):
+        return snapshot
+    calibration = load_camera_path_preview_calibration(str(stream.get("replay_id") or ""))
+    if calibration:
+        stream["preview_calibration"] = calibration
+    else:
+        stream.pop("preview_calibration", None)
+    return snapshot
+
+
 def camera_path_lab_snapshot() -> dict:
     with CAMERA_PATH_LAB_LOCK:
-        return json.loads(json.dumps(CAMERA_PATH_LAB_STATE))
+        snapshot = json.loads(json.dumps(CAMERA_PATH_LAB_STATE))
+    # A validated offline replay is produced by a separate worker so it can
+    # run without reserving or mutating the live ATLAS map.  Surface it in the
+    # same viewer after it is newer than the last live/cancelled UI state.
+    latest_offline = CAMERA_PATH_LAB_DIR / "offline_latest.json"
+    if snapshot.get("status") not in ACTIVE_JOB_STATES and latest_offline.is_file():
+        try:
+            offline = json.loads(latest_offline.read_text(encoding="utf-8"))
+            generated_at = float(offline.get("generated_at") or 0.0)
+            state_updated_at = float(snapshot.get("updated_at") or 0.0)
+            if generated_at >= state_updated_at and isinstance(offline.get("stream"), dict):
+                return attach_camera_path_preview_calibration({
+                    "status": str(offline.get("status") or "done"),
+                    "message": str(offline.get("message") or "Validated offline camera path ready."),
+                    "updated_at": generated_at,
+                    "stream": offline["stream"],
+                })
+        except (OSError, TypeError, ValueError, json.JSONDecodeError):
+            pass
+    return attach_camera_path_preview_calibration(snapshot)
 
 
 def set_map_capture_state(**fields) -> None:
@@ -2220,6 +2683,103 @@ def atomic_write_json(path: Path, payload: dict) -> None:
             tmp.unlink(missing_ok=True)
         except OSError:
             pass
+
+
+def save_camera_path_preview_calibration(payload: dict) -> dict:
+    replay_id = str(payload.get("replay_id") or "").strip()
+    if not replay_id or len(replay_id) > 160:
+        raise ValueError("A valid preview replay id is required.")
+    snapshot = camera_path_lab_snapshot()
+    stream = snapshot.get("stream")
+    if (
+        not isinstance(stream, dict)
+        or not stream.get("validation_preview")
+        or str(stream.get("replay_id") or "") != replay_id
+    ):
+        raise ValueError("Only the active validation preview can be calibrated.")
+    target = payload.get("target_start")
+    if not isinstance(target, list) or len(target) < 3:
+        raise ValueError("target_start must contain X, Y, and Z.")
+    target_start = [float(value) for value in target[:3]]
+    if not all(math.isfinite(value) and abs(value) <= 100.0 for value in target_start):
+        raise ValueError("The requested path position is outside the calibration workspace.")
+    movement_scale = float(payload.get("movement_scale"))
+    if not math.isfinite(movement_scale) or not 0.05 <= movement_scale <= 2.0:
+        raise ValueError("Path scale must be between 5% and 200%.")
+    movement_scale_x = float(payload.get("movement_scale_x", movement_scale))
+    movement_scale_y = float(payload.get("movement_scale_y", movement_scale))
+    if not all(
+        math.isfinite(value) and 0.05 <= value <= 2.0
+        for value in (movement_scale_x, movement_scale_y)
+    ):
+        raise ValueError("Path X and Y sizes must be between 5% and 200%.")
+    rotation_deg = float(payload.get("rotation_deg") or 0.0)
+    if not math.isfinite(rotation_deg) or not -180.0 <= rotation_deg <= 180.0:
+        raise ValueError("Path rotation must be between -180 and +180 degrees.")
+    timing_offset_sec = float(payload.get("timing_offset_sec") or 0.0)
+    if not math.isfinite(timing_offset_sec) or not -8.0 <= timing_offset_sec <= 8.0:
+        raise ValueError("Path timing offset must be between -8 and +8 seconds.")
+    default_timing_boundaries = ((0, 333), (334, 599), (600, 749), (750, None))
+    requested_segments = payload.get("timing_segments")
+    if requested_segments is None:
+        timing_segments = [
+            {"start_frame": start, "end_frame": end, "offset_sec": timing_offset_sec}
+            for start, end in default_timing_boundaries
+        ]
+    else:
+        if not isinstance(requested_segments, list) or not 1 <= len(requested_segments) <= 12:
+            raise ValueError("Path timing must contain between 1 and 12 frame sections.")
+        timing_segments = []
+        expected_start = 0
+        for index, requested in enumerate(requested_segments):
+            if not isinstance(requested, dict):
+                raise ValueError("Each path timing section must be an object.")
+            start = int(requested.get("start_frame"))
+            requested_end = requested.get("end_frame")
+            end = None if requested_end is None else int(requested_end)
+            offset_sec = float(requested.get("offset_sec"))
+            if not math.isfinite(offset_sec) or not -8.0 <= offset_sec <= 8.0:
+                raise ValueError("Each path timing offset must be between -8 and +8 seconds.")
+            if start != expected_start:
+                raise ValueError("Path timing sections must be ordered, contiguous, and start at frame 0.")
+            is_last = index == len(requested_segments) - 1
+            if is_last:
+                if end is not None:
+                    raise ValueError("The final path timing section must continue to the end of the video.")
+            else:
+                if end is None or end < start + 40:
+                    raise ValueError("Each bounded path timing section must contain at least 41 frames for smooth blending.")
+                expected_start = end + 1
+            timing_segments.append(
+                {"start_frame": start, "end_frame": end, "offset_sec": offset_sec}
+            )
+        timing_offset_sec = timing_segments[0]["offset_sec"]
+    calibration = {
+        "replay_id": replay_id,
+        "target_start": target_start,
+        "movement_scale": movement_scale,
+        "movement_scale_x": movement_scale_x,
+        "movement_scale_y": movement_scale_y,
+        "rotation_deg": rotation_deg,
+        "timing_offset_sec": timing_offset_sec,
+        "timing_segments": timing_segments,
+        "locked": True,
+        "updated_at": time.time(),
+    }
+    with CAMERA_PATH_LAB_LOCK:
+        try:
+            saved = json.loads(CAMERA_PATH_PREVIEW_CALIBRATIONS.read_text(encoding="utf-8"))
+        except (OSError, TypeError, ValueError, json.JSONDecodeError):
+            saved = {}
+        calibrations = saved.get("calibrations")
+        if not isinstance(calibrations, dict):
+            calibrations = {}
+        calibrations[replay_id] = calibration
+        atomic_write_json(
+            CAMERA_PATH_PREVIEW_CALIBRATIONS,
+            {"version": 1, "updated_at": calibration["updated_at"], "calibrations": calibrations},
+        )
+    return json.loads(json.dumps(calibration))
 
 
 def default_fleet_manifest() -> dict:
@@ -2469,7 +3029,29 @@ def start_manual_patrol_recording(payload: dict) -> dict:
     if not map_id or not patrol_id:
         raise RuntimeError("Select a saved patrol before recording.")
     entry = get_map_entry(map_id)
+    recording_mode = str(payload.get("recording_mode") or "full_loop").strip().lower()
+    route_by_mode = {
+        "full_loop": {
+            "route_points": [1, 2, 3, 4, 1],
+            "route_label": "1 -> 2 -> 3 -> 4 -> 1",
+            "start_rule": "operator begins at patrol point 1",
+        },
+        "continuation_3_4_1": {
+            "route_points": [3, 4, 1],
+            "route_label": "3 -> 4 -> 1",
+            "start_rule": "operator begins at patrol point 3 to complete an existing 1 -> 2 -> 3 teach run",
+        },
+        "continuation_4_1": {
+            "route_points": [4, 1],
+            "route_label": "4 -> 1",
+            "start_rule": "operator begins at patrol point 4 to complete an existing 1 -> 2 -> 3 -> 4 teach run",
+        },
+    }
+    route = route_by_mode.get(recording_mode)
+    if route is None:
+        raise RuntimeError("Unknown manual patrol recording mode.")
     recording_id = f"manual_patrol_{time.strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}"
+    replay_id = pose_stream.parent.name if pose_stream.parent.name.startswith("dji_live_") else None
     state = {
         "status": "recording",
         "recording_id": recording_id,
@@ -2477,6 +3059,9 @@ def start_manual_patrol_recording(payload: dict) -> dict:
         "map_title": entry.get("title"),
         "patrol_id": patrol_id,
         "patrol_title": str(payload.get("patrol_title") or patrol_id),
+        "recording_mode": recording_mode,
+        **route,
+        "source_replay_id": replay_id,
         "started_at": time.time(),
         "pose_stream_path": str(pose_stream.resolve()),
         "frames_csv_path": str(frames_csv.resolve()),
@@ -2568,7 +3153,7 @@ def finish_manual_patrol_recording(payload: dict) -> dict:
         "command_event_count": len(command_events),
         "trajectory_frame": "atlas_room",
         "requires_offline_pose_recovery": not bool(accepted_poses),
-        "start_rule": "operator begins at patrol point 1",
+        "start_rule": state.get("start_rule"),
         "poses": recorded_poses,
     }
     trajectory = {
@@ -3007,13 +3592,15 @@ def dji_live_bridge_readiness(live_status: dict, command: str) -> tuple[bool, st
         if age > 4.0:
             return False, f"DJI bridge heartbeat is stale ({age_text})."
         if not bool(live_status.get("control_enabled")):
-            return False, "DJI bridge was started without control enabled."
+            return False, "DJI bridge is running in Live Check view-only mode; flight commands are disabled."
         return True, "DJI bridge is streaming and control-enabled."
     if command in {"takeoff", "land", "hover", "enable", "disable"}:
         if state not in {"streaming", "waiting_for_video"}:
             return False, f"DJI bridge is {state or 'offline'}."
         if age > 8.0:
             return False, f"DJI bridge heartbeat is stale ({age_text})."
+        if not bool(live_status.get("control_enabled")):
+            return False, "DJI bridge is running in Live Check view-only mode; flight commands are disabled."
         return True, "DJI bridge is connected."
     return False, f"Unsupported DJI command: {command}"
 
@@ -3092,9 +3679,93 @@ def validated_guarded_patrol_mission(mission: dict) -> dict:
     if client_safety_version < 3:
         raise RuntimeError("Patrol requires the current wall/obstacle safety code. Reload ATLAS before flight.")
     map_id = str(mission.get("map_id") or "").strip()
-    map_entry = next((item for item in load_library().get("maps", []) if item.get("id") == map_id), None)
+    patrol_id = str(mission.get("patrol_id") or "").strip()
+    library = load_library()
+    live_patrol_lock = resolved_live_patrol_lock(library)
+    if live_patrol_lock is not None and not live_patrol_lock["flight_enabled"]:
+        reason = live_patrol_lock["suspension_reason"] or "offline safety validation is required"
+        raise RuntimeError(f"Live Patrol is suspended: {reason}")
+    if live_patrol_lock is not None and (
+        map_id != live_patrol_lock["map_id"]
+        or patrol_id != live_patrol_lock["patrol_id"]
+    ):
+        raise RuntimeError(
+            "Live patrol is pinned to "
+            f"{live_patrol_lock['map_title']} / {live_patrol_lock['patrol_title']}. "
+            "Reload ATLAS and use the pinned patrol."
+        )
+    map_entry = next((item for item in library.get("maps", []) if item.get("id") == map_id), None)
     if not isinstance(map_entry, dict):
         raise RuntimeError("Patrol requires the selected saved map.")
+    saved_patrol = next(
+        (item for item in map_entry.get("patrols", []) if isinstance(item, dict) and item.get("id") == patrol_id),
+        None,
+    )
+    if not isinstance(saved_patrol, dict):
+        raise RuntimeError("Patrol requires a saved patrol belonging to the selected map.")
+    patrol_stage = str(mission.get("patrol_stage") or "combined").strip().lower()
+    if patrol_stage not in {"entry", "loop", "combined"}:
+        raise RuntimeError("Patrol stage must be entry, loop, or combined.")
+
+    def route_point(value: object) -> list[float] | None:
+        if not isinstance(value, (list, tuple)) or len(value) < 3:
+            return None
+        try:
+            point = [float(value[0]), float(value[1]), float(value[2])]
+        except (TypeError, ValueError):
+            return None
+        return point if all(math.isfinite(item) for item in point) else None
+
+    saved_points = [
+        route_point(item.get("rxyz"))
+        for item in saved_patrol.get("points") or []
+        if isinstance(item, dict)
+    ]
+    saved_points = [point for point in saved_points if point is not None]
+    mission_route = [
+        route_point(item)
+        for item in mission.get("route") or []
+    ]
+    mission_route = [point for point in mission_route if point is not None]
+
+    def same_room_point(left: list[float], right: list[float], tolerance: float = 0.08) -> bool:
+        return math.hypot(left[0] - right[0], left[2] - right[2]) <= tolerance
+
+    if live_patrol_lock is not None and live_patrol_lock.get("baseline_replay_id"):
+        if len(saved_points) < 2 or not mission_route:
+            raise RuntimeError("Pinned patrol route geometry is missing.")
+        if patrol_stage == "entry":
+            if bool(mission.get("loop")) or not same_room_point(mission_route[-1], saved_points[0]):
+                raise RuntimeError("Go to Start must end at saved patrol Point 1 without looping.")
+        elif patrol_stage == "loop":
+            expected_loop = saved_points + [saved_points[0]]
+            if (
+                not bool(mission.get("loop"))
+                or len(mission_route) != len(expected_loop)
+                or any(
+                    not same_room_point(actual, expected)
+                    for actual, expected in zip(mission_route, expected_loop)
+                )
+            ):
+                raise RuntimeError(
+                    "Start 2 Circles must use the exact saved Point 1→2→3→4→1 geometry."
+                )
+        else:
+            expected_loop = saved_points + [saved_points[0]]
+            loop_tail = mission_route[-len(expected_loop):]
+            if (
+                not bool(mission.get("loop"))
+                or len(mission_route) <= len(expected_loop)
+                or len(loop_tail) != len(expected_loop)
+                or any(
+                    not same_room_point(actual, expected)
+                    for actual, expected in zip(loop_tail, expected_loop)
+                )
+            ):
+                raise RuntimeError(
+                    "Connected patrol must enter Point 1, then use the exact saved "
+                    "Point 1→2→3→4→1 loop geometry."
+                )
     safety_barriers = [item for item in map_entry.get("safety_barriers") or [] if isinstance(item, dict)]
     safety_obstacles = [item for item in map_entry.get("safety_obstacles") or [] if isinstance(item, dict)]
     if len(safety_barriers) < 3:
@@ -3110,8 +3781,68 @@ def validated_guarded_patrol_mission(mission: dict) -> dict:
             "safety_barriers": safety_barriers,
             "safety_obstacles": safety_obstacles,
             "safety_motion_buffer_m": max(0.30, min(1.0, requested_buffer)),
+            "patrol_stage": patrol_stage,
         }
     )
+    if live_patrol_lock is not None and live_patrol_lock.get("baseline_replay_id"):
+        safe.update(
+            {
+                "baseline_replay_id": live_patrol_lock["baseline_replay_id"],
+                "patrol_laps": (
+                    live_patrol_lock.get("patrol_laps") or 2
+                    if patrol_stage in {"loop", "combined"}
+                    else 1
+                ),
+                "route_monotonic_gate": True,
+                "continuous_relocalization": patrol_stage in {"entry", "loop", "combined"},
+            }
+        )
+    if live_patrol_lock is not None and live_patrol_lock["reference_profile"] == "live-atlas-141441":
+        # Server-owned profile based on the observed behavior of Live ATLAS
+        # 14:14:41, which physically reached Point 4 and turned toward Point 1.
+        # The browser cannot silently drift these values.
+        safe.update(
+            {
+                "reference_profile": "live-atlas-141441",
+                "pose_max_age_seconds": 2.5,
+                "pose_recovery_seconds": 8.0,
+                "continuous_relocalization": True,
+                # Horizontal travel is a low-stick cruise refreshed at 10 Hz.
+                # It may continue only while new translation-safe room poses
+                # arrive; loss of that stream immediately sends zero stick.
+                "one_pulse_pose_confirmation": True,
+                "smooth_continuous_cruise": True,
+                "cruise_window_seconds": 0.55,
+                "cruise_pose_watchdog_seconds": 0.65,
+                "max_unverified_translation_m": 0.18,
+                "pulse_seconds": 0.30,
+                "max_forward_rc": 0.022,
+                "max_lateral_rc": 0.0,
+                "allow_lateral_rc": False,
+                "allow_axis_auto_calibration": False,
+                # Start from the operator-aligned COLMAP/model heading. A
+                # short translation probe produced a false ~43-degree offset
+                # in the failed 2026-08-11 run and made the drone yaw past the
+                # correct route direction. The first bounded yaw pulse still
+                # verifies DJI yaw sign before translation.
+                "operator_heading_calibrated": True,
+                "require_physical_forward_probe": False,
+                "max_heading_calibration_error_deg": 25.0,
+                "max_yaw_rc": 0.050,
+                "max_scan_yaw_rc": 0.025,
+                "allow_patrol_scan_yaw": False,
+                "alignment_grace_seconds": 35.0,
+                "max_vertical_rc": 0.018,
+                "max_step_seconds": 2.0,
+                "max_cruise_seconds": 120.0,
+                "max_pose_step_map_units": 0.30,
+                "max_pose_step_hard_map_units": 0.30,
+                "cross_track_recovery_start_map_units": 0.30,
+                "max_cross_track_map_units": 0.80,
+                "arrival_radius_map_units": 0.24,
+                "arrival_deadband_map_units": 0.14,
+            }
+        )
     return safe
 
 
@@ -3152,6 +3883,11 @@ def send_dji_flight_command(payload: dict) -> dict:
         "height_m": height_m,
         "created_at": time.time(),
     }
+    if command == "hover" and bool(payload.get("emergency_stop")):
+        # Preserve the browser's safety intent.  Dropping this field made the
+        # live bridge reject Hover Now as a competing command while a patrol
+        # was active.
+        command_payload["emergency_stop"] = True
     if command == "mission":
         command_payload["mission"] = mission or {}
     if use_live_bridge:
@@ -3462,7 +4198,11 @@ def monitor_partial_pose_file(
     stop_event: threading.Event,
     started_at: float | None = None,
     stage_times_path: Path | None = None,
+    stream_update_callback=None,
+    status_callback=None,
 ) -> None:
+    publish_stream = stream_update_callback or update_live_stream
+    publish_status = status_callback or (lambda message: set_job("drone", "running", message))
     last_count = -1
     last_stage_key = ""
     while not stop_event.is_set():
@@ -3482,12 +4222,11 @@ def monitor_partial_pose_file(
                 "expected_count": int(payload.get("expected_count") or 0),
                 "partial_pose_url": public_rel(partial_path),
             }
-            current = current_live_stream() or {}
-            if count > 0 and started_at is not None and not current.get("first_pose_at"):
+            if count > 0 and started_at is not None and last_count <= 0:
                 now = time.time()
                 stream_update["first_pose_at"] = now
                 stream_update["first_pose_latency_seconds"] = now - started_at
-            update_live_stream(**stream_update)
+            publish_stream(**stream_update)
             last_count = count
         latest_stage = latest_live_stage_row(stage_times_path)
         if latest_stage:
@@ -3508,13 +4247,13 @@ def monitor_partial_pose_file(
                         msg += f" ({float(total_ms):.0f} ms)"
                     except ValueError:
                         pass
-                update_live_stream(
+                publish_stream(
                     latest_frame_index=frame_index,
                     latest_localization_reason=reason,
                     latest_total_frame_ms=total_ms,
                     message=msg,
                 )
-                set_job("drone", "running", msg)
+                publish_status(msg)
                 last_stage_key = stage_key
         time.sleep(0.35)
 
@@ -4430,11 +5169,12 @@ def dji_live_atlas_job(
     phone_ip: str = "",
     fps: float = 10.0,
     max_size: int = 1200,
+    view_only: bool = False,
 ) -> None:
     # The request handler reserves this worker before starting the thread.
     # Do not clear DRONE_STOP_EVENT here: Stop may have been pressed during
     # the small interval between reservation and thread startup.
-    DRONE_JOB_ACTIVE.set()
+    mark_drone_job_worker_started()
     bridge_thread: threading.Thread | None = None
     monitor_thread: threading.Thread | None = None
     monitor_stop = threading.Event()
@@ -4444,7 +5184,14 @@ def dji_live_atlas_job(
         cfg = load_config()
         py = Path(cfg["python"])
         scripts = ROOT / "scripts"
-        selected = set_selected_map(map_id) if map_id else selected_map_entry()
+        library = load_library()
+        live_patrol_lock = resolved_live_patrol_lock(library)
+        view_only = bool(
+            view_only
+            or (live_patrol_lock is not None and not live_patrol_lock["flight_enabled"])
+        )
+        effective_map_id = live_patrol_lock["map_id"] if live_patrol_lock is not None else map_id
+        selected = set_selected_map(effective_map_id) if effective_map_id else selected_map_entry()
         map_artifacts = colmap_artifacts_for_entry(selected)
         replay_id = make_map_id("dji_live")
         session = f"atlas_{replay_id}"
@@ -4499,6 +5246,7 @@ def dji_live_atlas_job(
                 "first_pose_latency_seconds": None,
                 "phone_ip": phone_ip.strip(),
                 "session": session,
+                "view_only": view_only,
             }
         )
 
@@ -4521,6 +5269,8 @@ def dji_live_atlas_job(
             "--pose-stream",
             partial_pose_path,
         ]
+        if view_only:
+            bridge_cmd.append("--view-only")
         enemy_model = selected_enemy_model_path()
         if enemy_model:
             bridge_cmd.extend(
@@ -4558,19 +5308,42 @@ def dji_live_atlas_job(
             DRONE_STOP_EVENT,
         )
 
+        # A single OpenDJI frame is not proof of a live video stream: getFrame()
+        # retains its last ndarray after the Android decoder stalls.  The bridge
+        # now saves decoder callbacks only, and this warm-up requires enough
+        # distinct callbacks to prove that frames are genuinely advancing before
+        # TSolve or any flight command can use them.
+        required_fresh_live_frames = 8
         wait_started = time.time()
-        while not DRONE_STOP_EVENT.is_set() and count_frame_images(query_frames) < 1:
+        while (
+            not DRONE_STOP_EVENT.is_set()
+            and count_frame_images(query_frames) < required_fresh_live_frames
+        ):
             if live_latest.exists():
                 update_live_stream(live_preview_url="public/live_dji/latest.jpg")
             if time.time() - wait_started > 60:
-                raise RuntimeError("DJI bridge connected, but no live frames arrived within 60 seconds.")
-            set_job("drone", "running", "Waiting for first DJI frame from Android MSDK stream.")
+                raise RuntimeError(
+                    "DJI bridge connected, but the Android video stream did not produce "
+                    f"{required_fresh_live_frames} fresh decoded frames within 60 seconds."
+                )
+            set_job(
+                "drone",
+                "running",
+                (
+                    "Waiting for a continuously updating DJI video stream "
+                    f"({count_frame_images(query_frames)}/{required_fresh_live_frames} fresh frames)."
+                ),
+            )
             time.sleep(0.5)
 
         if DRONE_STOP_EVENT.is_set():
             raise RuntimeError("Live ATLAS localization stopped before first frame.")
 
-        set_job("drone", "running", "First DJI frame received. Running TSolve live self-localization.")
+        set_job(
+            "drone",
+            "running",
+            "Fresh DJI video confirmed. Running TSolve live self-localization.",
+        )
         monitor_thread = threading.Thread(
             target=monitor_partial_pose_file,
             args=(partial_pose_path, monitor_stop, live_started_at, tsolve_runtime / "live_stage_times.csv"),
@@ -4634,11 +5407,19 @@ def dji_live_atlas_job(
             "--min-track-ratio",
             cfg.get("live_min_track_ratio", 0.10),
             "--proactive-relocalize-points",
-            cfg.get("live_proactive_relocalize_points", 28),
+            cfg.get("live_proactive_relocalize_points", 500),
             "--proactive-relocalize-cooldown-frames",
             cfg.get("live_proactive_relocalize_cooldown_frames", 60),
             "--global-recovery-after-failures",
             cfg.get("live_global_recovery_after_failures", 2),
+            "--background-recovery-timeout-seconds",
+            cfg.get("live_background_recovery_timeout_seconds", 20.0),
+            "--global-recovery-max-step",
+            cfg.get("live_global_recovery_max_step", 0.55),
+            "--output-max-step",
+            cfg.get("live_output_max_step", 0.55),
+            "--output-objective-threshold",
+            cfg.get("live_output_objective_threshold", 30.0),
             "--prime",
             cfg["tsolve_prime"],
             "--degree",
@@ -4663,10 +5444,45 @@ def dji_live_atlas_job(
             "--stop-file",
             stop_file,
         ]
+        if live_patrol_lock is not None and live_patrol_lock["reference_profile"] != "off":
+            live_stream_cmd.extend(
+                [
+                    "--rotation-position-stabilizer-profile",
+                    live_patrol_lock["reference_profile"],
+                    "--rotation-command-status-json",
+                    PUBLIC / "live_dji" / "control_status.json",
+                ]
+            )
+        if live_patrol_lock is not None and live_patrol_lock.get("baseline_reference_path"):
+            live_stream_cmd.extend(
+                [
+                    "--patrol-route-baseline",
+                    live_patrol_lock["baseline_reference_path"],
+                    "--patrol-route-max-cross-track",
+                    cfg.get("live_patrol_route_max_cross_track", 0.55),
+                    "--patrol-route-backward-tolerance",
+                    cfg.get("live_patrol_route_backward_tolerance", 0.045),
+                    "--patrol-status-max-age",
+                    cfg.get("live_patrol_status_max_age", 5.0),
+                    "--patrol-turn-max-position-drift",
+                    cfg.get("live_patrol_turn_max_position_drift", 0.75),
+                ]
+            )
+            if live_patrol_lock.get("visual_recovery_path"):
+                live_stream_cmd.extend(
+                    [
+                        "--patrol-visual-recovery-bank",
+                        live_patrol_lock["visual_recovery_path"],
+                    ]
+                )
+        for recovery_bank in active_taught_recovery_banks(base_asset_dir):
+            live_stream_cmd.extend(["--taught-patrol-recovery-bank", recovery_bank])
         if cfg.get("live_blocking_global_recovery", True):
             live_stream_cmd.append("--blocking-global-recovery")
         if not cfg.get("live_background_recovery", False):
             live_stream_cmd.append("--disable-background-recovery")
+        if cfg.get("live_direct_pnp_recovery", True):
+            live_stream_cmd.append("--direct-pnp-recovery")
         run_cmd("drone", live_stream_cmd, None)
 
         set_job("drone", "running", "Finalizing stopped DJI live path.")
@@ -4723,10 +5539,1117 @@ def dji_live_atlas_job(
         monitor_stop.set()
         if monitor_thread is not None:
             monitor_thread.join(timeout=2.0)
-        if DRONE_STOP_EVENT.is_set():
-            terminate_active_procs("drone")
+        # The bridge is a background subprocess.  It must also be closed after
+        # a startup/video error, not only after an explicit Stop request.
+        terminate_active_procs("drone")
         if bridge_thread is not None:
             bridge_thread.join(timeout=1.0)
+        release_drone_job()
+
+
+def simulated_patrol_baseline_job(
+    *,
+    map_id: str,
+    baseline_replay_id: str,
+    fps: float = 10.0,
+    start_source_frame: int | None = None,
+    end_source_frame: int | None = None,
+    validation_only: bool = False,
+    recorded_timing: bool = False,
+) -> None:
+    """Publish a validated recorded patrol incrementally through the live stream API."""
+    mark_drone_job_worker_started()
+    try:
+        library = load_library()
+        lock = resolved_live_patrol_lock(library)
+        if lock is None:
+            raise RuntimeError("The locked live patrol baseline is not available.")
+        if map_id != lock["map_id"] or baseline_replay_id != lock["baseline_replay_id"]:
+            raise RuntimeError("Live simulation must use the locked map and full patrol baseline.")
+
+        selected = set_selected_map(map_id)
+        baseline = next(
+            (item for item in selected.get("replays", []) if item.get("id") == baseline_replay_id),
+            None,
+        )
+        if not isinstance(baseline, dict) or baseline.get("kind") != "route_constrained_taught_baseline":
+            raise RuntimeError("The selected replay is not the validated full patrol baseline.")
+
+        baseline_asset = VIEWER / str(baseline.get("asset_base") or "")
+        baseline_pose_path = baseline_asset / "poses.json"
+        source_payload = json.loads(baseline_pose_path.read_text(encoding="utf-8"))
+        source_poses = source_payload.get("poses")
+        if not isinstance(source_poses, list) or len(source_poses) < 2:
+            raise RuntimeError("The full patrol baseline has no usable recorded-frame poses.")
+
+        if start_source_frame is not None or end_source_frame is not None:
+            filtered_poses: list[dict] = []
+            for pose_index, source_pose in enumerate(source_poses):
+                if not isinstance(source_pose, dict):
+                    continue
+                try:
+                    source_frame = int(source_pose.get("source_frame", source_pose.get("frame_index", pose_index)))
+                except (TypeError, ValueError):
+                    source_frame = pose_index
+                if start_source_frame is not None and source_frame < start_source_frame:
+                    continue
+                if end_source_frame is not None and source_frame > end_source_frame:
+                    continue
+                filtered_poses.append(source_pose)
+            source_poses = filtered_poses
+            if len(source_poses) < 2:
+                raise RuntimeError("The requested source-frame validation range has fewer than two poses.")
+
+        fps = max(0.5, min(30.0, float(fps)))
+        replay_id = make_map_id("sim_validate" if validation_only else "sim_live")
+        replay_title = (
+            f"Live Render Validation {time.strftime('%H:%M:%S')}"
+            if validation_only
+            else f"New Live Path Simulation {time.strftime('%H:%M:%S')}"
+        )
+        base_asset_dir = VIEWER / selected["asset_base"]
+        out_asset_dir = base_asset_dir / "replays" / replay_id
+        out_asset_dir.mkdir(parents=True, exist_ok=True)
+        partial_pose_path = out_asset_dir / "poses_partial.json"
+        final_pose_path = out_asset_dir / "poses.json"
+        query_frame_base_url = str(
+            baseline.get("query_frame_base_url")
+            or source_payload.get("query_frame_base_url")
+            or source_payload.get("frame_source")
+            or ""
+        ).strip()
+        expected_count = len(source_poses)
+        started_at = time.time()
+        published: list[dict] = []
+
+        def publish(complete: bool = False) -> None:
+            latest = published[-1] if published else None
+            current_frame = None
+            if latest is not None:
+                current_frame = {
+                    "frame_index": int(latest.get("source_frame") or len(published) - 1),
+                    "image_name": latest.get("image_name"),
+                    "time_sec": latest.get("time_sec"),
+                    "received_unix": latest.get("received_unix"),
+                }
+            payload = {
+                "mode": "simulated_live_patrol_partial",
+                "replay_id": replay_id,
+                "source_replay_id": baseline_replay_id,
+                "frame_source": query_frame_base_url,
+                "query_frame_base_url": query_frame_base_url,
+                "expected_count": expected_count,
+                "start_source_frame": start_source_frame,
+                "end_source_frame": end_source_frame,
+                "validation_only": validation_only,
+                "timing_mode": "recorded" if recorded_timing else "fixed_fps",
+                "processed_count": len(published),
+                "accepted_count": len(published),
+                "held_count": 0,
+                "failed_count": 0,
+                "complete": complete,
+                "updated_at": time.time(),
+                "current_frame": current_frame,
+                "current_frame_time_sec": current_frame.get("time_sec") if current_frame else None,
+                "poses": published,
+            }
+            atomic_write_json(partial_pose_path, payload)
+            update_live_stream(
+                pose_count=len(published),
+                accepted_pose_count=len(published),
+                expected_count=expected_count,
+                latest_frame_index=current_frame.get("frame_index") if current_frame else None,
+                complete=complete,
+            )
+
+        publish(False)
+        set_live_stream(
+            {
+                "simulated_live": True,
+                "live_atlas": False,
+                "map_id": selected["id"],
+                "replay_id": replay_id,
+                "source_replay_id": baseline_replay_id,
+                "title": replay_title,
+                "asset_base": public_rel(out_asset_dir),
+                "partial_pose_url": public_rel(partial_pose_path),
+                "query_frame_base_url": query_frame_base_url,
+                "pose_count": 0,
+                "accepted_pose_count": 0,
+                "expected_count": expected_count,
+                "complete": False,
+                "started_at": started_at,
+                "fps": fps,
+                "view_only": True,
+                "start_source_frame": start_source_frame,
+                "end_source_frame": end_source_frame,
+                "validation_only": validation_only,
+                "timing_mode": "recorded" if recorded_timing else "fixed_fps",
+            }
+        )
+        set_job(
+            "drone",
+            "running",
+            (
+                f"Validating the live renderer from source frame {start_source_frame} "
+                f"through {end_source_frame} at {fps:g} FPS."
+                if validation_only
+                else (
+                    "Creating a new live path at the original recorded frame timing."
+                    if recorded_timing
+                    else f"Creating a new live path from the validated baseline at {fps:g} FPS."
+                )
+            ),
+        )
+
+        batch_size = max(1, int(round(fps * 0.25)))
+        clock_started = time.monotonic()
+        first_recorded_time = None
+        if recorded_timing:
+            try:
+                first_recorded_time = float(source_poses[0].get("time_sec"))
+            except (AttributeError, TypeError, ValueError):
+                first_recorded_time = None
+        for index, source_pose in enumerate(source_poses):
+            if DRONE_STOP_EVENT.is_set():
+                break
+            pose = dict(source_pose)
+            pose["instance_id"] = f"sim_live_{index + 1:06d}"
+            pose["received_unix"] = time.time()
+            pose["pose_source"] = "simulated_live_recorded_baseline"
+            pose["simulated_live"] = True
+            published.append(pose)
+            if len(published) == 1 or len(published) % batch_size == 0 or len(published) == expected_count:
+                publish(False)
+                set_job(
+                    "drone",
+                    "running",
+                    f"New live path: {len(published)}/{expected_count} recorded frames localized.",
+                )
+            target_elapsed = (index + 1) / fps
+            if first_recorded_time is not None:
+                try:
+                    next_pose = source_poses[min(index + 1, expected_count - 1)]
+                    target_elapsed = max(0.0, float(next_pose.get("time_sec")) - first_recorded_time)
+                except (AttributeError, TypeError, ValueError):
+                    pass
+            wait_seconds = target_elapsed - (time.monotonic() - clock_started)
+            if wait_seconds > 0 and DRONE_STOP_EVENT.wait(wait_seconds):
+                break
+
+        publish(True)
+        final_payload = json.loads(partial_pose_path.read_text(encoding="utf-8"))
+        final_payload.update(
+            {
+                "mode": "simulated_live_patrol_replay",
+                "description": "Recorded DJI frames published incrementally with the validated patrol baseline poses.",
+                "complete": True,
+                "cancelled": DRONE_STOP_EVENT.is_set(),
+                "updated_at": time.time(),
+            }
+        )
+        atomic_write_json(final_pose_path, final_payload)
+        replay = {
+            "id": replay_id,
+            "title": replay_title,
+            "asset_base": public_rel(out_asset_dir),
+            "created_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+            "source_video": "Validated Full Patrol Baseline 15:47:14 live simulation",
+            "source_replay_id": baseline_replay_id,
+            "kind": "simulated_live_patrol_baseline",
+            "counts": {
+                "poses": len(published),
+                "accepted": len(published),
+                "frames": len(published),
+                "held": 0,
+                "failed": 0,
+            },
+            "query_frame_base_url": query_frame_base_url,
+        }
+        if not validation_only:
+            add_replay_to_map(selected["id"], replay, select=True)
+        update_live_stream(
+            pose_count=len(published),
+            accepted_pose_count=len(published),
+            partial_pose_url=public_rel(final_pose_path),
+            final_pose_url=public_rel(final_pose_path),
+            complete=True,
+            cancelled=DRONE_STOP_EVENT.is_set(),
+        )
+        if DRONE_STOP_EVENT.is_set():
+            set_job("drone", "cancelled", f"Live path simulation stopped after {len(published)} frames.")
+        elif validation_only:
+            set_job("drone", "done", f"Live renderer validation complete: {len(published)} frames.")
+        else:
+            set_job("drone", "done", f"New live path simulation complete: {len(published)} frames.")
+    except Exception as exc:
+        append_log("drone", f"SIMULATION ERROR: {exc}")
+        update_live_stream(complete=True, failed=True, error=str(exc))
+        set_job("drone", "error", str(exc))
+    finally:
+        release_drone_job()
+
+
+def build_recorded_patrol_lap_sequence(
+    *,
+    source_frame_dir: Path,
+    output_frame_dir: Path,
+    start_frame: int,
+    loop_return_frame: int,
+    next_departure_frame: int,
+    laps: int,
+    phase_boundaries: dict | None = None,
+    source_replay_id: str = "",
+    second_lap_segments: list[dict] | None = None,
+) -> list[dict]:
+    """Create one continuous query bank for a two-lap live simulation.
+
+    Non-final laps include the recorded Point-1 turn toward Point 2.  The next
+    lap may either repeat the original recording or use audited segments from
+    other recordings. Hard links avoid duplicating JPEG data while giving the
+    localizer a monotonic frame index and one continuous clock.
+    """
+    laps = max(1, min(2, int(laps)))
+    if not (start_frame < loop_return_frame <= next_departure_frame):
+        raise RuntimeError("Recorded two-lap boundaries are not ordered.")
+
+    baseline_boundaries = dict(phase_boundaries or {})
+    baseline_boundaries.setdefault("point1", start_frame)
+    baseline_boundaries.setdefault("point1_return", loop_return_frame)
+    baseline_boundaries.setdefault("point1_next_departure", next_departure_frame)
+
+    segments: list[dict] = [
+        {
+            "lap": 1,
+            "source_frame_dir": source_frame_dir,
+            "source_replay_id": source_replay_id,
+            "start_frame": start_frame,
+            "end_frame": next_departure_frame if laps > 1 else loop_return_frame,
+            "phase_boundaries": baseline_boundaries,
+            "label": "validated baseline lap 1",
+        }
+    ]
+    if laps > 1:
+        if second_lap_segments:
+            for raw_segment in second_lap_segments:
+                segment = dict(raw_segment)
+                segment["lap"] = 2
+                segments.append(segment)
+        else:
+            segments.append(
+                {
+                    "lap": 2,
+                    "source_frame_dir": source_frame_dir,
+                    "source_replay_id": source_replay_id,
+                    "start_frame": start_frame,
+                    "end_frame": loop_return_frame,
+                    "phase_boundaries": baseline_boundaries,
+                    "label": "repeated validated baseline lap 2",
+                }
+            )
+
+    def route_state(frame_index: int, boundaries: dict) -> tuple[int, bool, str]:
+        p2_arrival = int(boundaries.get("point2_arrival") or start_frame)
+        p2_departure = int(boundaries.get("point2_departure") or p2_arrival)
+        p3_arrival = int(boundaries.get("point3_arrival") or p2_departure)
+        p3_departure = int(boundaries.get("point3_departure") or p3_arrival)
+        p4_arrival = int(boundaries.get("point4_arrival") or p3_departure)
+        p4_departure = int(boundaries.get("point4_departure") or p4_arrival)
+        p1_return = int(boundaries.get("point1_return") or loop_return_frame)
+        if frame_index < p2_arrival:
+            return 0, False, "point1_to_point2"
+        if frame_index < p2_departure:
+            return 1, True, "turn_at_point2"
+        if frame_index < p3_arrival:
+            return 1, False, "point2_to_point3"
+        if frame_index < p3_departure:
+            return 2, True, "turn_at_point3"
+        if frame_index < p4_arrival:
+            return 2, False, "point3_to_point4"
+        if frame_index < p4_departure:
+            return 3, True, "turn_at_point4"
+        if frame_index < p1_return:
+            return 3, False, "point4_to_point1"
+        return 0, True, "turn_at_point1"
+
+    csv_rows_by_dir: dict[str, dict[int, dict]] = {}
+
+    def rows_for(frame_dir: Path) -> dict[int, dict]:
+        key = str(frame_dir.resolve())
+        if key in csv_rows_by_dir:
+            return csv_rows_by_dir[key]
+        rows: dict[int, dict] = {}
+        with (frame_dir / "frames.csv").open(newline="", encoding="utf-8") as handle:
+            for row in csv.DictReader(handle):
+                try:
+                    rows[int(row["source_frame"])] = row
+                except (KeyError, TypeError, ValueError):
+                    continue
+        csv_rows_by_dir[key] = rows
+        return rows
+
+    output_frame_dir.mkdir(parents=True, exist_ok=False)
+    plan: list[dict] = []
+    sequence_time = 0.0
+    default_delta = 0.1
+    csv_path = output_frame_dir / "frames.csv"
+    with csv_path.open("w", newline="", encoding="utf-8") as handle:
+        fieldnames = [
+            "image_name",
+            "source_frame",
+            "time_sec",
+            "width",
+            "height",
+            "received_unix",
+            "recorded_source_frame",
+            "recorded_source_replay_id",
+            "lap",
+            "route_leg_index",
+            "translation_locked",
+            "route_phase",
+        ]
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writeheader()
+        for segment_index, segment in enumerate(segments):
+            frame_dir = Path(segment["source_frame_dir"])
+            rows = rows_for(frame_dir)
+            segment_start = int(segment["start_frame"])
+            segment_end = int(segment["end_frame"])
+            if segment_start > segment_end:
+                raise RuntimeError("Composite patrol segment boundaries are reversed.")
+            segment_boundaries = dict(segment.get("phase_boundaries") or baseline_boundaries)
+            segment_source_id = str(segment.get("source_replay_id") or "")
+            lap_number = int(segment.get("lap") or 1)
+            previous_source_time = None
+            for recorded_index in range(segment_start, segment_end + 1):
+                row = rows.get(recorded_index)
+                source_path = frame_dir / f"query_{recorded_index:06d}.jpg"
+                if row is None or not source_path.is_file():
+                    raise RuntimeError(
+                        f"Composite patrol source frame {recorded_index} is missing from {frame_dir}."
+                    )
+                try:
+                    source_time = float(row.get("time_sec"))
+                except (TypeError, ValueError):
+                    source_time = None
+                if plan:
+                    delta = default_delta
+                    if (
+                        source_time is not None
+                        and previous_source_time is not None
+                        and 0.02 <= source_time - previous_source_time <= 0.5
+                    ):
+                        delta = source_time - previous_source_time
+                    sequence_time += delta
+                sequence_index = len(plan)
+                target_name = f"query_{sequence_index:06d}.jpg"
+                target_path = output_frame_dir / target_name
+                try:
+                    os.link(source_path, target_path)
+                except OSError:
+                    # Symlinks are still zero-copy and SimpleHTTPRequestHandler
+                    # resolves them inside this app-owned replay directory.
+                    target_path.symlink_to(source_path)
+                leg_index, translation_locked, route_phase = route_state(
+                    recorded_index,
+                    segment_boundaries,
+                )
+                plan.append(
+                    {
+                        "sequence_frame": sequence_index,
+                        "recorded_source_frame": recorded_index,
+                        "recorded_source_replay_id": segment_source_id,
+                        "lap": lap_number,
+                        "segment_index": segment_index,
+                        "route_leg_index": leg_index,
+                        "translation_locked": translation_locked,
+                        "route_phase": route_phase,
+                    }
+                )
+                writer.writerow(
+                    {
+                        "image_name": target_name,
+                        "source_frame": sequence_index,
+                        "time_sec": f"{sequence_time:.6f}",
+                        "width": row.get("width") or "1200",
+                        "height": row.get("height") or "675",
+                        "received_unix": f"{time.time() + sequence_time:.6f}",
+                        "recorded_source_frame": recorded_index,
+                        "recorded_source_replay_id": segment_source_id,
+                        "lap": lap_number,
+                        "route_leg_index": leg_index,
+                        "translation_locked": str(translation_locked).lower(),
+                        "route_phase": route_phase,
+                    }
+                )
+                previous_source_time = source_time
+    atomic_write_json(
+        output_frame_dir / "frame_plan.json",
+        {
+            "kind": "atlas_recorded_two_lap_frame_plan",
+            "laps": laps,
+            "start_frame": start_frame,
+            "loop_return_frame": loop_return_frame,
+            "next_departure_frame": next_departure_frame,
+            "composite_second_lap": bool(second_lap_segments),
+            "source_replay_ids": list(
+                dict.fromkeys(str(segment.get("source_replay_id") or "") for segment in segments)
+            ),
+            "frames": plan,
+        },
+    )
+    return plan
+
+
+def localized_recorded_patrol_job(
+    *,
+    map_id: str,
+    baseline_replay_id: str,
+    fps: float = 10.0,
+    start_source_frame: int | None = None,
+    end_source_frame: int | None = None,
+    validation_only: bool = False,
+    recorded_timing: bool = False,
+    laps: int = 1,
+) -> None:
+    """Localize the full recorded patrol frames through the live pipeline.
+
+    Unlike ``simulated_patrol_baseline_job``, this never copies a baseline
+    pose.  The baseline supplies only the source-frame interval and camera
+    images; COLMAP bootstrap, optical flow and TSolve create a new pose stream.
+    """
+    mark_drone_job_worker_started()
+    monitor_stop = threading.Event()
+    monitor_thread: threading.Thread | None = None
+    controller_status_stop = threading.Event()
+    controller_status_thread: threading.Thread | None = None
+    try:
+        cfg = load_config()
+        library = load_library()
+        lock = resolved_live_patrol_lock(library)
+        if lock is None:
+            raise RuntimeError("The locked live patrol baseline is not available.")
+        if map_id != lock["map_id"] or baseline_replay_id != lock["baseline_replay_id"]:
+            raise RuntimeError("Live simulation must use the locked map and full patrol baseline.")
+
+        selected = set_selected_map(map_id)
+        baseline = next(
+            (item for item in selected.get("replays", []) if item.get("id") == baseline_replay_id),
+            None,
+        )
+        if not isinstance(baseline, dict) or baseline.get("kind") != "route_constrained_taught_baseline":
+            raise RuntimeError("The selected replay is not the validated full patrol baseline.")
+
+        baseline_asset = VIEWER / str(baseline.get("asset_base") or "")
+        baseline_pose_path = baseline_asset / "poses.json"
+        source_payload = json.loads(baseline_pose_path.read_text(encoding="utf-8"))
+        source_poses = [pose for pose in source_payload.get("poses", []) if isinstance(pose, dict)]
+        source_frames = sorted(
+            {
+                int(pose.get("source_frame", pose.get("frame_index")))
+                for pose in source_poses
+                if pose.get("source_frame", pose.get("frame_index")) is not None
+            }
+        )
+        if len(source_frames) < 2:
+            raise RuntimeError("The full patrol baseline has no usable recorded-frame interval.")
+
+        query_frame_base_url = str(
+            baseline.get("query_frame_base_url")
+            or source_payload.get("query_frame_base_url")
+            or source_payload.get("frame_source")
+            or ""
+        ).strip()
+        query_frames = VIEWER / query_frame_base_url
+        if not query_frames.is_dir():
+            raise RuntimeError(f"Recorded patrol frame directory is missing: {query_frames}")
+        recorded_frame_indices: list[int] = []
+        for frame_path in query_frames.glob("query_*.jpg"):
+            try:
+                recorded_frame_indices.append(int(frame_path.stem.rsplit("_", 1)[-1]))
+            except (TypeError, ValueError):
+                continue
+        if not recorded_frame_indices:
+            raise RuntimeError("The recorded patrol frame directory has no numbered frames.")
+        recorded_frame_indices.sort()
+        # The validated route pose ends exactly at the returned Point 1, but
+        # the same uninterrupted camera recording continues through the
+        # in-place Point-1-to-Point-2 turn. Permit an explicitly requested
+        # validation range to include those real continuation frames. They are
+        # localized online; no pose is copied or extrapolated from the route.
+        start_frame = max(
+            source_frames[0],
+            recorded_frame_indices[0],
+            int(start_source_frame) if start_source_frame is not None else source_frames[0],
+        )
+        requested_end_frame = (
+            int(end_source_frame) if end_source_frame is not None else source_frames[-1]
+        )
+        end_frame = min(recorded_frame_indices[-1], requested_end_frame)
+        if start_frame >= end_frame:
+            raise RuntimeError("The requested recorded-frame interval is empty.")
+        expected_count = end_frame - start_frame + 1
+
+        replay_id = make_map_id("live_frames")
+        replay_title = (
+            f"Live Frame Validation {time.strftime('%H:%M:%S')}"
+            if validation_only
+            else f"New Localized Live Path {time.strftime('%H:%M:%S')}"
+        )
+        base_asset_dir = map_asset_dir(selected)
+        out_asset_dir = base_asset_dir / "replays" / replay_id
+        out_asset_dir.mkdir(parents=True, exist_ok=True)
+        partial_pose_path = out_asset_dir / "poses_partial.json"
+        final_pose_path = out_asset_dir / "poses.json"
+        run_root = ROOT / "results" / "recorded_live_runs" / selected["id"] / replay_id
+        runtime_out = run_root / "tsolve_runtime"
+        inputs_out = run_root / "tsolve_inputs"
+        work_dir = run_root / "live_existing_map_stream"
+        map_artifacts = colmap_artifacts_for_entry(selected)
+        baseline_reference_path = Path(str(lock.get("baseline_reference_path") or ""))
+        baseline_reference = json.loads(baseline_reference_path.read_text(encoding="utf-8"))
+        baseline_legs = list(baseline_reference.get("legs") or [])
+        phase_boundaries = dict(
+            baseline_reference.get("phase_boundaries")
+            or source_payload.get("phase_boundaries")
+            or {}
+        )
+        if len(baseline_legs) < 4:
+            raise RuntimeError("The locked baseline has no complete four-leg route trace.")
+        baseline_cruise_y = float(
+            baseline.get("cruise_y")
+            if baseline.get("cruise_y") is not None
+            else source_payload.get("cruise_y", 0.0)
+        )
+        simulated_control_status = run_root / "simulated_control_status.json"
+        frame_plan: list[dict] = []
+        composite_source_replay_ids: list[str] = [baseline_replay_id]
+        # A concatenated validation stream has an artificial camera cut at
+        # the start of lap 2.  Requiring a fresh map-wide metric solve at that
+        # exact cut tests COLMAP's cold-start latency, not the continuity a
+        # real two-lap flight has.  An alternate recording may bypass that
+        # *simulation-only* checkpoint only after its Point-1 seam has passed
+        # the explicit feature audit below.  Physical patrol execution never
+        # enters this recorded-frame job and retains the metric-pose gate.
+        composite_point1_seam_verified = False
+        laps = max(1, min(2, int(laps)))
+        if laps > 1:
+            if start_source_frame is not None or end_source_frame is not None:
+                raise RuntimeError(
+                    "A two-lap simulation uses the complete audited loop; "
+                    "custom source-frame limits are not allowed."
+                )
+            start_frame = int(phase_boundaries.get("point1") or source_frames[0])
+            loop_return_frame = int(
+                phase_boundaries.get("point1_return") or source_frames[-1]
+            )
+            next_departure_frame = int(
+                phase_boundaries.get("point1_next_departure") or loop_return_frame
+            )
+            second_lap_segments: list[dict] | None = None
+            composite_plan_path = baseline_asset / "two_lap_composite_plan.json"
+            if composite_plan_path.is_file():
+                composite_plan = json.loads(composite_plan_path.read_text(encoding="utf-8"))
+                if (
+                    composite_plan.get("enabled") is not True
+                    or composite_plan.get("complete_second_lap") is not True
+                    or composite_plan.get("map_id") != selected["id"]
+                    or composite_plan.get("baseline_replay_id") != baseline_replay_id
+                ):
+                    raise RuntimeError("The alternate second-lap plan failed its identity/completeness check.")
+                seam_audits = list(composite_plan.get("seam_audits") or [])
+                if not seam_audits or any(
+                    int(seam.get("orb_inliers") or 0) < 40
+                    for seam in seam_audits
+                    if isinstance(seam, dict)
+                ):
+                    raise RuntimeError("The alternate second-lap recording has an unaudited visual seam.")
+                point1_seams = [
+                    seam
+                    for seam in seam_audits
+                    if isinstance(seam, dict)
+                    and str(seam.get("at") or seam.get("name") or "").lower()
+                    in {"point1", "lap1_to_lap2", "lap_1_to_lap_2"}
+                ]
+                # Older plans did not name their seams.  In that schema the
+                # first audit is the documented lap-1 -> lap-2 Point-1 cut.
+                point1_seam = point1_seams[0] if point1_seams else seam_audits[0]
+                composite_point1_seam_verified = bool(
+                    isinstance(point1_seam, dict)
+                    and int(point1_seam.get("orb_inliers") or 0) >= 40
+                    and float(point1_seam.get("inlier_ratio") or 0.0) >= 0.35
+                )
+                if not composite_point1_seam_verified:
+                    raise RuntimeError(
+                        "The alternate second-lap Point-1 seam is not strong enough for a simulation handoff."
+                    )
+                second_lap_segments = []
+                for raw_segment in composite_plan.get("second_lap_segments") or []:
+                    if not isinstance(raw_segment, dict):
+                        continue
+                    segment_replay_id = str(raw_segment.get("source_replay_id") or "")
+                    source_replay = next(
+                        (
+                            item
+                            for item in selected.get("replays", [])
+                            if isinstance(item, dict) and item.get("id") == segment_replay_id
+                        ),
+                        None,
+                    )
+                    if not isinstance(source_replay, dict):
+                        raise RuntimeError(
+                            f"Alternate second-lap source replay is missing: {segment_replay_id}"
+                        )
+                    source_frame_url = str(
+                        source_replay.get("query_frame_base_url")
+                        or (
+                            query_frame_base_url
+                            if segment_replay_id == baseline_replay_id
+                            else ""
+                        )
+                    ).strip()
+                    source_frame_path = (VIEWER / source_frame_url).resolve()
+                    if VIEWER.resolve() not in source_frame_path.parents:
+                        raise RuntimeError("Alternate second-lap frame path leaves the viewer asset root.")
+                    second_lap_segments.append(
+                        {
+                            "source_frame_dir": source_frame_path,
+                            "source_replay_id": segment_replay_id,
+                            "start_frame": int(raw_segment["start_frame"]),
+                            "end_frame": int(raw_segment["end_frame"]),
+                            "phase_boundaries": dict(raw_segment.get("phase_boundaries") or {}),
+                            "label": str(raw_segment.get("label") or segment_replay_id),
+                        }
+                    )
+                    if segment_replay_id not in composite_source_replay_ids:
+                        composite_source_replay_ids.append(segment_replay_id)
+                if len(second_lap_segments) < 2:
+                    raise RuntimeError("The alternate second lap must contain independent and final-leg segments.")
+            query_frames = out_asset_dir / "two_lap_query_frames"
+            frame_plan = build_recorded_patrol_lap_sequence(
+                source_frame_dir=VIEWER / str(
+                    baseline.get("query_frame_base_url")
+                    or source_payload.get("query_frame_base_url")
+                    or source_payload.get("frame_source")
+                    or ""
+                ).strip(),
+                output_frame_dir=query_frames,
+                start_frame=start_frame,
+                loop_return_frame=loop_return_frame,
+                next_departure_frame=next_departure_frame,
+                laps=laps,
+                phase_boundaries=phase_boundaries,
+                source_replay_id=baseline_replay_id,
+                second_lap_segments=second_lap_segments,
+            )
+            query_frame_base_url = public_rel(query_frames)
+            expected_count = len(frame_plan)
+
+        source_session = str(
+            source_payload.get("source_session")
+            or baseline.get("source_replay_id")
+            or source_payload.get("source_replay_id")
+            or ""
+        )
+        source_run_id = source_session[6:] if source_session.startswith("atlas_") else source_session
+        runtime_dir = ROOT / "results" / "dji_live_runs" / selected["id"] / source_run_id / "tsolve_runtime_code"
+        if not runtime_dir.is_dir():
+            raise RuntimeError(f"Recorded patrol TSolve runtime is missing: {runtime_dir}")
+
+        started_at = time.time()
+        atomic_write_json(
+            partial_pose_path,
+            {
+                "mode": "recorded_frames_live_tsolve_partial",
+                "replay_id": replay_id,
+                "source_replay_id": baseline_replay_id,
+                "source_replay_ids": composite_source_replay_ids,
+                "frame_source": query_frame_base_url,
+                "query_frame_base_url": query_frame_base_url,
+                "expected_count": expected_count,
+                "processed_count": 0,
+                "complete": False,
+                "poses": [],
+            },
+        )
+        set_live_stream(
+            {
+                "simulated_live": True,
+                "genuine_localization": True,
+                "live_atlas": False,
+                "map_id": selected["id"],
+                "replay_id": replay_id,
+                "source_replay_id": baseline_replay_id,
+                "source_replay_ids": composite_source_replay_ids,
+                "title": replay_title,
+                "asset_base": public_rel(out_asset_dir),
+                "partial_pose_url": public_rel(partial_pose_path),
+                "query_frame_base_url": query_frame_base_url,
+                "pose_count": 0,
+                "expected_count": expected_count,
+                "complete": False,
+                "started_at": started_at,
+                "fps": max(0.5, min(10.0, float(fps))),
+                "view_only": True,
+                "start_source_frame": start_frame,
+                "end_source_frame": end_frame,
+                "validation_only": validation_only,
+                "timing_mode": "recorded" if recorded_timing else "fixed_fps",
+                "laps": laps,
+                "frame_plan_url": (
+                    public_rel(query_frames / "frame_plan.json")
+                    if frame_plan
+                    else None
+                ),
+            }
+        )
+        set_job(
+            "drone",
+            "running",
+            f"Genuine live simulation: localizing recorded frame {start_frame}/{end_frame} with COLMAP, optical flow and TSolve.",
+        )
+
+        monitor_thread = threading.Thread(
+            target=monitor_partial_pose_file,
+            args=(partial_pose_path, monitor_stop, started_at, runtime_out / "live_stage_times.csv"),
+            daemon=True,
+        )
+        monitor_thread.start()
+
+        def simulated_route_state(frame_index: int) -> tuple[int, bool, int, int]:
+            lap_number = 1
+            route_frame_index = frame_index
+            if frame_plan:
+                plan_index = max(0, min(len(frame_plan) - 1, int(frame_index)))
+                plan_row = frame_plan[plan_index]
+                route_frame_index = int(plan_row["recorded_source_frame"])
+                lap_number = int(plan_row["lap"])
+                if plan_row.get("route_leg_index") is not None:
+                    return (
+                        int(plan_row["route_leg_index"]),
+                        bool(plan_row.get("translation_locked")),
+                        route_frame_index,
+                        lap_number,
+                    )
+            p2_arrival = int(phase_boundaries.get("point2_arrival") or start_frame)
+            p2_departure = int(phase_boundaries.get("point2_departure") or p2_arrival)
+            p3_arrival = int(phase_boundaries.get("point3_arrival") or p2_departure)
+            p3_departure = int(phase_boundaries.get("point3_departure") or p3_arrival)
+            p4_arrival = int(phase_boundaries.get("point4_arrival") or p3_departure)
+            p4_departure = int(phase_boundaries.get("point4_departure") or p4_arrival)
+            p1_return = int(phase_boundaries.get("point1_return") or source_frames[-1])
+            if route_frame_index < p2_arrival:
+                return 0, False, route_frame_index, lap_number
+            if route_frame_index < p2_departure:
+                return 1, True, route_frame_index, lap_number
+            if route_frame_index < p3_arrival:
+                return 1, False, route_frame_index, lap_number
+            if route_frame_index < p3_departure:
+                return 2, True, route_frame_index, lap_number
+            if route_frame_index < p4_arrival:
+                return 2, False, route_frame_index, lap_number
+            if route_frame_index < p4_departure:
+                return 3, True, route_frame_index, lap_number
+            if route_frame_index < p1_return:
+                return 3, False, route_frame_index, lap_number
+            # The manual recording continues after the final 4->1 arrival.
+            # Those frames are the physical in-place turn toward Point 2 for
+            # the next lap: hold the Point 1 anchor and change heading only.
+            return 0, True, route_frame_index, lap_number
+
+        def publish_simulated_controller_status() -> None:
+            # A concatenated replay is addressed by sequence index, not by the
+            # source recording's frame number.  Starting at ``start_frame``
+            # would incorrectly place the controller part-way through lap 1
+            # until the first streamed pose arrived.
+            last_frame = 0 if frame_plan else start_frame
+            lap_two_metric_ready = laps < 2
+            lap_two_sequence_start = next(
+                (
+                    index
+                    for index, row in enumerate(frame_plan)
+                    if int(row.get("lap") or 1) == 2
+                ),
+                None,
+            )
+            while not controller_status_stop.is_set():
+                try:
+                    partial = json.loads(partial_pose_path.read_text(encoding="utf-8"))
+                    current = partial.get("current_frame") if isinstance(partial, dict) else None
+                    if isinstance(current, dict) and current.get("frame_index") is not None:
+                        last_frame = int(current["frame_index"]) + 1
+                    partial_poses = (
+                        partial.get("poses")
+                        if isinstance(partial, dict)
+                        and isinstance(partial.get("poses"), list)
+                        else []
+                    )
+                    latest_pose = next(
+                        (pose for pose in reversed(partial_poses) if isinstance(pose, dict)),
+                        None,
+                    )
+                    if (
+                        not lap_two_metric_ready
+                        and lap_two_sequence_start is not None
+                        and isinstance(latest_pose, dict)
+                    ):
+                        match = re.search(
+                            r"(\d{6})(?:\.[^.]+)?$",
+                            str(latest_pose.get("image_name") or ""),
+                        )
+                        pose_sequence = int(match.group(1)) if match else -1
+                        lap_two_metric_ready = bool(
+                            pose_sequence >= lap_two_sequence_start
+                            and latest_pose.get("success") is True
+                            and latest_pose.get("held_pose") is not True
+                            and latest_pose.get("pose_source")
+                            != "patrol_visual_route_recovery"
+                            and latest_pose.get("R") is not None
+                            and latest_pose.get("t") is not None
+                            and latest_pose.get("center") is not None
+                        )
+                except (OSError, TypeError, ValueError, json.JSONDecodeError):
+                    pass
+                leg_index, translation_locked, recorded_frame, lap_number = (
+                    simulated_route_state(last_frame)
+                )
+                metric_checkpoint_active = bool(
+                    lap_number > 1
+                    and not lap_two_metric_ready
+                    and not composite_point1_seam_verified
+                )
+                if metric_checkpoint_active:
+                    # A real aircraft would hover at Point 1 here. Keep the
+                    # simulator on the same Point-1->2 route contract until a
+                    # current frame produces genuine metric R,t as well.
+                    leg_index = 0
+                    translation_locked = True
+                leg = baseline_legs[leg_index]
+                anchor = list(leg.get("from") or [])
+                target = list(leg.get("to") or [])
+                if len(anchor) >= 3 and len(target) >= 3:
+                    # Match the real patrol planner: map points provide X/Z,
+                    # while the controller owns one fixed flight altitude.
+                    anchor[1] = baseline_cruise_y
+                    target[1] = baseline_cruise_y
+                atomic_write_json(
+                    simulated_control_status,
+                    {
+                        "status": "running",
+                        "command": "mission",
+                        "updated_at": time.time(),
+                        "progress": {
+                            "map_id": selected["id"],
+                            "patrol_id": lock["patrol_id"],
+                            "baseline_replay_id": baseline_replay_id,
+                            "lap": lap_number,
+                            "leg_index": leg_index + 1,
+                            "segment_start": anchor,
+                            "target": target,
+                            "position_anchor": anchor,
+                            "translation_locked": translation_locked,
+                            "physical_translation_active": not translation_locked,
+                            "body_forward_gain": 0.0 if translation_locked else 1.0,
+                            "body_lateral_gain": 0.0,
+                            "phase": (
+                                "pose_recovery"
+                                if metric_checkpoint_active
+                                else (
+                                    "patrol_yaw"
+                                    if translation_locked
+                                    else "patrol_translation"
+                                )
+                            ),
+                            "route_visual_recovery_allowed": bool(
+                                metric_checkpoint_active
+                                or (lap_number > 1 and composite_point1_seam_verified)
+                            ),
+                            "require_metric_pose": metric_checkpoint_active,
+                            "metric_pose_ready": lap_two_metric_ready,
+                            "simulation_point1_seam_verified": bool(
+                                lap_number > 1 and composite_point1_seam_verified
+                            ),
+                            "simulation_metric_checkpoint_bypassed": bool(
+                                lap_number > 1
+                                and composite_point1_seam_verified
+                                and not lap_two_metric_ready
+                            ),
+                            "simulated_source_frame": recorded_frame,
+                            "simulated_sequence_frame": last_frame,
+                        },
+                    },
+                )
+                controller_status_stop.wait(0.05)
+
+        controller_status_thread = threading.Thread(
+            target=publish_simulated_controller_status,
+            name=f"recorded-controller-trace-{replay_id}",
+            daemon=True,
+        )
+        controller_status_thread.start()
+
+        source_fps = float(cfg.get("simulated_live_query_frame_fps", cfg.get("query_frame_fps", 10.0)))
+        pace_scale = 1.0 if recorded_timing else source_fps / max(0.5, min(10.0, float(fps)))
+        cmd: list[object] = [
+            cfg["python"],
+            ROOT / "scripts" / "run_bounded_tsolve_video_stream.py",
+            "--colmap", cfg["colmap_bin"],
+            "--map-database", map_artifacts["database"],
+            "--map-images", map_artifacts["images"],
+            "--map-sparse-model", map_artifacts["sparse_model"],
+            "--map-sparse-text", map_artifacts["sparse_text"],
+            "--query-frames", query_frames,
+            "--runtime-dir", runtime_dir,
+            "--solver-dir", cfg["solver_dir"],
+            "--inputs-out-dir", inputs_out,
+            "--out-dir", runtime_out,
+            "--work-dir", work_dir,
+            "--max-image-size", cfg["max_image_size"],
+            "--query-camera-model", cfg["query_camera_model"],
+            "--min-points", cfg["min_query_correspondences"],
+            "--max-points", cfg["max_query_correspondences"],
+            "--max-reference-images", cfg.get("live_reference_image_cap", 120),
+            "--tracking-reference-images", cfg.get("live_tracking_reference_image_cap", 18),
+            "--track-pool-size", cfg.get("live_tracking_pool_size", 900),
+            "--relocalize-every", cfg.get("live_relocalize_every", 0),
+            "--flow-max-error", cfg.get("live_flow_max_error", 34.0),
+            "--flow-backtrack-error", cfg.get("live_flow_backtrack_error", 2.5),
+            "--flow-window", cfg.get("live_flow_window", 31),
+            "--flow-levels", cfg.get("live_flow_levels", 4),
+            "--flow-iterations", cfg.get("live_flow_iterations", 24),
+            "--min-track-points", cfg.get("live_min_track_points", 15),
+            "--min-track-ratio", cfg.get("live_min_track_ratio", 0.10),
+            "--proactive-relocalize-points", cfg.get("live_proactive_relocalize_points", 500),
+            "--proactive-relocalize-cooldown-frames", cfg.get("live_proactive_relocalize_cooldown_frames", 30),
+            "--global-recovery-after-failures", cfg.get("live_global_recovery_after_failures", 3),
+            "--background-recovery-timeout-seconds", cfg.get("live_background_recovery_timeout_seconds", 20.0),
+            "--global-recovery-max-step", cfg.get("live_global_recovery_max_step", 0.55),
+            "--output-max-step", cfg.get("live_output_max_step", 0.30),
+            "--output-objective-threshold", cfg.get("live_output_objective_threshold", 30.0),
+            "--prime", cfg["tsolve_prime"],
+            "--degree", cfg["tsolve_degree"],
+            "--action-weights", cfg["tsolve_action_weights"],
+            "--fallback-action-weights", cfg["tsolve_fallback_action_weights"],
+            "--partial-pose-out", partial_pose_path,
+            "--replay-id", replay_id,
+            "--expected-count", expected_count,
+            "--start-frame-index", 0 if frame_plan else start_frame,
+            "--end-frame-index", (expected_count - 1) if frame_plan else end_frame,
+            "--scene-json", base_asset_dir / "scene.json",
+            "--display-z-sign", selected.get("display_z_sign", -1),
+            "--room-alignment-json", json.dumps(selected.get("room_alignment") or {}),
+            "--rotation-position-stabilizer-profile", lock.get("reference_profile", "live-atlas-141441"),
+            "--rotation-command-status-json", simulated_control_status,
+            "--patrol-route-baseline", baseline_reference_path,
+            "--patrol-route-max-cross-track", cfg.get("live_patrol_route_max_cross_track", 0.55),
+            "--patrol-route-backward-tolerance", cfg.get("live_patrol_route_backward_tolerance", 0.045),
+            "--patrol-status-max-age", 2.0,
+            "--patrol-turn-max-position-drift", cfg.get("live_patrol_turn_max_position_drift", 0.75),
+            "--direct-pnp-recovery",
+            "--pace-replay",
+            "--pace-scale", pace_scale,
+        ]
+        # Match the real Patrol 1 self-localization inputs.  These are compact
+        # 2D->3D map correspondences learned from the taught full loop; they
+        # feed a fresh TSolve case and do not copy any prerecorded pose.
+        for recovery_bank in active_taught_recovery_banks(base_asset_dir):
+            cmd.extend(["--taught-patrol-recovery-bank", recovery_bank])
+        if lock.get("visual_recovery_path"):
+            cmd.extend(["--patrol-visual-recovery-bank", lock["visual_recovery_path"]])
+        if laps > 1:
+            # The recorded two-lap stream emulates the live Point-1 hover:
+            # never consume an advancing second-lap camera stream while the
+            # metric rematch for the current frame is still pending.
+            cmd.append("--wait-for-metric-checkpoint-recovery")
+        run_cmd("drone", cmd, DRONE_STOP_EVENT)
+        monitor_stop.set()
+        monitor_thread.join(timeout=3.0)
+
+        payload = json.loads(partial_pose_path.read_text(encoding="utf-8"))
+        poses = payload.get("poses") if isinstance(payload.get("poses"), list) else []
+        if not poses:
+            raise RuntimeError("Recorded-frame live localization produced no poses.")
+        counts = pose_stream_counts(poses)
+        if frame_plan:
+            for pose in poses:
+                match = re.search(r"(\d{6})(?:\.[^.]+)?$", str(pose.get("image_name") or ""))
+                if not match:
+                    continue
+                sequence_index = int(match.group(1))
+                if 0 <= sequence_index < len(frame_plan):
+                    plan_row = frame_plan[sequence_index]
+                    pose["simulation_lap"] = int(plan_row["lap"])
+                    pose["recorded_source_frame"] = int(
+                        plan_row["recorded_source_frame"]
+                    )
+                    pose["recorded_source_replay_id"] = str(
+                        plan_row.get("recorded_source_replay_id") or ""
+                    )
+        payload.update(
+            {
+                "mode": "recorded_frames_live_tsolve_replay",
+                "description": "New poses computed online from the recorded DJI frames with the live COLMAP/optical-flow/TSolve pipeline.",
+                "source_replay_id": baseline_replay_id,
+                "source_replay_ids": composite_source_replay_ids,
+                "query_frame_base_url": query_frame_base_url,
+                "complete": True,
+                "cancelled": False,
+                "updated_at": time.time(),
+                "laps": laps,
+            }
+        )
+        atomic_write_json(final_pose_path, payload)
+        replay = {
+            "id": replay_id,
+            "title": replay_title,
+            "asset_base": public_rel(out_asset_dir),
+            "created_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+            "source_video": (
+                "Mixed 15:47:14 and independent 11:57:36 patrol frames localized as one two-lap live stream"
+                if len(composite_source_replay_ids) > 1
+                else "Full patrol recorded DJI frames localized as a new live stream"
+            ),
+            "source_replay_id": baseline_replay_id,
+            "source_replay_ids": composite_source_replay_ids,
+            "kind": "simulated_live_tsolve_recorded_frames",
+            "counts": {
+                "poses": counts["poses"],
+                "accepted": counts["poses"],
+                "frames": len(poses),
+                "held": counts["held"],
+                "failed": counts["failed"],
+            },
+            "query_frame_base_url": query_frame_base_url,
+            "laps": laps,
+        }
+        if not validation_only:
+            add_replay_to_map(selected["id"], replay, select=True)
+        update_live_stream(
+            pose_count=len(poses),
+            accepted_pose_count=counts["poses"],
+            held_pose_count=counts["held"],
+            failed_pose_count=counts["failed"],
+            partial_pose_url=public_rel(final_pose_path),
+            final_pose_url=public_rel(final_pose_path),
+            complete=True,
+            cancelled=False,
+        )
+        set_job(
+            "drone",
+            "done",
+            f"Genuine recorded-frame live localization complete: {counts['poses']} accepted, {counts['held']} held.",
+        )
+    except Exception as exc:
+        append_log("drone", f"RECORDED LIVE LOCALIZATION ERROR: {exc}")
+        update_live_stream(complete=True, failed=True, error=str(exc))
+        set_job("drone", "error", str(exc))
+    finally:
+        monitor_stop.set()
+        controller_status_stop.set()
+        if monitor_thread is not None and monitor_thread.is_alive():
+            monitor_thread.join(timeout=2.0)
+        if controller_status_thread is not None and controller_status_thread.is_alive():
+            controller_status_thread.join(timeout=2.0)
         release_drone_job()
 
 
@@ -4928,12 +6851,19 @@ def fleet_live_atlas_job(drone_id: str) -> None:
         cfg = load_config()
         py = Path(cfg["python"])
         scripts = ROOT / "scripts"
-        selected = next((item for item in load_library().get("maps", []) if item.get("id") == map_id), None)
+        library = load_library()
+        selected = next((item for item in library.get("maps", []) if item.get("id") == map_id), None)
         if not selected:
             raise RuntimeError(f"Unknown map id: {map_id}")
         patrol = next((item for item in selected.get("patrols") or [] if item.get("id") == patrol_id), None)
         if not patrol:
             raise RuntimeError(f"Unknown patrol {patrol_id} on {selected.get('title') or map_id}.")
+        live_patrol_lock = resolved_live_patrol_lock(library)
+        if live_patrol_lock is not None and (
+            live_patrol_lock["map_id"] != map_id
+            or live_patrol_lock["patrol_id"] != patrol_id
+        ):
+            live_patrol_lock = None
         map_artifacts = colmap_artifacts_for_entry(selected)
         replay_id = make_map_id(f"fleet_{drone_id}")
         session_id = f"atlas_{replay_id}"
@@ -5080,9 +7010,13 @@ def fleet_live_atlas_job(drone_id: str) -> None:
             "--flow-iterations", cfg.get("live_flow_iterations", 18),
             "--min-track-points", cfg.get("live_min_track_points", 80),
             "--min-track-ratio", cfg.get("live_min_track_ratio", 0.10),
-            "--proactive-relocalize-points", cfg.get("live_proactive_relocalize_points", 28),
+            "--proactive-relocalize-points", cfg.get("live_proactive_relocalize_points", 500),
             "--proactive-relocalize-cooldown-frames", cfg.get("live_proactive_relocalize_cooldown_frames", 60),
             "--global-recovery-after-failures", cfg.get("live_global_recovery_after_failures", 2),
+            "--background-recovery-timeout-seconds", cfg.get("live_background_recovery_timeout_seconds", 20.0),
+            "--global-recovery-max-step", cfg.get("live_global_recovery_max_step", 0.55),
+            "--output-max-step", cfg.get("live_output_max_step", 0.55),
+            "--output-objective-threshold", cfg.get("live_output_objective_threshold", 30.0),
             "--prime", cfg["tsolve_prime"],
             "--degree", cfg["tsolve_degree"],
             "--action-weights", cfg["tsolve_action_weights"],
@@ -5096,10 +7030,45 @@ def fleet_live_atlas_job(drone_id: str) -> None:
             "--follow-dir",
             "--stop-file", stop_file,
         ]
+        if live_patrol_lock is not None and live_patrol_lock["reference_profile"] != "off":
+            live_cmd.extend(
+                [
+                    "--rotation-position-stabilizer-profile",
+                    live_patrol_lock["reference_profile"],
+                    "--rotation-command-status-json",
+                    public_root / "control_status.json",
+                ]
+            )
+        if live_patrol_lock is not None and live_patrol_lock.get("baseline_reference_path"):
+            live_cmd.extend(
+                [
+                    "--patrol-route-baseline",
+                    live_patrol_lock["baseline_reference_path"],
+                    "--patrol-route-max-cross-track",
+                    cfg.get("live_patrol_route_max_cross_track", 0.55),
+                    "--patrol-route-backward-tolerance",
+                    cfg.get("live_patrol_route_backward_tolerance", 0.045),
+                    "--patrol-status-max-age",
+                    cfg.get("live_patrol_status_max_age", 5.0),
+                    "--patrol-turn-max-position-drift",
+                    cfg.get("live_patrol_turn_max_position_drift", 0.75),
+                ]
+            )
+            if live_patrol_lock.get("visual_recovery_path"):
+                live_cmd.extend(
+                    [
+                        "--patrol-visual-recovery-bank",
+                        live_patrol_lock["visual_recovery_path"],
+                    ]
+                )
+        for recovery_bank in active_taught_recovery_banks(base_asset_dir):
+            live_cmd.extend(["--taught-patrol-recovery-bank", recovery_bank])
         if cfg.get("live_blocking_global_recovery", True):
             live_cmd.append("--blocking-global-recovery")
         if not cfg.get("live_background_recovery", False):
             live_cmd.append("--disable-background-recovery")
+        if cfg.get("live_direct_pnp_recovery", True):
+            live_cmd.append("--direct-pnp-recovery")
         fleet_run_cmd(drone_id, live_cmd, None)
         fleet_update(drone_id, stage="finalizing")
         fleet_event(drone_id, "Localization stopped; saving the fleet replay.")
@@ -5371,7 +7340,10 @@ def build_fleet_patrol_mission(drone_id: str) -> dict:
         "pose_max_age_seconds": 2.5,
         "pose_recovery_seconds": 45.0,
         "pulse_seconds": 0.30,
-        "max_forward_rc": 0.035,
+        "smooth_continuous_cruise": True,
+        "cruise_window_seconds": 0.55,
+        "cruise_pose_watchdog_seconds": 0.65,
+        "max_forward_rc": 0.022,
         "max_lateral_rc": 0.010,
         "allow_lateral_rc": False,
         "allow_axis_auto_calibration": False,
@@ -5664,7 +7636,7 @@ def drone_video_job(
 ) -> None:
     # The endpoint initializes the cancellation token before reserving this
     # worker; only final cleanup may acknowledge and clear a Stop request.
-    DRONE_JOB_ACTIVE.set()
+    mark_drone_job_worker_started()
     try:
         cfg = load_config()
         py = Path(cfg["python"])
@@ -5724,7 +7696,7 @@ def drone_video_job(
             (
                 "Reading uploaded drone video as a simulated live camera stream."
                 if publish_to_map
-                else "Reading uploaded phone video as a frame-by-frame camera stream."
+                else "Starting fresh frame-by-frame localization from the uploaded phone video."
             ),
         )
         out_asset_dir.mkdir(parents=True, exist_ok=True)
@@ -5741,6 +7713,7 @@ def drone_video_job(
                 "expected_count": 0,
                 "complete": False,
                 "side_project": not publish_to_map,
+                "fresh_localization": not publish_to_map,
                 "source_map_title": selected.get("title") or selected["id"],
                 "started_at": live_started_at,
                 "first_pose_at": None,
@@ -5773,18 +7746,60 @@ def drone_video_job(
         ]
         if simulated_query_cap > 0:
             extract_cmd += ["--max-frames", simulated_query_cap]
-        run_cmd("drone", extract_cmd, DRONE_STOP_EVENT)
+        extraction_thread: threading.Thread | None = None
+        extraction_errors: list[Exception] = []
+        extraction_done_file = query_frames.parent / "extraction_complete.signal"
+        extraction_done_file.unlink(missing_ok=True)
+        extraction_validation: dict | None = None
 
-        expected_count = count_frame_images(query_frames)
-        extraction_validation = validate_extracted_video_coverage(
-            query_frames,
-            min_temporal_coverage=minimum_temporal_coverage,
-        )
+        if publish_to_map:
+            run_cmd("drone", extract_cmd, DRONE_STOP_EVENT)
+            expected_count = count_frame_images(query_frames)
+            extraction_validation = validate_extracted_video_coverage(
+                query_frames,
+                min_temporal_coverage=minimum_temporal_coverage,
+            )
+        else:
+            # Camera Path Lab is a live producer/consumer demonstration: the
+            # decoder publishes one complete JPEG and CSV row at a time while
+            # the localizer follows the directory. Do not front-load several
+            # minutes of 4K HEVC extraction before the first camera pose.
+            def extract_live_frames() -> None:
+                try:
+                    run_cmd("drone", extract_cmd, DRONE_STOP_EVENT)
+                except Exception as exc:
+                    extraction_errors.append(exc)
+                finally:
+                    touch_stop_file(extraction_done_file, "uploaded-video extraction finished")
+
+            extraction_thread = threading.Thread(
+                target=extract_live_frames,
+                name=f"camera-path-extractor-{replay_id}",
+                daemon=True,
+            )
+            extraction_thread.start()
+            metadata_path = query_frames / "metadata.json"
+            metadata_deadline = time.time() + 30.0
+            while not metadata_path.is_file() and not extraction_errors:
+                if DRONE_STOP_EVENT.is_set():
+                    raise RuntimeError("Camera Path live extraction stopped before metadata was ready.")
+                if time.time() >= metadata_deadline:
+                    raise RuntimeError("Camera Path live extraction did not publish video metadata within 30 seconds.")
+                time.sleep(0.05)
+            if extraction_errors:
+                raise extraction_errors[0]
+            extraction_metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+            expected_count = int(extraction_metadata.get("expected_frames") or 0)
+            if simulated_query_cap > 0:
+                expected_count = min(expected_count, simulated_query_cap)
+            if expected_count <= 0:
+                raise RuntimeError("Uploaded video contains no frames for live localization.")
+
         report(
             "running",
             (
-                "Live replay localization: "
-                f"{expected_count} incoming drone frames against the existing "
+                "Live camera localization: decoding and localizing incoming frames concurrently; "
+                f"{expected_count} expected frames against the existing "
                 f"{count_frame_images(map_frames)}/{count_frame_images(full_map_frames)}-frame map."
             ),
         )
@@ -5840,7 +7855,23 @@ def drone_video_job(
             # drone lands or the image content changes abruptly.
             stream_tracking_reference_images = cfg.get("simulated_live_tracking_reference_image_cap", 10)
             stream_script = scripts / "run_bounded_tsolve_video_stream.py"
-            stream_mode_message = "Running bounded simulated-live TSolve: first-frame COLMAP bootstrap, then optical-flow tracking."
+            replay_pace_scale = float(
+                cfg.get("camera_path_lab_pace_scale", 0.25)
+                if not publish_to_map
+                else cfg.get("simulated_live_pace_scale", 1.0)
+            )
+            blocking_recovery = bool(
+                cfg.get("camera_path_lab_blocking_global_recovery", False)
+                if not publish_to_map
+                else cfg.get("simulated_live_blocking_global_recovery", True)
+            )
+            stream_mode_message = (
+                "Running buffered Camera Path localization ahead of video playback: "
+                f"first-frame COLMAP bootstrap, optical-flow tracking at up to {1.0 / max(0.01, replay_pace_scale):.1f}x, "
+                "with trusted-pose holds while map recovery runs at weak frames."
+                if not publish_to_map
+                else "Running bounded simulated-live TSolve: first-frame COLMAP bootstrap, then optical-flow tracking."
+            )
             extra_stream_args = [
                 "--track-pool-size",
                 cfg.get("simulated_live_tracking_pool_size", 900),
@@ -5857,14 +7888,15 @@ def drone_video_job(
                 "--flow-iterations",
                 cfg.get("live_flow_iterations", 18),
                 "--min-track-points",
-                cfg.get("simulated_live_min_track_points", 60),
+                (
+                    cfg.get("camera_path_lab_min_track_points", 6)
+                    if not publish_to_map
+                    else cfg.get("simulated_live_min_track_points", 60)
+                ),
                 "--min-track-ratio",
                 cfg.get("simulated_live_min_track_ratio", cfg.get("live_min_track_ratio", 0.10)),
                 "--global-recovery-after-failures",
                 cfg.get("simulated_live_global_recovery_after_failures", 2),
-                "--pace-replay",
-                "--pace-scale",
-                cfg.get("simulated_live_pace_scale", 1.0),
                 "--partial-pose-out",
                 partial_pose_path,
                 "--replay-id",
@@ -5874,29 +7906,66 @@ def drone_video_job(
                 "--expected-count",
                 expected_count,
             ]
-            if cfg.get("simulated_live_blocking_global_recovery", True):
+            if publish_to_map:
+                extra_stream_args += ["--pace-replay", "--pace-scale", replay_pace_scale]
+            else:
+                extra_stream_args += [
+                    "--global-recovery-max-step",
+                    cfg.get("camera_path_lab_global_recovery_max_step", 1.6),
+                    "--output-max-step",
+                    cfg.get("camera_path_lab_output_max_step", 1.6),
+                    "--output-max-speed",
+                    cfg.get("camera_path_lab_output_max_speed", 2.2),
+                    "--follow-dir",
+                    "--follow-all-frames",
+                    "--direct-pnp-recovery",
+                    "--wait-for-background-recovery",
+                    "--calibrate-output-to-first-global-anchor",
+                    "--stop-file",
+                    extraction_done_file,
+                ]
+            if blocking_recovery:
                 extra_stream_args.append("--blocking-global-recovery")
 
         report("running", stream_mode_message)
-        partial_thread = threading.Thread(
-            target=stream_partial_poses,
-            args=(
-                tsolve_runtime,
-                video,
-                partial_pose_path,
-                replay_id,
-                partial_stop,
-                expected_count,
-                map_artifacts["sparse_text"],
-                base_asset_dir / "scene.json",
-                selected.get("display_z_sign", -1),
-                selected.get("room_alignment"),
-                live_started_at,
-                None if publish_to_map else update_camera_path_lab_stream,
-                None if publish_to_map else (lambda message: report("running", message)),
-            ),
-            daemon=True,
-        )
+        if publish_to_map:
+            # The simulated-live replay still derives its viewer payload from
+            # TSolve output files, so this legacy publisher owns the partial
+            # JSON it writes.
+            partial_thread = threading.Thread(
+                target=stream_partial_poses,
+                args=(
+                    tsolve_runtime,
+                    video,
+                    partial_pose_path,
+                    replay_id,
+                    partial_stop,
+                    expected_count,
+                    map_artifacts["sparse_text"],
+                    base_asset_dir / "scene.json",
+                    selected.get("display_z_sign", -1),
+                    selected.get("room_alignment"),
+                    live_started_at,
+                ),
+                daemon=True,
+            )
+        else:
+            # Camera Path localization writes accepted and held observations
+            # directly to poses_partial.json.  Only observe that file here.
+            # Rebuilding it concurrently from accepted-only TSolve outputs
+            # discarded held rotations and made the browser appear frozen.
+            partial_thread = threading.Thread(
+                target=monitor_partial_pose_file,
+                args=(
+                    partial_pose_path,
+                    partial_stop,
+                    live_started_at,
+                    tsolve_runtime / "live_stage_times.csv",
+                    update_camera_path_lab_stream,
+                    lambda message: report("running", message),
+                ),
+                daemon=True,
+            )
         partial_thread.start()
         try:
             run_cmd(
@@ -5935,7 +8004,11 @@ def drone_video_job(
                     "--max-points",
                     cfg["max_query_correspondences"],
                     "--max-reference-images",
-                    cfg.get("live_reference_image_cap", 24),
+                    (
+                        cfg.get("camera_path_lab_reference_image_cap", 36)
+                        if not publish_to_map
+                        else cfg.get("live_reference_image_cap", 24)
+                    ),
                     "--tracking-reference-images",
                     stream_tracking_reference_images,
                     "--prime",
@@ -5963,6 +8036,19 @@ def drone_video_job(
 
         if DRONE_STOP_EVENT.is_set():
             raise RuntimeError("Live TSolve path creation cancelled.")
+
+        if extraction_thread is not None:
+            extraction_thread.join(timeout=10.0)
+            if extraction_thread.is_alive():
+                raise RuntimeError("Camera Path extraction did not finish after the live localizer drained its frame queue.")
+            if extraction_errors:
+                raise extraction_errors[0]
+            extraction_validation = validate_extracted_video_coverage(
+                query_frames,
+                min_temporal_coverage=minimum_temporal_coverage,
+            )
+        if extraction_validation is None:
+            raise RuntimeError("Uploaded-video extraction validation was not completed.")
 
         report(
             "running",
@@ -6045,12 +8131,26 @@ def drone_video_job(
                     error=str(exc),
                 )
             else:
+                failure_stream = {
+                    "complete": True,
+                    "cancelled": False,
+                    "failed": True,
+                    "stopping": False,
+                    "error": str(exc),
+                }
+                failure_asset_dir = locals().get("out_asset_dir")
+                if isinstance(failure_asset_dir, Path):
+                    failure_pose_path = failure_asset_dir / "poses.json"
+                    if failure_pose_path.is_file():
+                        failure_counts = read_counts(failure_asset_dir)
+                        failure_stream.update(
+                            pose_count=failure_counts["poses"],
+                            accepted_pose_count=failure_counts["poses"],
+                            partial_pose_url=public_rel(failure_pose_path),
+                            final_pose_url=public_rel(failure_pose_path),
+                        )
                 update_camera_path_lab_stream(
-                    complete=True,
-                    cancelled=False,
-                    failed=True,
-                    stopping=False,
-                    error=str(exc),
+                    **failure_stream,
                 )
                 set_camera_path_lab_job("error", str(exc))
             set_job("drone", "error", str(exc))
@@ -6123,6 +8223,48 @@ class AtlasHandler(SimpleHTTPRequestHandler):
             outputfile.write(block)
             remaining -= len(block)
 
+    def send_local_media(self, path: Path, *, head_only: bool = False) -> None:
+        if not path.is_file():
+            self.send_error(404, "Review video is not available.")
+            return
+        size = path.stat().st_size
+        start = 0
+        end = max(0, size - 1)
+        status = 200
+        range_header = self.headers.get("Range")
+        if range_header:
+            try:
+                start, end = parse_http_byte_range(range_header, size)
+                status = 206
+            except (TypeError, ValueError):
+                self.send_response(416)
+                self.send_header("Content-Range", f"bytes */{size}")
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+                return
+        self.send_response(status)
+        self.send_header("Content-Type", self.guess_type(str(path)) or "application/octet-stream")
+        self.send_header("Accept-Ranges", "bytes")
+        if status == 206:
+            self.send_header("Content-Range", f"bytes {start}-{end}/{size}")
+        self.send_header("Content-Length", str(end - start + 1))
+        self.send_header("Last-Modified", self.date_time_string(path.stat().st_mtime))
+        self.end_headers()
+        if head_only:
+            return
+        try:
+            with path.open("rb") as handle:
+                handle.seek(start)
+                remaining = end - start + 1
+                while remaining > 0:
+                    block = handle.read(min(256 * 1024, remaining))
+                    if not block:
+                        break
+                    self.wfile.write(block)
+                    remaining -= len(block)
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+
     def send_json(self, payload: dict, status: int = 200) -> None:
         data = json.dumps(payload).encode("utf-8")
         self.send_response(status)
@@ -6131,10 +8273,41 @@ class AtlasHandler(SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
+    def do_HEAD(self) -> None:
+        url = urllib.parse.urlparse(self.path)
+        if url.path == "/api/video-review/media":
+            self.send_local_media(VIDEO_REVIEW_MEDIA, head_only=True)
+            return
+        super().do_HEAD()
+
     def do_GET(self) -> None:
         url = urllib.parse.urlparse(self.path)
+        if url.path == "/api/video-review/media":
+            self.send_local_media(VIDEO_REVIEW_MEDIA)
+            return
+        if url.path == "/api/video-review":
+            self.send_json({"ok": True, "review": load_video_review()})
+            return
+        if url.path == "/api/video-review/brief":
+            review = load_video_review()
+            content = video_review_markdown(review).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "text/markdown; charset=utf-8")
+            self.send_header("Content-Disposition", f'inline; filename="{VIDEO_REVIEW_BRIEF.name}"')
+            self.send_header("Content-Length", str(len(content)))
+            self.end_headers()
+            self.wfile.write(content)
+            return
         if url.path == "/api/status":
-            self.send_json(snapshot_state())
+            state = snapshot_state()
+            query = urllib.parse.parse_qs(url.query)
+            if (query.get("compact") or [""])[0] in {"1", "true", "yes"}:
+                state.pop("library", None)
+                for job_name in ("map", "drone", "enemy"):
+                    job = state.get(job_name)
+                    if isinstance(job, dict) and isinstance(job.get("log"), list):
+                        job["log"] = job["log"][-4:]
+            self.send_json(state)
             return
         if url.path == "/api/camera-path-lab/status":
             self.send_json({"ok": True, **camera_path_lab_snapshot()})
@@ -6169,6 +8342,21 @@ class AtlasHandler(SimpleHTTPRequestHandler):
             except Exception as exc:
                 self.send_json({"ok": False, "error": str(exc), "stream": stream, "poses": []}, 200)
                 return
+            query = urllib.parse.parse_qs(url.query)
+            after_values = query.get("after") or []
+            if after_values:
+                try:
+                    requested_after = max(0, int(after_values[0]))
+                except (TypeError, ValueError):
+                    requested_after = 0
+                all_poses = payload.get("poses") if isinstance(payload.get("poses"), list) else []
+                delta_reset = requested_after > len(all_poses)
+                delta_start = 0 if delta_reset else requested_after
+                payload["poses"] = all_poses[delta_start:]
+                payload["delta"] = True
+                payload["delta_start"] = delta_start
+                payload["delta_reset"] = delta_reset
+                payload["returned_count"] = len(payload["poses"])
             payload["ok"] = True
             payload["stream"] = stream
             self.send_json(payload)
@@ -6209,6 +8397,51 @@ class AtlasHandler(SimpleHTTPRequestHandler):
 
     def do_POST(self) -> None:
         url = urllib.parse.urlparse(self.path)
+        if url.path == "/api/video-review":
+            try:
+                length = int(self.headers.get("Content-Length", "0"))
+                if length > 2 * 1024 * 1024:
+                    raise RuntimeError("Review payload is too large.")
+                body = self.rfile.read(length).decode("utf-8") if length else "{}"
+                review = save_video_review(json.loads(body or "{}"))
+            except Exception as exc:
+                self.send_json({"ok": False, "error": str(exc)}, 400)
+                return
+            self.send_json(
+                {
+                    "ok": True,
+                    "review": review,
+                    "review_file": str(VIDEO_REVIEW_JSON.relative_to(ROOT)),
+                    "brief_file": str(VIDEO_REVIEW_BRIEF.relative_to(ROOT)),
+                    "brief_url": "/api/video-review/brief",
+                }
+            )
+            return
+        if url.path == "/api/enemy-drone/live-detection":
+            length = int(self.headers.get("Content-Length", "0"))
+            body = self.rfile.read(length).decode("utf-8") if length else "{}"
+            try:
+                request = json.loads(body or "{}")
+                if not isinstance(request.get("enabled"), bool):
+                    raise RuntimeError("enabled must be true or false")
+                control = set_live_enemy_detection_enabled(request["enabled"])
+            except Exception as exc:
+                self.send_json({"ok": False, "error": str(exc)}, 400)
+                return
+            self.send_json({"ok": True, "control": control})
+            return
+
+        if url.path == "/api/camera-path-lab/preview-calibration":
+            length = int(self.headers.get("Content-Length", "0"))
+            body = self.rfile.read(length).decode("utf-8") if length else "{}"
+            try:
+                calibration = save_camera_path_preview_calibration(json.loads(body or "{}"))
+            except Exception as exc:
+                self.send_json({"ok": False, "error": str(exc)}, 400)
+                return
+            self.send_json({"ok": True, "calibration": calibration})
+            return
+
         if url.path == "/api/fleet/drone":
             length = int(self.headers.get("Content-Length", "0"))
             body = self.rfile.read(length).decode("utf-8") if length else "{}"
@@ -6546,14 +8779,73 @@ class AtlasHandler(SimpleHTTPRequestHandler):
             if orphan_count:
                 append_log("drone", f"Stopped {orphan_count} orphan live subprocess(es).")
             mark_live_dji_status_stopped("ATLAS live localization stopped by user.")
+            stale_worker = (
+                DRONE_JOB_ACTIVE.is_set()
+                and drone_job_worker_liveness() is False
+                and active_proc_count("drone") == 0
+            )
+            if stale_worker:
+                append_log(
+                    "drone",
+                    "Recovered stale live-localization ownership after its worker thread exited.",
+                )
+                release_drone_job()
             if not DRONE_JOB_ACTIVE.is_set():
                 update_live_stream(complete=True, cancelled=True, stopping=False, live_preview_url=None)
-                if terminated or orphan_count:
+                if stale_worker:
+                    set_job("drone", "cancelled", "Live localization stopped; stale worker state was cleared safely.")
+                elif terminated or orphan_count:
                     set_job("drone", "cancelled", "Live localization stopped; active live subprocesses were terminated.")
                 else:
                     set_job("drone", "cancelled", "Live localization stopped; no active drone worker remained.")
                 release_drone_job()
             self.send_json({"ok": True, "state": snapshot_state()})
+            return
+
+        if url.path == "/api/drone/simulate-patrol-baseline":
+            length = int(self.headers.get("Content-Length", "0"))
+            body = self.rfile.read(length).decode("utf-8") if length else "{}"
+            try:
+                payload = json.loads(body or "{}")
+                map_id = str(payload.get("map_id") or "").strip()
+                baseline_replay_id = str(payload.get("baseline_replay_id") or "").strip()
+                fps = max(0.5, min(30.0, float(payload.get("fps") or 10.0)))
+                start_source_frame = payload.get("start_source_frame")
+                end_source_frame = payload.get("end_source_frame")
+                start_source_frame = int(start_source_frame) if start_source_frame is not None else None
+                end_source_frame = int(end_source_frame) if end_source_frame is not None else None
+                validation_only = payload.get("validation_only") is True
+                recorded_timing = payload.get("recorded_timing") is True
+                laps = max(1, min(2, int(payload.get("laps") or 1)))
+                if not map_id or not baseline_replay_id:
+                    raise ValueError("map_id and baseline_replay_id are required.")
+                if (
+                    start_source_frame is not None
+                    and end_source_frame is not None
+                    and start_source_frame > end_source_frame
+                ):
+                    raise ValueError("start_source_frame must be at or before end_source_frame.")
+                if not reserve_and_queue_drone_job("Preparing a new simulated live patrol path."):
+                    self.send_json({"ok": False, "error": "Another localization worker is active. Stop it before starting the simulation."}, 409)
+                    return
+                start_thread(
+                    lambda: localized_recorded_patrol_job(
+                        map_id=map_id,
+                        baseline_replay_id=baseline_replay_id,
+                        fps=fps,
+                        start_source_frame=start_source_frame,
+                        end_source_frame=end_source_frame,
+                        validation_only=validation_only,
+                        recorded_timing=recorded_timing,
+                        laps=laps,
+                    )
+                )
+            except Exception as exc:
+                if DRONE_JOB_ACTIVE.is_set() and not job_is_active("drone"):
+                    release_drone_job()
+                self.send_json({"ok": False, "error": str(exc)}, 400)
+                return
+            self.send_json({"ok": True, "job": "simulated_patrol_baseline", "status": "queued"})
             return
 
         if url.path == "/api/drone/flight-command":
@@ -6579,6 +8871,7 @@ class AtlasHandler(SimpleHTTPRequestHandler):
             phone_ip = str(payload.get("phone_ip", "")).strip()
             fps = max(0.5, min(10.0, float(payload.get("fps", 10.0))))
             max_size = int(payload.get("max_size", 1200))
+            view_only = bool(payload.get("view_only"))
             if not phone_ip:
                 self.send_json({"ok": False, "error": "Missing phone_ip. Enter the Android MSDK phone IP first."}, 400)
                 return
@@ -6592,6 +8885,7 @@ class AtlasHandler(SimpleHTTPRequestHandler):
                         phone_ip=phone_ip,
                         fps=fps,
                         max_size=max_size,
+                        view_only=view_only,
                     )
                 )
             except Exception as exc:

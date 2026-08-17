@@ -123,6 +123,7 @@ const useModelHeadingForFlightInput = document.getElementById("use-model-heading
 const enemyLiveDetectorState = document.getElementById("enemy-live-detector-state");
 const enemyLiveDetection = document.getElementById("enemy-live-detection");
 const enemyResponseStatus = document.getElementById("enemy-response-status");
+const enemyDetectionEnabledInput = document.getElementById("enemy-detection-enabled");
 const enemyConfirmLockButton = document.getElementById("enemy-confirm-lock");
 const enemyStartPursuitButton = document.getElementById("enemy-start-pursuit");
 const enemyClearAlertButton = document.getElementById("enemy-clear-alert");
@@ -172,6 +173,7 @@ const savedPatrolList = document.getElementById("saved-patrol-list");
 const newPatrolButton = document.getElementById("new-patrol");
 const replayTabs = document.getElementById("replay-tabs");
 const replayTabList = document.getElementById("replay-tab-list");
+const simulateLivePathButton = document.getElementById("simulate-live-path");
 const sidePanel = document.querySelector(".side");
 const liveMappingPanel = document.getElementById("live-mapping-panel");
 const liveCameraFeed = document.getElementById("live-camera-feed");
@@ -253,9 +255,21 @@ let liveReplayStartedAt = 0;
 let livePoseStreamKey = "";
 let livePoseStreamCount = 0;
 let liveStatusPollBusy = false;
+let livePosePollBusy = false;
 let liveVideoWaitingForFirstPose = false;
 let liveVideoSyncedToFirstPose = false;
 let liveCurrentPoseOverride = null;
+let liveFrameLockedQueue = [];
+let liveFrameLockedDisplayedPose = null;
+let liveFrameLockedReplayId = "";
+let liveFrameLockedQueuedCount = 0;
+let liveFrameLockedDisplayedCount = 0;
+let liveFrameLockedDroppedCount = 0;
+let liveFrameLockedNextAtMs = 0;
+let liveFrameLockedStream = null;
+let liveFramePreloadCache = new Map();
+let liveReplayCompletionPending = false;
+let liveRotationPositionAnchor = null;
 let liveFrameMode = false;
 let liveAtlasPreviewActive = false;
 let lastDjiControlStatusId = "";
@@ -263,18 +277,35 @@ let lastDjiControlStatusKey = "";
 let latestDjiLiveStatus = null;
 let pendingDjiControlAck = null;
 let lastReplayFrameUrl = "";
+let lastLiveFrameUrl = "";
 let replayFramePlaybackEnabled = false;
 let replayFramePlaybackRaf = 0;
 
 const PHONE_IP_STORAGE_KEY = "atlas.savedPhoneIps";
 const DEFAULT_PHONE_IPS = ["192.168.50.235"];
 const LIVE_CONTROL_PIN_STORAGE_KEY = "atlas.liveControlPinned";
+const LIVE_CONTROL_SECTIONS_STORAGE_KEY = "atlas.liveControlCollapsedSections";
 const DRONE_HEADING_TRIM_STORAGE_KEY = "atlas.droneHeadingTrimDeg";
+const ENEMY_DETECTION_ENABLED_STORAGE_KEY = "atlas.enemyDetectionEnabled";
 const DEFAULT_DRONE_HEADING_TRIM_DEG = -45;
+// Live localization is polled in bursts.  Keeping six timed poses queued made
+// the camera/model pair visibly trail the actual aircraft even though each
+// displayed frame was internally aligned.  Retain only a short jitter buffer
+// and drop a backlog to its newest aligned frame/pose pair.
+const LIVE_FRAME_MAX_BUFFER = 12;
+const LIVE_FRAME_TARGET_BUFFER = 1;
+// A recorded-flight simulation must preserve the short physical RC pulses;
+// dropping a burst to catch up can erase the only frames that prove motion.
+// Real DJI display remains on the small low-latency buffer above.  The
+// simulation catches up by rendering faster, while retaining up to 18 seconds
+// of exact frame/pose pairs instead of deleting them.
+const SIMULATED_LIVE_FRAME_MAX_BUFFER = 180;
+const SIMULATED_LIVE_FRAME_TARGET_BUFFER = 24;
 let pathPlaybackActive = false;
 let pathPlaybackStartWallMs = 0;
 let pathPlaybackStartTimeSec = 0;
 let pathPlaybackEndTimeSec = 0;
+let replayFrameHoldTimeSec = null;
 const MISSION_AUTONOMY_SPEED_LIMIT_MPS = 0.16;
 const PATROL_AUTONOMY_SPEED_LIMIT_MPS = 0.12;
 const PATROL_SCAN_YAW_DEG = 90;
@@ -744,7 +775,14 @@ function orientedStructureBox(points, fallbackBounds, floorY, forcedYaw = null) 
     toRoom(u0, v1, y0),
   ];
   const top = bottom.map(p => [p[0], y1, p[2]]);
-  return { bottom, top, yaw, center: [cx, 0.5 * (y0 + y1), cz] };
+  // cx/cz is the median of the sampled point density, not the geometric
+  // center of the room.  A wall with many reconstructed features can pull
+  // that median far away from the footprint center and make mouse rotation
+  // orbit around the wrong anchor.  Use the midpoint of the oriented box we
+  // actually draw so the wireframe, map points, and mesh share one stable
+  // visual pivot.
+  const center = toRoom(0.5 * (u0 + u1), 0.5 * (v0 + v1), 0.5 * (y0 + y1));
+  return { bottom, top, yaw, center };
 }
 
 function poseReferenceError(pose) {
@@ -1114,8 +1152,11 @@ function buildRoomFrame() {
     !pendingLiveReplayOpen &&
     poseStreamMeta?.complete !== false
   );
+  const recordedLiveFlight = replay?.kind === "simulated_live_tsolve_recorded_frames";
   const roomPoses = buildReplayDisplayPoses(rawRoomPoses, floorY, {
-    applyLanding: completedReplayDisplay,
+    // A finite recorded patrol ends on its last localized airborne frame. It
+    // must not visually descend merely because the replay worker completed.
+    applyLanding: completedReplayDisplay && !recordedLiveFlight,
     filterTrack: !livePoseStreamActive,
   });
   const poseQuality = roomPoses.poseQuality || {
@@ -1176,6 +1217,70 @@ function buildRoomFrame() {
     poseQuality,
     visualPointSource: densePointRows ? "dense" : "sparse",
   };
+}
+
+function updateLiveRoomPoseStream(sourcePoses) {
+  if (!room || !Array.isArray(sourcePoses)) return false;
+  const previousSourceCount = Number(room._liveSourcePoseCount || 0);
+  const appendOnly = Boolean(
+    previousSourceCount > 0 &&
+    sourcePoses.length >= previousSourceCount &&
+    Array.isArray(room.poses) &&
+    room.poses.length === previousSourceCount
+  );
+  const sourceStart = appendOnly ? previousSourceCount : 0;
+  const rawRoomPoses = sourcePoses
+    .slice(sourceStart)
+    .map((pose, index) => ({
+      ...pose,
+      _poseOrder: sourceStart + index,
+      rcenter: Array.isArray(pose.rcenter)
+        ? pose.rcenter.slice()
+        : (pose.center ? room.transform(pose.center) : null),
+    }));
+  if (!appendOnly) rawRoomPoses.sort((a, b) => {
+      const ta = Number(a.time_sec);
+      const tb = Number(b.time_sec);
+      const aFinite = Number.isFinite(ta);
+      const bFinite = Number.isFinite(tb);
+      if (aFinite && bFinite && ta !== tb) return ta - tb;
+      if (aFinite !== bFinite) return aFinite ? -1 : 1;
+      return (a._poseOrder || 0) - (b._poseOrder || 0);
+    });
+  // Legacy-held detection needs the preceding accepted pose when processing
+  // only the new delta.  Do not clone/re-sort thousands of old poses on every
+  // 100 ms live poll.
+  const heldContext = appendOnly && room.poses.length
+    ? [room.poses[room.poses.length - 1], ...rawRoomPoses]
+    : rawRoomPoses;
+  markLegacyHeldPoses(heldContext);
+  const newRoomPoses = buildReplayDisplayPoses(rawRoomPoses, room.floorY, {
+    applyLanding: false,
+    filterTrack: false,
+  });
+  const oldAccepted = appendOnly
+    ? room.poses.filter(pose => isRealPose(pose)).length
+    : 0;
+  room.poses = appendOnly ? room.poses.concat(newRoomPoses) : newRoomPoses;
+  room._liveSourcePoseCount = sourcePoses.length;
+  assignStablePathHeadings(room.poses, Math.max(0, oldAccepted - 14));
+  room.poseQuality = {
+    total: room.poses.length,
+    accepted: room.poses.filter(pose => isRealPose(pose)).length,
+    rejected: room.poses.filter(pose => pose.filtered).length,
+  };
+  // Height quantiles do not need to be re-sorted for every single-frame
+  // append.  Refresh them on a reset and at coarse 100-pose checkpoints.
+  if (!appendOnly || sourcePoses.length % 100 < rawRoomPoses.length) {
+    const routeYs = room.poses.filter(pose => isRealPose(pose)).map(pose => pose.rcenter[1]);
+    if (routeYs.length) {
+    room.routeHeightBounds = {
+      min: Math.min(room.floorY, quantile(routeYs, 0.03)),
+      max: Math.max(room.floorY + 0.18, quantile(routeYs, 0.97)),
+    };
+    }
+  }
+  return true;
 }
 
 function displayPointSummaryLine() {
@@ -1306,6 +1411,13 @@ function lerpVec(a, b, t) {
   return a.map((v, i) => lerp(v, b[i], t));
 }
 
+function lerpOptionalVec(a, b, t, fallback = null) {
+  if (Array.isArray(a) && Array.isArray(b) && a.length === b.length) {
+    return lerpVec(a, b, t);
+  }
+  return Array.isArray(fallback) ? fallback.slice() : null;
+}
+
 function angleNear(target, reference) {
   let out = target;
   while (out - reference > Math.PI) out -= Math.PI * 2;
@@ -1382,6 +1494,9 @@ function replayPoseCountText(replay, fallbackCounts = {}) {
   const accepted = Number(counts.poses ?? counts.accepted ?? 0);
   const frames = Number(counts.frames ?? 0);
   const held = Number(counts.held ?? 0);
+  if (["route_constrained_taught_baseline", "simulated_live_patrol_baseline"].includes(replay?.kind)) {
+    return `${accepted} validated frame pose${accepted === 1 ? "" : "s"}`;
+  }
   if (frames > accepted) {
     const heldText = held ? `, ${held} held` : "";
     return `${accepted}/${frames} real R,t${heldText}`;
@@ -1550,6 +1665,9 @@ function currentReplayClockTime(good) {
     }
     stopPoseClockPlayback();
   }
+  if (Number.isFinite(Number(replayFrameHoldTimeSec))) {
+    return Number(replayFrameHoldTimeSec);
+  }
   const t = Number(video.currentTime);
   return Number.isFinite(t) ? t : 0;
 }
@@ -1565,6 +1683,7 @@ function startPoseClockPlayback() {
   const first = Number(timed[0].time_sec);
   const last = Number(timed[timed.length - 1].time_sec);
   if (!(last > first)) return false;
+  replayFrameHoldTimeSec = null;
   pathPlaybackActive = true;
   replayFramePlaybackEnabled = true;
   pathPlaybackStartWallMs = performance.now();
@@ -1674,6 +1793,42 @@ function updateLiveFrameView(payload = null, stream = null, options = {}) {
   return true;
 }
 
+function exactLiveFrameUrl(pose, stream = null) {
+  if (!pose?.image_name) return "";
+  const liveStream = stream || poseStreamMeta?.stream || {};
+  const base = String(liveStream.query_frame_base_url || poseStreamMeta?.query_frame_base_url || "").replace(/\/$/, "");
+  const name = String(pose.image_name).split("/").pop();
+  return base && name ? `${base}/${encodeURIComponent(name)}` : "";
+}
+
+function preloadLiveFrame(pose, stream = null) {
+  const url = exactLiveFrameUrl(pose, stream);
+  if (!url || liveFramePreloadCache.has(url)) return;
+  const preloader = new Image();
+  preloader.decoding = "async";
+  preloader.src = url;
+  liveFramePreloadCache.set(url, preloader);
+  const preloadLimit = liveFrameLockedStream?.simulated_live ? 60 : 12;
+  while (liveFramePreloadCache.size > preloadLimit) {
+    liveFramePreloadCache.delete(liveFramePreloadCache.keys().next().value);
+  }
+}
+
+function updateLiveFrameViewForPose(pose, stream = null) {
+  if (!liveFrameView) return false;
+  const url = exactLiveFrameUrl(pose, stream);
+  if (!url) return false;
+  if (lastLiveFrameUrl === url) return true;
+  setLiveFrameMode(true);
+  setVideoFrameSteppingMode(true);
+  video.pause();
+  video.removeAttribute("src");
+  liveFrameView.src = url;
+  lastLiveFrameUrl = url;
+  setLiveFrameStatus("", false);
+  return true;
+}
+
 function updateReplayFrameViewForPose(pose, options = {}) {
   if (!replayFramePlaybackEnabled && !options.force) return false;
   if (liveReplayInFlight || (pendingLiveReplayOpen && !options.force)) return false;
@@ -1694,7 +1849,9 @@ function updateReplayFrameViewForPose(pose, options = {}) {
 function ensureLiveStreamVideoSource(stream) {
   if (stream?.live_preview_url || stream?.query_frame_base_url) {
     setLiveFrameMode(true);
-    if (!updateLiveFrameView(poseStreamMeta, stream)) {
+    if (liveFrameLockedDisplayedPose?.image_name) {
+      updateLiveFrameViewForPose(liveFrameLockedDisplayedPose, stream);
+    } else {
       setLiveFrameStatus("Waiting for first TSolve-processed DJI frame...", true);
     }
     video.pause();
@@ -1854,6 +2011,7 @@ async function startDroneReplayUpload(file, mapId) {
   livePoseStreamKey = "";
   livePoseStreamCount = 0;
   liveCurrentPoseOverride = null;
+  resetLiveFrameLockedPlayback();
   liveVideoWaitingForFirstPose = false;
   liveVideoSyncedToFirstPose = false;
   uploadStatus.textContent = `Uploading drone path for ${currentMapEntry?.title || mapId}: ${file.name}`;
@@ -1862,6 +2020,45 @@ async function startDroneReplayUpload(file, mapId) {
   showDemo({ resetVideo: false });
   showUploadedVideoPreview(file);
   await uploadVideo("/api/drone/upload", file, { map_id: mapId });
+  await pollStatus();
+}
+
+async function startSimulatedBaselineLive() {
+  const active = activeReplay(currentMapEntry);
+  const lockedBaselineId = mapLibraryData?.live_patrol_lock?.baseline_replay_id;
+  const replay = active?.kind === "route_constrained_taught_baseline"
+    ? active
+    : replayList(currentMapEntry).find(item => (
+      item?.kind === "route_constrained_taught_baseline"
+      && (!lockedBaselineId || item.id === lockedBaselineId)
+    ));
+  if (!currentMapEntry?.id || !replay) {
+    uploadStatus.textContent = "Select Full Patrol Baseline 15:47:14 before creating a new live path.";
+    return;
+  }
+  pendingLiveReplayOpen = true;
+  pendingLiveReplayMapId = currentMapEntry.id;
+  liveReplayInFlight = true;
+  liveReplayMessage = "Creating a new path by localizing recorded DJI frames through the live pipeline";
+  liveReplayStartedAt = performance.now();
+  livePoseStreamKey = "";
+  livePoseStreamCount = 0;
+  liveCurrentPoseOverride = null;
+  resetLiveFrameLockedPlayback();
+  liveVideoWaitingForFirstPose = false;
+  liveVideoSyncedToFirstPose = false;
+  uploadStatus.textContent = "Preparing the locked two-lap precision patrol simulation.";
+  stopPoseClockPlayback();
+  await loadViewerData(false, currentMapEntry);
+  liveReplayWaitingViewPrepared = true;
+  showDemo({ resetVideo: false });
+  await postJson("/api/drone/simulate-patrol-baseline", {
+    map_id: currentMapEntry.id,
+    baseline_replay_id: replay.id,
+    fps: selectedLiveAtlasFps(),
+    recorded_timing: true,
+    laps: 2,
+  });
   await pollStatus();
 }
 
@@ -2020,6 +2217,48 @@ function syncLiveControlCollapsedState() {
   document.body.classList.toggle("live-control-collapsed", Boolean(collapsed));
 }
 
+function storedCollapsedLiveControlSections() {
+  try {
+    const stored = JSON.parse(localStorage.getItem(LIVE_CONTROL_SECTIONS_STORAGE_KEY) || "[]");
+    return new Set(Array.isArray(stored) ? stored.filter(Boolean) : []);
+  } catch {
+    return new Set();
+  }
+}
+
+function setLiveControlSectionCollapsed(section, collapsed, options = {}) {
+  const key = section?.dataset.liveSection;
+  const toggle = section?.querySelector(":scope > .live-control-section-toggle, :scope > .live-control-section-head > .live-control-section-toggle");
+  if (!section || !key || !toggle) return;
+  const isCollapsed = Boolean(collapsed);
+  const title = toggle.querySelector(".live-control-section-title")?.textContent?.trim() || "section";
+  section.classList.toggle("is-collapsed", isCollapsed);
+  toggle.setAttribute("aria-expanded", String(!isCollapsed));
+  toggle.setAttribute("aria-label", `${isCollapsed ? "Expand" : "Minimize"} ${title}`);
+  toggle.title = `${isCollapsed ? "Expand" : "Minimize"} ${title}`;
+  if (options.persist === false) return;
+  const collapsedSections = storedCollapsedLiveControlSections();
+  if (isCollapsed) collapsedSections.add(key);
+  else collapsedSections.delete(key);
+  try {
+    localStorage.setItem(LIVE_CONTROL_SECTIONS_STORAGE_KEY, JSON.stringify([...collapsedSections]));
+  } catch {
+    // Section collapsing remains available for this session if storage is blocked.
+  }
+}
+
+function setupLiveControlSections() {
+  const collapsedSections = storedCollapsedLiveControlSections();
+  for (const section of document.querySelectorAll("#live-localization-control .live-control-section")) {
+    const toggle = section.querySelector(":scope > .live-control-section-toggle, :scope > .live-control-section-head > .live-control-section-toggle");
+    if (!toggle) continue;
+    setLiveControlSectionCollapsed(section, collapsedSections.has(section.dataset.liveSection), { persist: false });
+    toggle.addEventListener("click", () => {
+      setLiveControlSectionCollapsed(section, !section.classList.contains("is-collapsed"));
+    });
+  }
+}
+
 function setDjiCommandStatus(text, tone = "") {
   if (!djiCommandStatus) return;
   djiCommandStatus.textContent = text || "Drone control idle.";
@@ -2040,10 +2279,161 @@ function firstConfirmedPoseReady() {
 
 function correctedLivePose(pose) {
   if (!pose?.rcenter) return pose;
-  return {
+  const corrected = {
     ...pose,
     rcenter: pose.rcenter.map((value, index) => value + Number(initialPoseOffsetRoom[index] || 0)),
   };
+  const opticalHeading = Array.isArray(pose.rotation_heading)
+    ? pose.rotation_heading.slice(0, 3).map(Number)
+    : null;
+  const opticalHeadingTracks = Number(pose.rotation_heading_tracks || 0);
+  const currentFrameOpticalHeading = Boolean(
+    opticalHeading?.length === 3 &&
+    opticalHeading.every(Number.isFinite) &&
+    opticalHeadingTracks >= 16
+  );
+  if (
+    currentFrameOpticalHeading &&
+    (
+      pose.pose_source === "patrol_visual_route_recovery" ||
+      pose.rotation_position_locked
+    )
+  ) {
+    corrected.rheadingRaw = corrected.rheading;
+    corrected.rheading = opticalHeading;
+    corrected.rheadingSource = "optical_flow_yaw";
+  }
+  if (Array.isArray(liveRotationPositionAnchor) && liveRotationPositionAnchor.length >= 3) {
+    corrected.rawRotationRcenter = corrected.rcenter;
+    corrected.rcenter = liveRotationPositionAnchor.slice(0, 3).map(Number);
+    corrected.rotationPositionLocked = true;
+  }
+  return corrected;
+}
+
+function resetLiveFrameLockedPlayback() {
+  liveFrameLockedQueue = [];
+  liveFrameLockedDisplayedPose = null;
+  liveFrameLockedReplayId = "";
+  liveFrameLockedQueuedCount = 0;
+  liveFrameLockedDisplayedCount = 0;
+  liveFrameLockedDroppedCount = 0;
+  liveFrameLockedNextAtMs = 0;
+  liveFrameLockedStream = null;
+  liveFramePreloadCache = new Map();
+  liveReplayCompletionPending = false;
+  lastLiveFrameUrl = "";
+}
+
+function liveFrameIntervalMs(a, b) {
+  const aTime = Number(a?.time_sec);
+  const bTime = Number(b?.time_sec);
+  const sourceDelta = (Number.isFinite(aTime) && Number.isFinite(bTime))
+    ? (bTime - aTime) * 1000
+    : NaN;
+  if (Number.isFinite(sourceDelta) && sourceDelta > 1 && sourceDelta < 1000) {
+    return sourceDelta;
+  }
+  const fps = Number(liveFrameLockedStream?.fps || 10);
+  return 1000 / Math.max(0.5, Math.min(30, Number.isFinite(fps) ? fps : 10));
+}
+
+function liveFramePlaybackIntervalMs(a, b) {
+  const interval = liveFrameIntervalMs(a, b);
+  const backlog = liveFrameLockedQueue.length;
+  if (liveFrameLockedStream?.simulated_live) {
+    if (backlog > SIMULATED_LIVE_FRAME_TARGET_BUFFER) return Math.max(25, interval * 0.25);
+    if (backlog > 12) return Math.max(33, interval * 0.40);
+  }
+  if (backlog > 6) return Math.max(40, interval * 0.60);
+  if (backlog > LIVE_FRAME_TARGET_BUFFER) return Math.max(50, interval * 0.80);
+  return interval;
+}
+
+function presentLiveFrameLockedPose(sourcePose) {
+  if (!sourcePose?.rcenter) return;
+  liveFrameLockedDisplayedPose = correctedLivePose(sourcePose);
+  liveFrameLockedDisplayedCount += 1;
+  const showedCapturedFrame = updateLiveFrameViewForPose(sourcePose, liveFrameLockedStream);
+  if (!showedCapturedFrame && !liveFrameMode && video) {
+    const frameTime = Number(sourcePose.time_sec);
+    if (Number.isFinite(frameTime)) {
+      try {
+        video.currentTime = frameTime;
+      } catch {
+        // The exact R,t remains visible even if a browser cannot seek this video frame.
+      }
+      video.pause();
+    }
+  }
+}
+
+function advanceLiveFrameLockedPlayback(nowMs = performance.now()) {
+  if (!liveFrameLockedDisplayedPose && liveFrameLockedQueue.length) {
+    presentLiveFrameLockedPose(liveFrameLockedQueue.shift());
+    liveFrameLockedNextAtMs = liveFrameLockedQueue.length
+      ? nowMs + liveFramePlaybackIntervalMs(liveFrameLockedDisplayedPose, liveFrameLockedQueue[0])
+      : 0;
+  } else if (
+    liveFrameLockedDisplayedPose &&
+    liveFrameLockedQueue.length &&
+    (!liveFrameLockedNextAtMs || nowMs >= liveFrameLockedNextAtMs)
+  ) {
+    presentLiveFrameLockedPose(liveFrameLockedQueue.shift());
+    liveFrameLockedNextAtMs = liveFrameLockedQueue.length
+      ? nowMs + liveFramePlaybackIntervalMs(liveFrameLockedDisplayedPose, liveFrameLockedQueue[0])
+      : 0;
+  }
+  return liveFrameLockedDisplayedPose;
+}
+
+function enqueueLiveFrameLockedPoses(displayPoses, payload, stream = null) {
+  if (!Array.isArray(displayPoses)) return;
+  const replayId = String(payload?.replay_id || payload?.stream?.replay_id || stream?.replay_id || "live");
+  if (liveFrameLockedReplayId && replayId !== liveFrameLockedReplayId) {
+    resetLiveFrameLockedPlayback();
+  }
+  liveFrameLockedReplayId = replayId;
+  liveFrameLockedStream = payload?.stream || stream || liveFrameLockedStream || {};
+  const start = Math.min(liveFrameLockedQueuedCount, displayPoses.length);
+  for (const pose of displayPoses.slice(start)) {
+    if (pose?.rcenter && (pose.success !== false || pose.held_pose)) {
+      liveFrameLockedQueue.push(pose);
+    }
+  }
+  liveFrameLockedQueuedCount = displayPoses.length;
+  const maxBuffer = liveFrameLockedStream?.simulated_live
+    ? SIMULATED_LIVE_FRAME_MAX_BUFFER
+    : LIVE_FRAME_MAX_BUFFER;
+  const targetBuffer = liveFrameLockedStream?.simulated_live
+    ? SIMULATED_LIVE_FRAME_TARGET_BUFFER
+    : LIVE_FRAME_TARGET_BUFFER;
+  if (liveFrameLockedQueue.length > maxBuffer) {
+    const dropCount = liveFrameLockedQueue.length - targetBuffer;
+    liveFrameLockedQueue.splice(0, dropCount);
+    liveFrameLockedDroppedCount += dropCount;
+    liveFrameLockedNextAtMs = performance.now();
+  }
+  for (const pose of liveFrameLockedQueue.slice(0, maxBuffer)) {
+    preloadLiveFrame(pose, liveFrameLockedStream);
+  }
+  if (liveFrameLockedDisplayedPose && liveFrameLockedQueue.length && !liveFrameLockedNextAtMs) {
+    liveFrameLockedNextAtMs = performance.now() + liveFramePlaybackIntervalMs(
+      liveFrameLockedDisplayedPose,
+      liveFrameLockedQueue[0],
+    );
+  }
+  advanceLiveFrameLockedPlayback();
+}
+
+function currentLiveDisplayPose(fallback = liveCurrentPoseOverride) {
+  return advanceLiveFrameLockedPlayback() || fallback;
+}
+
+function liveFrameLockedPlaybackDrained() {
+  return liveFrameLockedQueuedCount > 0 &&
+    liveFrameLockedQueue.length === 0 &&
+    liveFrameLockedDisplayedCount + liveFrameLockedDroppedCount >= liveFrameLockedQueuedCount;
 }
 
 function initialPoseOffsetMagnitude() {
@@ -2128,6 +2518,81 @@ function enemyDetectionIsFresh(payload) {
   return Number.isFinite(updatedAt) && updatedAt > 0 && Date.now() - updatedAt <= 2500;
 }
 
+function enemyDetectionEnabled() {
+  return Boolean(enemyDetectionEnabledInput?.checked);
+}
+
+function storedEnemyDetectionEnabled() {
+  try {
+    return localStorage.getItem(ENEMY_DETECTION_ENABLED_STORAGE_KEY) === "true";
+  } catch {
+    return false;
+  }
+}
+
+function renderEnemyDetectionDisabled() {
+  if (enemyLiveDetectorState) enemyLiveDetectorState.textContent = "off";
+  if (enemyLiveDetection) {
+    enemyLiveDetection.textContent = "Enemy detection is off. Detector results cannot interrupt this patrol.";
+    enemyLiveDetection.dataset.tone = "";
+  }
+  updateEnemyResponseStatus("Automatic enemy response is disabled for patrol validation.", "");
+}
+
+async function syncEnemyDetectionRuntime(enabled) {
+  try {
+    await postJson("/api/enemy-drone/live-detection", { enabled: Boolean(enabled) });
+    return true;
+  } catch (error) {
+    if (!enabled) {
+      updateEnemyResponseStatus(
+        "Automatic flight response is off in this page. Restart the local server before the next flight to also suspend YOLO inference.",
+        "error"
+      );
+    }
+    return false;
+  }
+}
+
+function setEnemyDetectionEnabled(enabled, options = {}) {
+  const next = Boolean(enabled);
+  if (enemyDetectionEnabledInput) enemyDetectionEnabledInput.checked = next;
+  if (options.persist !== false) {
+    try {
+      localStorage.setItem(ENEMY_DETECTION_ENABLED_STORAGE_KEY, next ? "true" : "false");
+    } catch {
+      // The safety gate still applies for this page when local storage is unavailable.
+    }
+  }
+  if (!next) {
+    enemyDetectionHistory = [];
+    enemyTargetSuppressedUntilClear = false;
+    enemyAlertState = {
+      active: false,
+      hoverSent: false,
+      hoverSentAt: 0,
+      lockOnSentAt: 0,
+      target: null,
+      frame: "",
+      updatedAt: Date.now(),
+    };
+    renderEnemyDetectionDisabled();
+  } else {
+    if (enemyLiveDetectorState) enemyLiveDetectorState.textContent = "armed";
+    if (enemyLiveDetection) {
+      enemyLiveDetection.textContent = "Waiting for fresh trained YOLO enemy-drone detections.";
+      enemyLiveDetection.dataset.tone = "";
+    }
+    updateEnemyResponseStatus(
+      liveLocalizationStarted()
+        ? "Enemy detection is armed. A confirmed target will pause the patrol in hover."
+        : "Enemy detection will arm when live localization starts.",
+      ""
+    );
+  }
+  updateEnemyResponseControls();
+}
+
 function enemyTargetEstimate(target) {
   const box = target?.box || {};
   const centerX = Number(box.x1 ?? 0) + Number(box.width ?? 0) * 0.5;
@@ -2179,12 +2644,20 @@ function renderEnemyRangeCalibration() {
       : "Record at least 8 samples at 4 measured distances spanning 0.75 m. Forward pursuit stays locked until validation passes.";
   }
   const liveDetectionReady = Boolean(enemyAlertState.target && enemyDetectionIsFresh({updated_at: enemyAlertState.updatedAt / 1000}));
-  if (enemySaveRangeSampleButton) enemySaveRangeSampleButton.disabled = !profile || !liveDetectionReady || enemyPursuitInFlight;
+  if (enemySaveRangeSampleButton) enemySaveRangeSampleButton.disabled = !enemyDetectionEnabled() || !profile || !liveDetectionReady || enemyPursuitInFlight;
   if (enemyValidateRangeButton) enemyValidateRangeButton.disabled = !profile || count < 8 || enemyPursuitInFlight;
   if (enemyResetRangeButton) enemyResetRangeButton.disabled = !profile || count === 0 || enemyPursuitInFlight;
 }
 
 function updateEnemyResponseControls() {
+  if (!enemyDetectionEnabled()) {
+    if (enemyConfirmLockButton) enemyConfirmLockButton.disabled = true;
+    if (enemyStartPursuitButton) enemyStartPursuitButton.disabled = true;
+    if (enemyClearAlertButton) enemyClearAlertButton.disabled = true;
+    renderEnemyRangeCalibration();
+    renderEnemyDetectionDisabled();
+    return;
+  }
   const hasTarget = Boolean(enemyAlertState.active && enemyAlertState.target);
   const calibration = currentEnemyRangeCalibration();
   const pursuitReady = calibration.status === "validated" && Boolean(calibration.model);
@@ -2263,6 +2736,7 @@ async function resetEnemyRangeCalibration() {
 }
 
 async function pauseForEnemyDetection(payload, target) {
+  if (!enemyDetectionEnabled()) return;
   const now = Date.now();
   const sameFrame = enemyAlertState.frame && payload.frame && enemyAlertState.frame === payload.frame;
   enemyAlertState = {
@@ -3699,6 +4173,7 @@ async function startLiveAtlas() {
   const mapId = currentMapEntry?.id || mapLibraryData?.selected_map_id || "default_demo";
   const phoneIp = (liveAtlasPhoneIp?.value || "").trim();
   const fps = selectedLiveAtlasFps();
+  const liveCheckOnly = mapLibraryData?.live_patrol_lock?.flight_enabled === false;
   if (!phoneIp) {
     uploadStatus.textContent = "Enter the Android phone IP before starting Live ATLAS.";
     return;
@@ -3715,6 +4190,7 @@ async function startLiveAtlas() {
   livePoseStreamKey = "";
   livePoseStreamCount = 0;
   liveCurrentPoseOverride = null;
+  resetLiveFrameLockedPlayback();
   liveVideoWaitingForFirstPose = false;
   liveVideoSyncedToFirstPose = false;
   liveAtlasPreviewActive = true;
@@ -3722,7 +4198,12 @@ async function startLiveAtlas() {
   setLiveFrameMode(true);
   if (liveFrameView) liveFrameView.removeAttribute("src");
   setLiveFrameStatus("Connecting to Android MSDK stream. Waiting for first live DJI frame...", true);
-  setDjiCommandStatus("Live localization started. Takeoff is now unlocked; confirm before sending any flight command.", "ok");
+  setDjiCommandStatus(
+    liveCheckOnly
+      ? "Live Check started: video and localization are enabled; all flight commands remain locked."
+      : "Live localization started. Takeoff is now unlocked; confirm before sending any flight command.",
+    "ok",
+  );
   updateFlightControlState();
   uploadStatus.textContent = `Starting Live ATLAS on ${currentMapEntry?.title || mapId}`;
   await loadViewerData(false, currentMapEntry);
@@ -3735,6 +4216,7 @@ async function startLiveAtlas() {
       phone_ip: phoneIp,
       fps,
       max_size: 1200,
+      view_only: liveCheckOnly,
     });
   } catch (error) {
     liveReplayInFlight = false;
@@ -4849,18 +5331,18 @@ function renderSavedPatrols() {
   for (const patrol of patrols) {
     const item = document.createElement("article");
     item.className = `saved-patrol-item${patrol.id === activePatrolId ? " active" : ""}`;
+    const recordingThisPatrol = manualPatrolRecording?.status === "recording" && manualPatrolRecording.patrol_id === patrol.id;
     item.innerHTML = `
       <button type="button" class="saved-patrol-main" data-patrol-id="${patrol.id}">
         <strong>${escapeHtml(patrolTitle(patrol))}</strong>
         <span>${escapeHtml(savedPatrolDescription(patrol))}</span>
       </button>
       <div class="saved-patrol-actions">
-        <button type="button" data-action="play" data-patrol-id="${patrol.id}">Play</button>
-        <button type="button" data-action="record" data-patrol-id="${patrol.id}">${
-          manualPatrolRecording?.status === "recording" && manualPatrolRecording.patrol_id === patrol.id
-            ? "Finish Manual"
-            : "Record Manual"
-        }</button>
+        <button type="button" data-action="play" data-patrol-id="${patrol.id}">Start Full Patrol · 2 Circles</button>
+        ${recordingThisPatrol
+          ? `<button type="button" data-action="record" data-patrol-id="${patrol.id}">Finish Teach</button>`
+          : `<button type="button" data-action="record" data-patrol-id="${patrol.id}">Teach Full Loop</button>
+             <button type="button" data-action="record-missing" data-patrol-id="${patrol.id}">Teach Finish 3→4→1</button>`}
         <button type="button" data-action="adjust" data-patrol-id="${patrol.id}">Adjust</button>
         <button type="button" class="danger-action" data-action="delete" data-patrol-id="${patrol.id}">Delete</button>
       </div>
@@ -4878,9 +5360,11 @@ function renderSavedPatrols() {
         } else if (action === "delete") {
           runUi(() => deleteSavedPatrol(patrol.id));
         } else if (action === "play") {
-          runUi(() => executeSavedPatrol(patrol.id));
+          runUi(() => executeSavedPatrol(patrol.id, "combined"));
         } else if (action === "record") {
           runUi(() => toggleManualPatrolRecording(patrol));
+        } else if (action === "record-missing") {
+          runUi(() => toggleManualPatrolRecording(patrol, "continuation_3_4_1"));
         }
       });
     }
@@ -4888,7 +5372,7 @@ function renderSavedPatrols() {
   }
 }
 
-async function toggleManualPatrolRecording(patrol) {
+async function toggleManualPatrolRecording(patrol, recordingMode = "full_loop") {
   if (manualPatrolRecording?.status === "recording") {
     if (manualPatrolRecording.patrol_id !== patrol.id) {
       updatePatrolStatus(
@@ -4897,9 +5381,10 @@ async function toggleManualPatrolRecording(patrol) {
       );
       return;
     }
+    const recordedRoute = manualPatrolRecording.route_label || "1 → 2 → 3 → 4 → 1";
     const ok = window.confirm(
       `Finish recording "${patrolTitle(patrol)}" now?\n\n` +
-      "Only finish after completing point 1 → 2 → 3 → 4 → 1 and hovering at point 1."
+      `Only finish after completing ${recordedRoute.replaceAll("->", "→")} and hovering at point 1.`
     );
     if (!ok) return;
     updatePatrolStatus("Finishing manual patrol recording and building the reference trajectory...", "busy");
@@ -4918,15 +5403,21 @@ async function toggleManualPatrolRecording(patrol) {
 
   if (!firstLocalizationConfirmed) {
     updatePatrolStatus(
-      "Start Live Localization and confirm the pose before recording. Manually place/fly the drone to point 1 first.",
+      "Start Live Localization and confirm the pose before recording the teach route.",
       "error",
     );
     return;
   }
+  const continuationFromPoint3 = recordingMode === "continuation_3_4_1";
+  const continuationFromPoint4 = recordingMode === "continuation_4_1";
+  const startPoint = continuationFromPoint4 ? 4 : (continuationFromPoint3 ? 3 : 1);
+  const routeText = continuationFromPoint4
+    ? "4 → 1"
+    : (continuationFromPoint3 ? "3 → 4 → 1" : "1 → 2 → 3 → 4 → 1");
   const ok = window.confirm(
-    `Start recording "${patrolTitle(patrol)}" at point 1?\n\n` +
-    "Before continuing, hover at point 1 and confirm the model matches the real drone. " +
-    "Then fly 1 → 2 → 3 → 4 → 1 manually, including every in-place turn. " +
+    `Start recording "${patrolTitle(patrol)}" at point ${startPoint}?\n\n` +
+    `Before continuing, hover at point ${startPoint} and confirm the model matches the real drone. ` +
+    `Then fly ${routeText} manually, including every in-place turn. ` +
     "Keep Live Localization running throughout."
   );
   if (!ok) return;
@@ -4934,16 +5425,17 @@ async function toggleManualPatrolRecording(patrol) {
     map_id: currentMapEntry?.id,
     patrol_id: patrol.id,
     patrol_title: patrolTitle(patrol),
+    recording_mode: recordingMode,
   });
   manualPatrolRecording = data.recording;
   updatePatrolStatus(
-    `Recording "${patrolTitle(patrol)}". Fly point 1 → 2 → 3 → 4 → 1 manually, then press Finish Manual.`,
+    `Recording "${patrolTitle(patrol)}". Fly ${routeText} manually, then press Finish Teach.`,
     "busy",
   );
   renderSavedPatrols();
 }
 
-async function executeSavedPatrol(patrolId) {
+async function executeSavedPatrol(patrolId, patrolStage = "combined") {
   const patrol = patrolList(currentMapEntry).find(item => item.id === patrolId);
   if (!patrol) return;
   loadPatrolIntoEditor(patrol, { selecting: false });
@@ -4964,19 +5456,43 @@ async function executeSavedPatrol(patrolId) {
     updateFlightControlState();
     return;
   }
-  const livePatrol = validatePatrolPreview(true);
-  if (!livePatrol?.commands?.length) return;
+  const buildResult = patrolStage === "entry"
+    ? buildPatrolReturnToStartPlan()
+    : (patrolStage === "loop" ? buildPatrolLoopPlan() : buildConnectedPatrolPlan());
+  const livePatrol = buildResult.plan;
+  if (!livePatrol?.commands?.length) {
+    updatePatrolStatus(buildResult.error || "The requested patrol stage has no safe route.", "error");
+    return;
+  }
+  if (patrolStage === "loop") {
+    const current = closestPose()?.rcenter;
+    const start = livePatrol.route?.[0];
+    const startError = current && start ? Math.hypot(current[0] - start[0], current[2] - start[2]) : Infinity;
+    if (!Number.isFinite(startError) || startError > 0.24) {
+      updatePatrolStatus(
+        `The drone is ${Number.isFinite(startError) ? startError.toFixed(2) : "not localized"} m from Point 1. Press Go to Start first; the two-circle patrol will not silently include an entry leg.`,
+        "error",
+      );
+      return;
+    }
+  }
   const headingNotice = useModelHeadingForFlightInput?.checked
     ? `Initial heading: using the model alignment (${selectedDroneHeadingTrimDeg()} deg). Confirm its nose matches the real drone before continuing.\n`
     : "Initial heading: ATLAS will perform a small forward calibration probe.\n";
+  const actionText = patrolStage === "entry"
+    ? "fly only to Point 1 and hover"
+    : (patrolStage === "loop"
+      ? "start exactly at Point 1 and fly the locked 1→2→3→4→1 route for two circles"
+      : "fly to Point 1, verify it online, then continue directly through the locked 1→2→3→4→1 route for exactly two circles");
   const ok = window.confirm(
-    `Execute saved patrol "${patrolTitle(patrol)}"?\n\n` +
-    `ATLAS will first fly from the current localized drone pose to patrol point 1, then follow the displayed ${patrolModeLabel(livePatrol.patrol_mode)} route in point order.\n` +
+    `${patrolStage === "entry" ? "Go to the start of" : "Start the full"} saved patrol "${patrolTitle(patrol)}"?\n\n` +
+    `ATLAS will ${actionText}.\n` +
+    "If localization is temporarily lost, the drone will hover and keep relocalizing online instead of timing out.\n" +
     headingNotice +
     `Keep the controller ready and use Hover Now if anything looks wrong.\n\nContinue?`
   );
   if (!ok) return;
-  await sendPatrolToBridge(livePatrol, patrolTitle(patrol));
+  await sendPatrolToBridge(livePatrol, patrolTitle(patrol), { stage: patrolStage });
 }
 
 function livePathCreationStage() {
@@ -5550,9 +6066,9 @@ function stablePathHeadingAt(good, i) {
   return bestDist > 1e-5 ? best : null;
 }
 
-function assignStablePathHeadings(roomPoses) {
+function assignStablePathHeadings(roomPoses, startGoodIndex = 0) {
   const good = roomPoses.filter(p => isRealPose(p));
-  for (let i = 0; i < good.length; i++) {
+  for (let i = Math.max(0, startGoodIndex); i < good.length; i++) {
     const heading = stablePathHeadingAt(good, i);
     if (heading && norm(heading) > 1e-8) good[i].pathHeading = heading;
   }
@@ -5595,7 +6111,7 @@ function closestPose() {
           ...nearest,
           instance_id: `${a.instance_id}->${b.instance_id}`,
           time_sec: t,
-          center: lerpVec(a.center, b.center, u),
+          center: lerpOptionalVec(a.center, b.center, u, nearest.center),
           rcenter: lerpVec(a.rcenter, b.rcenter, u),
           rotationYaw,
           rheading: interpolatedRawHeading
@@ -6571,10 +7087,15 @@ async function sendPatrolToBridge(patrol = plannedPatrol, patrolName = "saved pa
         client_safety_version: 3,
         guided_enabled: true,
         patrol: true,
+        patrol_stage: options.stage || patrol.patrol_stage || "combined",
         pose_max_age_seconds: 2.5,
-        pose_recovery_seconds: 45.0,
+        pose_recovery_seconds: 8.0,
+        continuous_relocalization: true,
         pulse_seconds: 0.30,
-        max_forward_rc: 0.035,
+        smooth_continuous_cruise: true,
+        cruise_window_seconds: 0.55,
+        cruise_pose_watchdog_seconds: 0.65,
+        max_forward_rc: 0.022,
         max_lateral_rc: 0.010,
         allow_lateral_rc: false,
         allow_axis_auto_calibration: false,
@@ -6719,6 +7240,7 @@ function buildPatrolReturnToStartPlan() {
   }
   const plan = {
     type: "patrol-return",
+    patrol_stage: "entry",
     points: [{ rxyz: firstTarget }],
     route,
     route_segments: segments,
@@ -6748,6 +7270,114 @@ function buildPatrolReturnToStartPlan() {
     safety: "manual-land-confirm",
   }]);
   return { plan };
+}
+
+function buildPatrolLoopPlan() {
+  const targets = patrolBaseTargets();
+  if (targets.length < 2) return { error: "No complete patrol loop is defined." };
+  const ordered = patrolSequenceTargets(targets, 0, "circle");
+  const route = [ordered[0]];
+  const arrivalIndices = [];
+  const legs = [];
+  for (let index = 1; index < ordered.length; index++) {
+    const leg = patrolLegRoute(ordered[index - 1], ordered[index]);
+    if (leg.blocked || leg.detoured) {
+      return {
+        error: leg.reason || "The locked visual patrol requires its direct recorded loop geometry.",
+      };
+    }
+    legs.push(leg);
+    const waypoints = leg.waypoints || [ordered[index - 1], ordered[index]];
+    for (let waypoint = 1; waypoint < waypoints.length; waypoint++) {
+      if (!sameRoutePoint(route[route.length - 1], waypoints[waypoint])) {
+        route.push(waypoints[waypoint]);
+      }
+    }
+    arrivalIndices.push(route.length - 1);
+  }
+  const segments = routeSegmentsFromWaypoints(route);
+  const safety = missionRouteSafetyCheck(segments);
+  if (safety.blocked) return { error: safety.reason || "The locked patrol loop is blocked." };
+  const plan = {
+    type: "patrol",
+    patrol_stage: "loop",
+    points: patrolPoints.map(point => ({ rxyz: patrolTargetPoint(point), rgb: point.rgb || null })),
+    route,
+    route_segments: segments,
+    arrival_indices: arrivalIndices,
+    legs,
+    patrol_mode: "circle",
+    loop: true,
+    detoured: false,
+    distance: routeLengthFromSegments(segments),
+    speed: patrolCommandSpeed(),
+    requested_speed: Number(patrolSpeedSelect?.value || 0.10),
+    altitude_y: patrolAltitudeY(),
+    altitude_m: Math.max(0, patrolAltitudeY() - (room?.floorY ?? 0)),
+    dwell_s: patrolDwellSeconds(),
+    scan_mode: "none",
+    safety,
+    pending_current_pose: false,
+    entry_index: 0,
+    title: String(patrolNameInput?.value || "").trim() || "Room Patrol",
+    created_at: Date.now(),
+  };
+  plan.commands = buildPatrolCommandPlan(plan);
+  return { plan };
+}
+
+function buildConnectedPatrolPlan() {
+  const entryResult = buildPatrolReturnToStartPlan();
+  if (!entryResult.plan) return entryResult;
+  const loopResult = buildPatrolLoopPlan();
+  if (!loopResult.plan) return loopResult;
+
+  const entry = entryResult.plan;
+  const loop = loopResult.plan;
+  const entryJoinIndex = entry.route.length - 1;
+  const route = entry.route.concat(loop.route.slice(1));
+  const routeSegments = routeSegmentsFromWaypoints(route);
+  const safety = missionRouteSafetyCheck(routeSegments);
+  if (safety.blocked) {
+    return { error: safety.reason || "The connected entry and patrol loop are blocked." };
+  }
+
+  // The entry gate runs once. The manual landing hold belongs to the old
+  // standalone Go-to-Start workflow and must not interrupt the connected
+  // mission. Every entry cruise is marked so the bridge requires the tighter
+  // Point-1 arrival radius before it begins the repeatable loop body.
+  const entryCommands = entry.commands
+    .filter(command => command.title !== "Manual landing gate")
+    .map(command => ({
+      ...command,
+      patrol_stage: "entry",
+      title: command.type === "gate" ? command.title : `Entry · ${command.title}`,
+    }));
+  const loopCommands = loop.commands
+    .filter(command => command.type !== "gate")
+    .map(command => ({ ...command, patrol_stage: "loop" }));
+
+  return {
+    plan: {
+      ...loop,
+      type: "patrol-connected",
+      patrol_stage: "combined",
+      route,
+      route_segments: routeSegments,
+      arrival_indices: [
+        entryJoinIndex,
+        ...loop.arrival_indices.map(index => entryJoinIndex + Number(index)),
+      ],
+      legs: [...(entry.legs || []), ...(loop.legs || [])],
+      loop: true,
+      detoured: Boolean(entry.detoured),
+      distance: routeLengthFromSegments(routeSegments),
+      safety,
+      loop_start_route_index: entryJoinIndex,
+      title: `${loop.title} · connected entry + 2 circles`,
+      commands: entryCommands.concat(loopCommands),
+    },
+  };
 }
 
 function renderMissionCommands(commands = plannedMission?.commands || []) {
@@ -8967,7 +9597,7 @@ function buildStaticLayerKey() {
     room?.displayPoints?.length || 0,
     room?.scanPoints?.length || 0,
     room?.mapCameras?.length || 0,
-    room?.poses?.length || 0,
+    liveRouteRenderingActive() ? "live-route" : (room?.poses?.length || 0),
     canvas.width,
     canvas.height,
     view.mode,
@@ -9006,7 +9636,7 @@ function drawStaticLayer(rect, dpr) {
         drawPoints();
       }
       if (view.showCameras) drawMapCameras();
-      if (!isPatrolPlanningMode()) drawPath();
+      if (!isPatrolPlanningMode() && !liveRouteRenderingActive()) drawPath();
     } finally {
       ctx = liveCtx;
     }
@@ -9263,12 +9893,17 @@ function render() {
     return;
   }
 
-  const cur = closestPose();
+  const trustedCur = closestPose();
+  const cur = liveRouteRenderingActive()
+    ? currentLiveDisplayPose(trustedCur)
+    : trustedCur;
+  currentRenderedPose = cur || null;
   if (view.mode === "drone" && cur?.rcenter) {
     centerViewOn(cur.rcenter, 0.50, 0.56, true);
   }
 
   drawStaticLayer(rect, dpr);
+  if (!isPatrolPlanningMode() && liveRouteRenderingActive()) drawPath();
   drawSafetyBarriers();
   drawSafetyObstacles();
   drawPatrolCoverageRisk();
@@ -9291,7 +9926,7 @@ function render() {
     poseTotal.textContent = cur.total_ms == null ? "-" : `${Number(cur.total_ms).toFixed(2)} ms`;
     poseAction.textContent = cur.stages_ms?.ysolve_static_action_double_ms == null ? "-" : `${Number(cur.stages_ms.ysolve_static_action_double_ms).toFixed(2)} ms`;
     poseRoot.textContent = cur.stages_ms?.ysolve_static_root_total_ms == null ? "-" : `${Number(cur.stages_ms.ysolve_static_root_total_ms).toFixed(2)} ms`;
-    poseCenter.textContent = formatVector(cur.center);
+    poseCenter.textContent = formatVector(cur.rcenter || cur.center);
     poseT.textContent = formatVector(cur.t);
     poseR.textContent = formatMatrix(cur.R);
     updateMissionStatus();
@@ -9311,6 +9946,7 @@ function render() {
 
 async function loadViewerData(resetView = false, entry = null) {
   stopPoseClockPlayback();
+  replayFrameHoldTimeSec = null;
   currentMapEntry = entry || selectedMap() || currentMapEntry || {
     id: "default_demo",
     asset_base: "public",
@@ -9346,14 +9982,19 @@ async function loadViewerData(resetView = false, entry = null) {
   const failed = Number(replay?.counts?.failed ?? poses.filter(p => p.success === false).length ?? 0);
   const frameCount = Number(replay?.counts?.frames ?? poses.length ?? 0);
   const qualityNotes = [held ? `${held} held` : "", failed ? `${failed} failed` : ""].filter(Boolean).join(", ");
+  const taughtBaselineReplay = ["route_constrained_taught_baseline", "simulated_live_patrol_baseline"].includes(replay?.kind);
   const replayLine = liveReplayInFlight
     ? `Live TSolve initializing${accepted ? `: ${accepted} accepted` : ""}`
+    : (taughtBaselineReplay
+      ? `${accepted}/${frameCount || poses.length} validated recorded-frame poses`
     : (poses.length
       ? `${accepted}/${frameCount || poses.length} real TSolve R,t updates${qualityNotes ? ` (${qualityNotes})` : ""}`
-      : "No TSolve live replay yet");
+      : "No TSolve live replay yet"));
   const streamLine = liveReplayInFlight
     ? "Live replay processing: waiting for exported R,t stream"
-    : (poses.length ? "MP4 stream replay drives pose time" : "Upload drone video to localize online");
+    : (taughtBaselineReplay
+      ? "Captured DJI frames drive a live-timed corrected-pose simulation"
+      : (poses.length ? "MP4 stream replay drives pose time" : "Upload drone video to localize online"));
   stats.innerHTML = `Selected 3D map: ${currentMapEntry.title || "Selected Map"}<br>${scene.points3D.length} COLMAP map points<br>${scanLine}${scene.map_cameras.length} map cameras<br>${activeReplayLine}${replayLine}<br>${streamLine}<br>${sourceLine}`;
   const mediaUrl = replay ? replayAssetUrl(replay, "media/drone_query.mp4") : assetUrl(currentMapEntry, "media/drone_query.mp4");
   const replayFrameBase = replayQueryFrameBaseUrl(replay);
@@ -9800,6 +10441,10 @@ async function init() {
   renderObstacleList();
   renderSavedPatrols();
   render();
+  const launchParams = new URLSearchParams(window.location.search);
+  if (launchParams.get("patrol-view") === "1") {
+    showDemo({ push: false, resetVideo: false });
+  }
 }
 
 function screenTitle(screen) {
@@ -10356,6 +11001,7 @@ document.getElementById("start").addEventListener("click", event => {
   event.preventDefault();
   playCurrentReplay();
 });
+simulateLivePathButton?.addEventListener("click", () => runUi(startSimulatedBaselineLive));
 document.getElementById("reset").addEventListener("click", () => {
   if (view.mode === "drone") setDroneView();
   else setView(view.mode || "top");
@@ -10453,7 +11099,7 @@ startMissionButton?.addEventListener("click", async () => {
   const speed = missionCommandSpeed(plannedMission.speed || missionSpeedSelect?.value);
   const ok = window.confirm(
     `Send a guarded indoor mission to the DJI bridge?\n\n` +
-    `ATLAS will send very small yaw/forward/vertical pulses only while fresh TSolve poses keep arriving.\n` +
+    `ATLAS will use in-place yaw corrections and a guarded slow forward cruise while fresh poses keep arriving.\n` +
     `Patrol speed: ${speed.toFixed(2)} m/s.\n` +
     `Keep the physical controller ready. Hover Now remains available.\n\nContinue?`
   );
@@ -10467,7 +11113,10 @@ startMissionButton?.addEventListener("click", async () => {
         pose_max_age_seconds: 2.5,
         pose_recovery_seconds: 45.0,
         pulse_seconds: 0.30,
-        max_forward_rc: 0.035,
+        smooth_continuous_cruise: true,
+        cruise_window_seconds: 0.55,
+        cruise_pose_watchdog_seconds: 0.65,
+        max_forward_rc: 0.022,
         max_lateral_rc: 0.010,
         allow_lateral_rc: false,
         allow_axis_auto_calibration: false,
@@ -11110,6 +11759,26 @@ async function pollDjiLivePreview() {
     const control = status.last_control;
     if (control && control.id) {
       const result = control.result || {};
+      const progress = control.progress || {};
+      const progressAnchor = Array.isArray(progress.position_anchor)
+        ? progress.position_anchor.slice(0, 3).map(Number)
+        : null;
+      const rotationPositionLocked = Boolean(
+        control.command === "mission" &&
+        control.status === "running" &&
+        progress.translation_locked &&
+        progressAnchor?.length === 3 &&
+        progressAnchor.every(Number.isFinite)
+      );
+      liveRotationPositionAnchor = rotationPositionLocked ? progressAnchor : null;
+      if (rotationPositionLocked && liveCurrentPoseOverride?.rcenter) {
+        liveCurrentPoseOverride = {
+          ...liveCurrentPoseOverride,
+          rawRotationRcenter: liveCurrentPoseOverride.rcenter,
+          rcenter: progressAnchor,
+          rotationPositionLocked: true,
+        };
+      }
       const pursuitControl = Boolean(
         control.progress?.enemy_pursuit ||
         result.enemy_pursuit ||
@@ -11201,6 +11870,8 @@ async function pollDjiLivePreview() {
         setDjiCommandStatus(`${control.command || "Command"} completed on DJI bridge.`, "ok");
       }
       }
+    } else {
+      liveRotationPositionAnchor = null;
     }
 	    updateFlightControlState();
 	    if (
@@ -11226,20 +11897,38 @@ function updateLivePoseStats(stream, payload) {
   const scanLine = displayPointSummaryLine();
   const processed = Number(payload?.processed_count ?? stream?.pose_count ?? poses.length ?? 0);
   const expected = Number(payload?.expected_count ?? stream?.expected_count ?? 0);
-  const quality = room.poseQuality || {};
-  const accepted = Number(quality.accepted ?? 0);
-  const rejected = Number(quality.rejected ?? 0);
-  const countLine = expected > 0
-    ? `Live TSolve R,t stream: ${accepted}/${processed}/${expected} accepted/processed/target`
-    : `Live TSolve R,t stream: ${accepted}/${processed} accepted/processed`;
+  const renderable = (room.poses || []).filter(
+    pose => pose?.rcenter && (pose.success !== false || pose.held_pose)
+  ).length;
+  const simulatedLive = Boolean(stream?.simulated_live || payload?.stream?.simulated_live);
+  const displayed = Math.min(liveFrameLockedDisplayedCount, renderable);
+  const catchupSkipped = Math.min(liveFrameLockedDroppedCount, renderable);
+  const buffered = liveFrameLockedQueue.length;
+  const catchupText = catchupSkipped ? `; ${catchupSkipped} late frame${catchupSkipped === 1 ? "" : "s"} skipped to stay live` : "";
+  const countLine = simulatedLive
+    ? (expected > 0
+      ? `Live-clock simulation: ${displayed}/${renderable}/${processed}/${expected} displayed/renderable/processed/target; ${buffered} buffered${catchupText}`
+      : `Live-clock simulation: ${displayed}/${renderable}/${processed} displayed/renderable/processed; ${buffered} buffered${catchupText}`)
+    : (expected > 0
+      ? `Live-clock TSolve: ${displayed}/${renderable}/${processed}/${expected} displayed/renderable/processed/target; ${buffered} buffered${catchupText}`
+      : `Live-clock TSolve: ${displayed}/${renderable}/${processed} displayed/renderable/processed; ${buffered} buffered${catchupText}`);
   const sourceLine = mapSourceLine();
   stats.innerHTML = `${title}<br>${scene.points3D.length} COLMAP map points<br>${scanLine}${scene.map_cameras.length} map cameras<br>${countLine}<br>${liveReplayMessage || "online self-localization active"}<br>${sourceLine}`;
 }
 
+function liveRouteRenderingActive() {
+  return Boolean(
+    liveReplayInFlight ||
+    pendingLiveReplayOpen ||
+    liveReplayCompletionPending ||
+    poseStreamMeta?.complete === false
+  );
+}
+
 async function loadLiveReplayPartial(stream = null) {
-  if (!liveReplayInFlight && !pendingLiveReplayOpen) return false;
+  if (!liveReplayInFlight && !pendingLiveReplayOpen && !liveReplayCompletionPending) return false;
   if (!scene) return false;
-  const resp = await fetch(`/api/live-replay?t=${Date.now()}`, { cache: "no-store" });
+  const resp = await fetch(`/api/live-replay?after=${Math.max(0, livePoseStreamCount)}&t=${Date.now()}`, { cache: "no-store" });
   if (!resp.ok && resp.status !== 404) return false;
   const payload = await resp.json().catch(() => null);
   if (!payload?.ok || !Array.isArray(payload.poses)) return false;
@@ -11256,22 +11945,38 @@ async function loadLiveReplayPartial(stream = null) {
 
   livePoseStreamKey = key;
   livePoseStreamCount = processed;
-  poseStreamMeta = payload;
+  const incomingPoses = payload.poses;
+  const deltaStart = Number(payload.delta_start);
+  const canAppendDelta = Boolean(
+    payload.delta === true &&
+    payload.delta_reset !== true &&
+    Number.isFinite(deltaStart) &&
+    deltaStart === poses.length
+  );
+  poses = canAppendDelta ? poses.concat(incomingPoses) : incomingPoses;
+  poseStreamMeta = { ...payload, poses };
   const expected = Number(payload.expected_count ?? payload.stream?.expected_count ?? 0);
   const firstLatency = Number(stream?.first_pose_latency_seconds ?? payload.stream?.first_pose_latency_seconds);
   const latencyLine = Number.isFinite(firstLatency)
     ? `; first R,t in ${firstLatency.toFixed(1)} s`
     : "";
-  liveReplayStageDetail = expected > 0
-    ? `TSolve R,t stream: ${processed}/${expected} frame updates${latencyLine}`
-    : `TSolve R,t stream: ${processed} frame updates${latencyLine}`;
-  poses = payload.poses;
-  room = buildRoomFrame();
+  const simulatedLive = Boolean(stream?.simulated_live || payload?.stream?.simulated_live);
+  liveReplayStageDetail = simulatedLive
+    ? (expected > 0
+      ? `Simulated live input: ${processed}/${expected} frame poses received`
+      : `Simulated live input: ${processed} frame poses received`)
+    : (expected > 0
+      ? `TSolve R,t stream: ${processed}/${expected} frame updates${latencyLine}`
+      : `TSolve R,t stream: ${processed} frame updates${latencyLine}`);
+  if (!updateLiveRoomPoseStream(poses)) room = buildRoomFrame();
+  enqueueLiveFrameLockedPoses(room.poses, poseStreamMeta, payload.stream || stream);
   ensureLiveStreamVideoSource(payload.stream || stream);
-  const latestPose = latestSuccessfulPose(room.poses);
-  liveCurrentPoseOverride = latestPose ? correctedLivePose(latestPose) : null;
+  // Held poses deliberately preserve the last trusted position while carrying
+  // fresh optical yaw. They are safe and necessary for a live in-place turn.
+  const latestPose = latestLivePoseForDisplay(room.poses);
+  const correctedLatestPose = latestPose ? correctedLivePose(latestPose) : null;
+  liveCurrentPoseOverride = correctedLatestPose;
   if (liveReplayInFlight) {
-    syncUploadedVideoToProcessingFrame(payload);
     if (latestPose && !liveVideoSyncedToFirstPose) {
       liveVideoSyncedToFirstPose = true;
       liveVideoWaitingForFirstPose = false;
@@ -11281,21 +11986,40 @@ async function loadLiveReplayPartial(stream = null) {
   } else {
     syncUploadedVideoToProcessingFrame(payload);
   }
-  invalidateStaticLayer();
-  updateLivePoseStats(stream || payload.stream, payload);
+  updateLivePoseStats(stream || payload.stream, poseStreamMeta);
   updateFlightControlState();
-  renderReplayTabs();
-  renderStartPreview();
   return true;
 }
 
-async function pollStatus() {
+async function pollLivePoseStream() {
+  if (livePosePollBusy) return;
+  if (!liveReplayInFlight && !pendingLiveReplayOpen) return;
+  livePosePollBusy = true;
+  try {
+    await loadLiveReplayPartial(poseStreamMeta?.stream || null);
+  } finally {
+    livePosePollBusy = false;
+  }
+}
+
+async function pollStatus(compact = false) {
   if (liveStatusPollBusy) return;
   liveStatusPollBusy = true;
   try {
-    const resp = await fetch("/api/status", { cache: "no-store" });
+    const resp = await fetch(compact ? "/api/status?compact=1" : "/api/status", { cache: "no-store" });
     if (!resp.ok) throw new Error(`status ${resp.status}`);
     const state = await resp.json();
+    const compactTerminalTransition = Boolean(
+      compact &&
+      (
+        (["done", "error", "cancelled", "failed"].includes(state.map?.status) && state.map?.status !== lastMapStatus) ||
+        (["done", "error", "cancelled", "failed"].includes(state.drone?.status) && state.drone?.status !== lastDroneStatus)
+      )
+    );
+    if (compactTerminalTransition && !state.library) {
+      const libraryResp = await fetch("/api/maps", { cache: "no-store" });
+      if (libraryResp.ok) state.library = await libraryResp.json();
+    }
     const backendRecording = state.manual_patrol_recording || null;
     const recordingChanged = JSON.stringify(backendRecording) !== JSON.stringify(manualPatrolRecording);
     manualPatrolRecording = backendRecording;
@@ -11330,7 +12054,9 @@ async function pollStatus() {
     } else if (state.drone?.status === "error") {
       liveReplayStageDetail = state.drone?.message || "Live TSolve path failed";
     }
-    if (currentScreen === "demo" || liveReplayInFlight) renderReplayTabs();
+    if ((currentScreen === "demo" || liveReplayInFlight) && state.drone?.status !== lastDroneStatus) {
+      renderReplayTabs();
+    }
     const pipelineActive = activeJobStates.has(state.map?.status) || activeJobStates.has(state.drone?.status);
     pipelineStatus?.classList.toggle("is-active", pipelineActive);
     const mapLog = state.map?.log || [];
@@ -11357,17 +12083,32 @@ async function pollStatus() {
     const previousDroneStatus = lastDroneStatus;
     const mapDoneNow = state.map?.status === "done" && previousMapStatus && previousMapStatus !== "done";
     const droneDoneNow = state.drone?.status === "done" && (pendingLiveReplayOpen || (previousDroneStatus && previousDroneStatus !== "done"));
+    if (droneDoneNow) liveReplayCompletionPending = true;
     const droneErroredNow = state.drone?.status === "error" && pendingLiveReplayOpen;
     const droneCancelledNow = ["cancelled", "failed"].includes(state.drone?.status) && pendingLiveReplayOpen;
+    const droneBackendResetNow = (
+      state.drone?.status === "idle" &&
+      pendingLiveReplayOpen &&
+      ["queued", "running", "stopping"].includes(previousDroneStatus)
+    );
     lastMapStatus = state.map?.status || null;
     lastDroneStatus = state.drone?.status || null;
     if (liveReplayInFlight && renderStarted && !liveReplayWaitingViewPrepared) {
-      await loadViewerData(false, currentMapEntry);
+      const streamMapId = String(state.drone?.live_stream?.map_id || pendingLiveReplayMapId || "");
+      const canReuseLoadedMap = Boolean(
+        scene && room && currentMapEntry?.id &&
+        (!streamMapId || String(currentMapEntry.id) === streamMapId)
+      );
+      if (canReuseLoadedMap) {
+        poses = [];
+        poseStreamMeta = null;
+        room.poses = [];
+        resetLiveFrameLockedPlayback();
+      } else {
+        await loadViewerData(false, currentMapEntry);
+        renderStartPreview();
+      }
       liveReplayWaitingViewPrepared = true;
-      renderStartPreview();
-    }
-    if (liveReplayInFlight && renderStarted) {
-      await loadLiveReplayPartial(state.drone?.live_stream || null);
     }
     if (liveReplayInFlight && currentScreen !== "demo" && renderStarted) {
       showDemo();
@@ -11377,11 +12118,20 @@ async function pollStatus() {
       const scanLine = displayPointSummaryLine();
       stats.innerHTML = `${title}<br>${scene.points3D.length} COLMAP map points<br>${scanLine}${scene.map_cameras.length} map cameras<br>Live TSolve initializing<br>${liveReplayMessage}`;
     }
-    if ((mapDoneNow || droneDoneNow) && renderStarted) {
-      await loadViewerData(Boolean(droneDoneNow), currentMapEntry);
+    const dronePlaybackDoneNow = liveReplayCompletionPending && liveFrameLockedPlaybackDrained();
+    const completedLiveFramePose = dronePlaybackDoneNow && liveFrameLockedDisplayedPose
+      ? { ...liveFrameLockedDisplayedPose }
+      : null;
+    if ((mapDoneNow || dronePlaybackDoneNow) && renderStarted) {
+      await loadViewerData(Boolean(dronePlaybackDoneNow), currentMapEntry);
       renderReplayTabs();
       renderStartPreview();
-      if (droneDoneNow && pendingLiveReplayOpen && poses.length) {
+      if (completedLiveFramePose && Number.isFinite(Number(completedLiveFramePose.time_sec))) {
+        replayFrameHoldTimeSec = Number(completedLiveFramePose.time_sec);
+        const heldFrame = replayFramePoseAt(replayFrameHoldTimeSec);
+        if (heldFrame) updateReplayFrameViewForPose(heldFrame, { force: true });
+      }
+      if (dronePlaybackDoneNow && pendingLiveReplayOpen && poses.length) {
         if (state.drone?.live_stream?.live_atlas) liveAtlasPreviewActive = false;
         liveReplayInFlight = false;
         liveCurrentPoseOverride = null;
@@ -11389,9 +12139,10 @@ async function pollStatus() {
         liveReplayStartedAt = 0;
         pendingLiveReplayOpen = false;
         pendingLiveReplayMapId = null;
+        resetLiveFrameLockedPlayback();
         uploadStatus.textContent = `Live TSolve replay ready: ${currentMapEntry?.title || "selected map"}`;
         showDemo();
-      } else if (droneDoneNow && pendingLiveReplayOpen) {
+      } else if (dronePlaybackDoneNow && pendingLiveReplayOpen) {
         if (state.drone?.live_stream?.live_atlas) setLiveFrameMode(false);
         if (state.drone?.live_stream?.live_atlas) liveAtlasPreviewActive = false;
         liveReplayInFlight = false;
@@ -11400,7 +12151,14 @@ async function pollStatus() {
         liveReplayStartedAt = 0;
         pendingLiveReplayOpen = false;
         pendingLiveReplayMapId = null;
+        resetLiveFrameLockedPlayback();
         uploadStatus.textContent = "Live replay finished, but no TSolve poses were produced for this video.";
+      } else if (dronePlaybackDoneNow) {
+        liveReplayInFlight = false;
+        liveCurrentPoseOverride = null;
+        liveReplayWaitingViewPrepared = false;
+        liveReplayStartedAt = 0;
+        resetLiveFrameLockedPlayback();
       }
     }
     if (droneErroredNow) {
@@ -11425,6 +12183,20 @@ async function pollStatus() {
       uploadStatus.textContent = state.drone?.message || "Live path creation stopped.";
       renderReplayTabs();
     }
+    if (droneBackendResetNow) {
+      setLiveFrameMode(false);
+      liveAtlasPreviewActive = false;
+      liveReplayInFlight = false;
+      liveCurrentPoseOverride = null;
+      liveReplayWaitingViewPrepared = false;
+      liveReplayCompletionPending = false;
+      liveReplayStartedAt = 0;
+      pendingLiveReplayOpen = false;
+      pendingLiveReplayMapId = null;
+      resetLiveFrameLockedPlayback();
+      uploadStatus.textContent = "Live localization was reset. ATLAS is ready to start a new session.";
+      renderReplayTabs();
+    }
   } catch {
     mapStatus.textContent = "Map: local backend not connected";
     droneStatus.textContent = "Drone replay: start scripts/atlas_app_server.py";
@@ -11435,6 +12207,10 @@ async function pollStatus() {
 
 async function pollEnemyLiveDetections() {
   if (!enemyLiveDetectorState && !enemyLiveDetection) return;
+  if (!enemyDetectionEnabled()) {
+    renderEnemyDetectionDisabled();
+    return;
+  }
   try {
     const resp = await fetch(`public/live_dji/enemy_detections.json?t=${Date.now()}`, { cache: "no-store" });
     if (!resp.ok) {
@@ -11522,6 +12298,8 @@ async function pollEnemyLiveDetections() {
   }
 }
 
+setEnemyDetectionEnabled(storedEnemyDetectionEnabled(), { persist: false });
+void syncEnemyDetectionRuntime(enemyDetectionEnabled());
 setInterval(pollDjiLivePreview, 1000);
 pollDjiLivePreview();
 setInterval(pollEnemyLiveDetections, 1000);
@@ -11600,6 +12378,16 @@ phoneIpSelect?.addEventListener("change", () => {
   rememberPhoneIp(phoneIpSelect.value);
 });
 liveAtlasFps?.addEventListener("change", updateLiveControlSummary);
+enemyDetectionEnabledInput?.addEventListener("change", () => {
+  if (!enemyDetectionEnabledInput.checked && enemyPursuitInFlight) {
+    enemyDetectionEnabledInput.checked = true;
+    updateEnemyResponseStatus("Stop the active guarded pursuit with Hover Now before disabling enemy detection.", "error");
+    return;
+  }
+  setEnemyDetectionEnabled(enemyDetectionEnabledInput.checked);
+  void syncEnemyDetectionRuntime(enemyDetectionEnabledInput.checked);
+  if (enemyDetectionEnabledInput.checked) void pollEnemyLiveDetections();
+});
 pinLiveControlButton?.addEventListener("click", event => {
   event.preventDefault();
   event.stopPropagation();
@@ -11634,21 +12422,38 @@ window.addEventListener("resize", renderStartPreview);
 renderPhoneIpOptions();
 renderDroneHeadingTrim();
 updateLiveControlSummary();
-setInterval(pollStatus, 2000);
+setupLiveControlSections();
+setInterval(() => pollStatus(true), 2000);
+// Fetch only newly localized poses at the selected 10-FPS ceiling.  Status is
+// intentionally kept on its slower interval because it contains maps and job
+// logs; using it as the pose clock made the model visibly pause and jump.
 setInterval(() => {
-  if (liveReplayInFlight || pendingLiveReplayOpen) pollStatus();
-}, 500);
+  pollLivePoseStream();
+}, 100);
+setInterval(() => {
+  if (liveRouteRenderingActive()) advanceLiveFrameLockedPlayback();
+}, 25);
 
 window.TSOLVE_VIEWER = {
-  getCurrentPose: () => currentRenderedPose || closestPose(),
+  getCurrentPose: () => liveRouteRenderingActive()
+    ? currentLiveDisplayPose(liveCurrentPoseOverride)
+    : (currentRenderedPose || closestPose()),
   getHeadingForPose: pose => headingForPose(pose),
   projectRoomPoint: rxyz => project(rxyz),
   projectRoomPointToViewport: rxyz => projectToViewport(rxyz),
   getRoom: () => room,
   getView: () => view,
+  getCurrentMapEntry: () => currentMapEntry,
+  getMapLibrary: () => mapLibraryData,
   getDroneModel: () => droneModel,
   getDroneHeadingTrimRad: () => selectedDroneHeadingTrimRad(),
-  useDroneYawSmoothing: () => Boolean(liveReplayInFlight || pendingLiveReplayOpen || liveAtlasPreviewActive),
+  // Frame-locked evidence must use the exact localized heading for that frame.
+  useDroneYawSmoothing: () => false,
+  isMapInteractionBusy: () => Boolean(
+    barrierEditing || obstacleEditing || missionSelecting || patrolSelecting || initialPositionSelecting ||
+    barrierCornerDrag || barrierTransformDrag || obstaclePointDrag || obstacleTransformDrag ||
+    missionDraggingTarget || patrolDraggingIndex >= 0
+  ),
 };
 
 init().catch(err => {

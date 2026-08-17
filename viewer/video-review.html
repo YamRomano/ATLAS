@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ATLAS Film Review</title>
+  <link rel="stylesheet" href="video-review.css?v=1" />
+</head>
+<body>
+  <header class="review-topbar">
+    <a class="back-link" href="index.html">← ATLAS Console</a>
+    <div class="brand">
+      <img src="public/branding/atlas-wordmark-clean.png" alt="ATLAS" />
+      <span>Director Review Console</span>
+    </div>
+    <div class="save-state" id="save-state" data-state="loading">
+      <span class="save-dot"></span>
+      <span id="save-label">Loading notes…</span>
+    </div>
+  </header>
+
+  <main class="review-shell">
+    <section class="review-heading">
+      <div>
+        <p class="eyebrow">Sponsor demo · picture lock review</p>
+        <h1>ATLAS Cinematic Product Story</h1>
+        <p>Pause anywhere, mark the exact place in the frame, and describe the change. Every note is saved into one chronological adjustment brief.</p>
+      </div>
+      <div class="review-actions">
+        <button id="copy-brief" class="secondary" type="button">Copy Adjustment Brief</button>
+        <button id="download-review" class="secondary" type="button">Download JSON</button>
+        <button id="save-review" class="primary" type="button">Save to Project</button>
+      </div>
+    </section>
+
+    <div class="review-grid">
+      <section class="player-card" aria-label="video review player">
+        <div id="video-stage" class="video-stage">
+          <video id="review-video" preload="metadata" playsinline>
+            <source src="/api/video-review/media" type="video/mp4" />
+          </video>
+          <button id="frame-surface" class="frame-surface" type="button" aria-label="Mark a position in the current video frame"></button>
+          <span id="frame-marker" class="frame-marker hidden" aria-hidden="true"><i></i></span>
+          <div id="stage-hint" class="stage-hint">Click the frame to mark an exact visual area</div>
+        </div>
+
+        <div class="timeline-wrap">
+          <input id="timeline" type="range" min="0" max="120" step="0.001" value="0" aria-label="Video timeline" />
+          <div id="range-overlay" class="range-overlay" aria-hidden="true"></div>
+        </div>
+
+        <div class="transport">
+          <div class="transport-group">
+            <button id="back-five" type="button" title="Back 5 seconds">−5s</button>
+            <button id="back-frame" type="button" title="Previous frame">−1f</button>
+            <button id="play-toggle" class="play-toggle" type="button">▶ Play</button>
+            <button id="next-frame" type="button" title="Next frame">+1f</button>
+            <button id="next-five" type="button" title="Forward 5 seconds">+5s</button>
+          </div>
+          <div class="timecode"><strong id="current-time">00:00.000</strong><span>/</span><span id="duration-time">02:00.000</span></div>
+          <div class="transport-group speed-group" aria-label="playback speed">
+            <button type="button" data-speed="0.5">0.5×</button>
+            <button type="button" data-speed="1" class="active">1×</button>
+            <button type="button" data-speed="1.5">1.5×</button>
+            <button type="button" data-speed="2">2×</button>
+          </div>
+        </div>
+        <p class="shortcuts">Space: play/pause · ←/→: one frame · Shift + ←/→: five seconds · click the picture to place a marker</p>
+      </section>
+
+      <aside class="annotation-card">
+        <div class="annotation-title">
+          <div>
+            <p class="eyebrow">New direction</p>
+            <h2 id="form-title">Add annotation</h2>
+          </div>
+          <button id="cancel-edit" class="text-button hidden" type="button">Cancel edit</button>
+        </div>
+
+        <div class="timing-box">
+          <div>
+            <span>Start</span>
+            <strong id="start-label">00:00.000</strong>
+            <button id="set-start" type="button">Set from playhead</button>
+          </div>
+          <div>
+            <span>End (optional)</span>
+            <strong id="end-label">Single frame</strong>
+            <button id="set-end" type="button">Set from playhead</button>
+          </div>
+          <button id="clear-end" class="clear-range" type="button">Clear end</button>
+        </div>
+
+        <div class="field-row">
+          <label>Category
+            <select id="category">
+              <option value="visual">Visual / frame</option>
+              <option value="edit">Edit &amp; pacing</option>
+              <option value="music">Music / sound</option>
+              <option value="text">Text / message</option>
+              <option value="technical">Technical accuracy</option>
+              <option value="other">Other</option>
+            </select>
+          </label>
+          <label>Priority
+            <select id="priority">
+              <option value="P1">P1 · Must fix</option>
+              <option value="P2" selected>P2 · Important</option>
+              <option value="P3">P3 · Polish</option>
+            </select>
+          </label>
+        </div>
+
+        <label class="note-field">What should change?
+          <textarea id="note" rows="6" maxlength="2000" placeholder="Example: Replace this cropped UI background with the clean 3D room mesh and keep the drone centered."></textarea>
+        </label>
+
+        <div class="marker-readout">
+          <span id="marker-label">No frame position selected</span>
+          <button id="clear-marker" class="text-button" type="button" disabled>Clear marker</button>
+        </div>
+
+        <div id="form-error" class="form-error" role="alert"></div>
+        <button id="add-annotation" class="primary add-button" type="button">Add Annotation</button>
+      </aside>
+    </div>
+
+    <section class="notes-card">
+      <div class="notes-head">
+        <div>
+          <p class="eyebrow">Chronological review</p>
+          <h2>Adjustment Notes <span id="annotation-count">0</span></h2>
+        </div>
+        <div class="filter-row">
+          <label>Show
+            <select id="note-filter">
+              <option value="all">All notes</option>
+              <option value="P1">P1 must fix</option>
+              <option value="P2">P2 important</option>
+              <option value="P3">P3 polish</option>
+            </select>
+          </label>
+          <button id="loop-selection" class="secondary" type="button" disabled>Loop Selected Range</button>
+        </div>
+      </div>
+      <div id="empty-notes" class="empty-notes">No annotations yet. Play the film and add the first precise change.</div>
+      <ol id="annotation-list" class="annotation-list"></ol>
+    </section>
+  </main>
+
+  <template id="annotation-template">
+    <li class="annotation-item">
+      <button class="note-main" type="button">
+        <span class="note-time"></span>
+        <span class="note-meta"><b class="note-priority"></b><b class="note-category"></b></span>
+        <span class="note-copy"></span>
+        <span class="note-position"></span>
+      </button>
+      <div class="note-actions">
+        <button class="edit-note" type="button">Edit</button>
+        <button class="delete-note" type="button">Delete</button>
+      </div>
+    </li>
+  </template>
+
+  <script src="video-review.js?v=1"></script>
+</body>
+</html>

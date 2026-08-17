@@ -1,0 +1,146 @@
+{
+  "passed": true,
+  "baseline": "/Users/yamromano/Documents/PythonF4/PythonF4/drone_phase1_replay_demo_20260706/viewer/public/maps/map_copy_20260730_114851_cfefdc/replays/patrol_baseline_20260809_154714_d26c33/reference_candidate.json",
+  "bank": "/Users/yamromano/Documents/PythonF4/PythonF4/drone_phase1_replay_demo_20260706/viewer/public/maps/map_copy_20260730_114851_cfefdc/replays/patrol_baseline_20260809_154714_d26c33/visual_route_recovery.npz",
+  "laps": 2,
+  "held_out_query_count": 420,
+  "expected_after_acquisition": 412,
+  "accepted_after_acquisition": 412,
+  "acceptance_ratio": 1.0,
+  "max_progress_error": 0.16000000000000003,
+  "mean_progress_error": 0.04658500468281537,
+  "median_runtime_ms": 49.454250000000144,
+  "p95_runtime_ms": 89.7268444000006,
+  "max_runtime_ms": 96.20104200000057,
+  "wrong_leg_accepts": [],
+  "per_leg": [
+    {
+      "lap": 1,
+      "leg": 1,
+      "from_point": 1,
+      "to_point": 2,
+      "query_count": 44,
+      "expected_after_acquisition": 43,
+      "accepted": 43,
+      "acceptance_ratio": 1.0,
+      "max_progress_error": 0.16000000000000003,
+      "median_runtime_ms": 22.429791999999992,
+      "p95_runtime_ms": 77.22693125000005,
+      "rejections": {
+        "visual_route_acquiring": 1
+      }
+    },
+    {
+      "lap": 1,
+      "leg": 2,
+      "from_point": 2,
+      "to_point": 3,
+      "query_count": 50,
+      "expected_after_acquisition": 49,
+      "accepted": 49,
+      "acceptance_ratio": 1.0,
+      "max_progress_error": 0.16000000000000003,
+      "median_runtime_ms": 31.308729000000035,
+      "p95_runtime_ms": 67.62955464999997,
+      "rejections": {
+        "visual_route_acquiring": 1
+      }
+    },
+    {
+      "lap": 1,
+      "leg": 3,
+      "from_point": 3,
+      "to_point": 4,
+      "query_count": 101,
+      "expected_after_acquisition": 100,
+      "accepted": 100,
+      "acceptance_ratio": 1.0,
+      "max_progress_error": 0.16000000000000003,
+      "median_runtime_ms": 55.383542000000396,
+      "p95_runtime_ms": 91.25233299999991,
+      "rejections": {
+        "visual_route_acquiring": 1
+      }
+    },
+    {
+      "lap": 1,
+      "leg": 4,
+      "from_point": 4,
+      "to_point": 1,
+      "query_count": 15,
+      "expected_after_acquisition": 14,
+      "accepted": 14,
+      "acceptance_ratio": 1.0,
+      "max_progress_error": 0.16000000000000003,
+      "median_runtime_ms": 25.08262499999958,
+      "p95_runtime_ms": 62.64208760000027,
+      "rejections": {
+        "visual_route_acquiring": 1
+      }
+    },
+    {
+      "lap": 2,
+      "leg": 1,
+      "from_point": 1,
+      "to_point": 2,
+      "query_count": 44,
+      "expected_after_acquisition": 43,
+      "accepted": 43,
+      "acceptance_ratio": 1.0,
+      "max_progress_error": 0.16000000000000003,
+      "median_runtime_ms": 25.047041000000547,
+      "p95_runtime_ms": 82.30983565000089,
+      "rejections": {
+        "visual_route_acquiring": 1
+      }
+    },
+    {
+      "lap": 2,
+      "leg": 2,
+      "from_point": 2,
+      "to_point": 3,
+      "query_count": 50,
+      "expected_after_acquisition": 49,
+      "accepted": 49,
+      "acceptance_ratio": 1.0,
+      "max_progress_error": 0.16000000000000003,
+      "median_runtime_ms": 32.872979499999566,
+      "p95_runtime_ms": 70.26099565000025,
+      "rejections": {
+        "visual_route_acquiring": 1
+      }
+    },
+    {
+      "lap": 2,
+      "leg": 3,
+      "from_point": 3,
+      "to_point": 4,
+      "query_count": 101,
+      "expected_after_acquisition": 100,
+      "accepted": 100,
+      "acceptance_ratio": 1.0,
+      "max_progress_error": 0.16000000000000003,
+      "median_runtime_ms": 54.112375000002544,
+      "p95_runtime_ms": 91.66916699999916,
+      "rejections": {
+        "visual_route_acquiring": 1
+      }
+    },
+    {
+      "lap": 2,
+      "leg": 4,
+      "from_point": 4,
+      "to_point": 1,
+      "query_count": 15,
+      "expected_after_acquisition": 14,
+      "accepted": 14,
+      "acceptance_ratio": 1.0,
+      "max_progress_error": 0.16000000000000003,
+      "median_runtime_ms": 24.5917920000025,
+      "p95_runtime_ms": 64.82754129999933,
+      "rejections": {
+        "visual_route_acquiring": 1
+      }
+    }
+  ]
+}

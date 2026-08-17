@@ -16,6 +16,11 @@ def basename(value: object) -> str:
     return Path(str(value or "")).name
 
 
+def frame_name(index: int, prefix: str = "manual_patrol_", suffix: str = ".jpg") -> str:
+    """Return a source frame name using the recording's filename convention."""
+    return f"{prefix}{index:06d}{suffix}"
+
+
 def trusted_pose(path: Path, image_name: str) -> dict[str, Any]:
     document = json.loads(path.read_text(encoding="utf-8"))
     matches = [
@@ -52,6 +57,16 @@ def main() -> None:
     parser.add_argument("--manifest", required=True, type=Path)
     parser.add_argument("--right-pose-stream", required=True, type=Path)
     parser.add_argument("--right-anchor-index", required=True, type=int)
+    parser.add_argument(
+        "--right-frame-prefix",
+        default=None,
+        help="Right-anchor frame prefix. Defaults to the prefix stored in --manifest.",
+    )
+    parser.add_argument(
+        "--right-frame-suffix",
+        default=None,
+        help="Right-anchor frame suffix. Defaults to the suffix stored in --manifest.",
+    )
     parser.add_argument("--out-summary", required=True, type=Path)
     parser.add_argument("--out-normalized-poses", required=True, type=Path)
     parser.add_argument("--max-center-step", type=float, default=0.22)
@@ -105,7 +120,17 @@ def main() -> None:
         center_steps.append({**edge, "distance": center_distance(left, right)})
         rotation_steps.append({**edge, "degrees": rotation_distance_deg(left, right)})
 
-    right_name = f"manual_patrol_{args.right_anchor_index:06d}.jpg"
+    right_prefix = (
+        args.right_frame_prefix
+        if args.right_frame_prefix is not None
+        else str(manifest.get("frame_prefix") or "manual_patrol_")
+    )
+    right_suffix = (
+        args.right_frame_suffix
+        if args.right_frame_suffix is not None
+        else str(manifest.get("frame_suffix") or ".jpg")
+    )
+    right_name = frame_name(args.right_anchor_index, right_prefix, right_suffix)
     recovered_right = next(
         (
             pose

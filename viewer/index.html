@@ -4,12 +4,13 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>ATLAS Demo</title>
-  <link rel="stylesheet" href="style.css?v=109" />
+  <link rel="stylesheet" href="style.css?v=112" />
 </head>
 <body class="show-start">
   <header class="atlas-topbar" aria-label="ATLAS navigation">
     <img class="atlas-corner-app-icon" src="public/branding/atlas-topbar-app-icon.png" alt="" />
     <button id="nav-back" class="nav-back" type="button" disabled>Back</button>
+    <a class="topbar-film-review" href="video-review.html">Film Review</a>
     <button id="atlas-home" class="atlas-home" type="button" aria-label="Return to ATLAS start page">
       <img class="atlas-top-wordmark" src="public/branding/atlas-wordmark-clean.png" alt="ATLAS" />
       <span class="atlas-top-caption">Autonomous Tracking and Localization using Aerial Sensing</span>
@@ -339,12 +340,13 @@
 
   <main id="demo-app" class="app" aria-hidden="true">
     <section class="map-pane">
+      <canvas id="map-mesh" aria-hidden="true"></canvas>
       <canvas id="map"></canvas>
       <canvas id="drone3d" aria-hidden="true"></canvas>
       <details id="live-localization-control" class="live-localization-control live-control-tab" open>
         <summary>
           <span>Live Localization Control</span>
-          <b id="live-control-summary">2 FPS</b>
+          <b id="live-control-summary">8 FPS</b>
           <button id="pin-live-control" class="live-pin-button" type="button" aria-pressed="false" title="Pin this control panel to the left edge">Pin</button>
         </summary>
         <div class="live-atlas-panel">
@@ -372,7 +374,8 @@
               <option value="2">2 FPS</option>
               <option value="3">3 FPS</option>
               <option value="5">5 FPS</option>
-              <option value="10" selected>10 FPS</option>
+              <option value="8">8 FPS</option>
+              <option value="10" selected>10 FPS (maximum)</option>
             </select>
           </label>
           <label>
@@ -384,159 +387,182 @@
             <input id="use-model-heading-for-flight" type="checkbox" checked>
             Use aligned model as initial flight heading
           </label>
-          <section class="enemy-live-detection-block">
-            <div class="flight-control-title">
-              <strong>Enemy Detector</strong>
-              <span id="enemy-live-detector-state">No trained model loaded.</span>
-            </div>
+          <section id="enemy-detector-section" class="enemy-live-detection-block live-control-section" data-live-section="enemy-detector">
+            <button id="toggle-enemy-detector-section" class="flight-control-title live-control-section-toggle" type="button" aria-expanded="true" aria-controls="enemy-detector-section-body">
+              <span class="live-control-section-title">Enemy Detector</span>
+              <span id="enemy-live-detector-state" class="live-control-section-state">No trained model loaded.</span>
+              <span class="live-control-section-chevron" aria-hidden="true">⌄</span>
+            </button>
+            <label class="enemy-detection-toggle">
+              <input id="enemy-detection-enabled" type="checkbox" aria-label="Enable enemy detection and automatic patrol response" />
+              <span>Enable enemy detection and automatic patrol response</span>
+            </label>
             <div id="enemy-live-detection" class="enemy-live-detection">Live patrol detection will appear here after YOLO training.</div>
             <div id="enemy-response-status" class="enemy-response-status">Patrol response is armed only after live localization starts.</div>
-            <div class="enemy-range-calibration">
-              <div class="flight-control-title">
-                <strong>Range Calibration</strong>
-                <span id="enemy-range-status">No validated range model.</span>
+            <div id="enemy-detector-section-body" class="live-control-section-body">
+              <div class="enemy-range-calibration">
+                <div class="flight-control-title">
+                  <strong>Range Calibration</strong>
+                  <span id="enemy-range-status">No validated range model.</span>
+                </div>
+                <label>
+                  Measured body clearance
+                  <input id="enemy-measured-clearance" type="number" min="0.2" max="10" step="0.05" value="1.50" aria-label="Measured body-to-body enemy drone clearance in meters" />
+                </label>
+                <label>
+                  Pursuit stop clearance
+                  <input id="enemy-stop-clearance" type="number" min="0.5" max="2" step="0.05" value="0.50" aria-label="Enemy pursuit stop clearance in meters" />
+                </label>
+                <label>
+                  Camera-right target
+                  <select id="enemy-pursuit-yaw-direction" aria-label="Yaw direction when the enemy appears on the camera right">
+                    <option value="1" selected>Rotate right</option>
+                    <option value="-1">Rotate left</option>
+                  </select>
+                </label>
+                <div class="enemy-range-actions">
+                  <button id="enemy-save-range-sample" type="button">Save Live Sample</button>
+                  <button id="enemy-validate-range" type="button">Validate Range</button>
+                  <button id="enemy-reset-range" type="button">Reset Samples</button>
+                </div>
+                <p id="enemy-range-help">Record at least 8 samples at 4 measured distances spanning 0.75 m. Forward pursuit stays locked until validation passes.</p>
               </div>
-              <label>
-                Measured body clearance
-                <input id="enemy-measured-clearance" type="number" min="0.2" max="10" step="0.05" value="1.50" aria-label="Measured body-to-body enemy drone clearance in meters" />
-              </label>
-              <label>
-                Pursuit stop clearance
-                <input id="enemy-stop-clearance" type="number" min="0.5" max="2" step="0.05" value="0.50" aria-label="Enemy pursuit stop clearance in meters" />
-              </label>
-              <label>
-                Camera-right target
-                <select id="enemy-pursuit-yaw-direction" aria-label="Yaw direction when the enemy appears on the camera right">
-                  <option value="1" selected>Rotate right</option>
-                  <option value="-1">Rotate left</option>
-                </select>
-              </label>
-              <div class="enemy-range-actions">
-                <button id="enemy-save-range-sample" type="button">Save Live Sample</button>
-                <button id="enemy-validate-range" type="button">Validate Range</button>
-                <button id="enemy-reset-range" type="button">Reset Samples</button>
+              <div class="enemy-response-actions">
+                <button id="enemy-confirm-lock" type="button" disabled>Confirm Lock-On</button>
+                <button id="enemy-start-pursuit" type="button" disabled>Start Guarded Pursuit</button>
+                <button id="enemy-clear-alert" type="button" disabled>Clear Alert</button>
               </div>
-              <p id="enemy-range-help">Record at least 8 samples at 4 measured distances spanning 0.75 m. Forward pursuit stays locked until validation passes.</p>
-            </div>
-            <div class="enemy-response-actions">
-              <button id="enemy-confirm-lock" type="button" disabled>Confirm Lock-On</button>
-              <button id="enemy-start-pursuit" type="button" disabled>Start Guarded Pursuit</button>
-              <button id="enemy-clear-alert" type="button" disabled>Clear Alert</button>
             </div>
           </section>
           <div class="live-atlas-actions">
             <button id="start-live-atlas" type="button">Start Localization</button>
             <button id="stop-live-atlas" class="danger-action" type="button">Stop Live</button>
           </div>
-          <section class="flight-control-block">
-            <div class="flight-control-title">
-              <strong>Flight Guard</strong>
-              <span id="dji-command-status">Drone control idle.</span>
+          <section id="flight-guard-section" class="flight-control-block live-control-section" data-live-section="flight-guard">
+            <button id="toggle-flight-guard-section" class="flight-control-title live-control-section-toggle" type="button" aria-expanded="true" aria-controls="flight-guard-section-body">
+              <span class="live-control-section-title">Flight Guard</span>
+              <span id="dji-command-status" class="live-control-section-state">Drone control idle.</span>
+              <span class="live-control-section-chevron" aria-hidden="true">⌄</span>
+            </button>
+            <div id="flight-guard-section-body" class="live-control-section-body">
+              <label>
+                Takeoff Height
+                <input id="takeoff-height-m" type="number" min="0.1" max="2" step="0.1" value="1.0" aria-label="Takeoff height in meters" />
+              </label>
+              <div class="flight-actions">
+                <button id="dji-takeoff" type="button" disabled>Take Off</button>
+                <button id="dji-land" class="danger-action" type="button" disabled>Land</button>
+                <button id="dji-emergency-hover" class="danger-action" type="button" disabled>Hover Now</button>
+              </div>
+              <label class="guided-motion-arm">
+                <input id="guided-motion-enable" type="checkbox" />
+                <span>Enable guided movement after first localization confirmation</span>
+              </label>
             </div>
-            <label>
-              Takeoff Height
-              <input id="takeoff-height-m" type="number" min="0.1" max="2" step="0.1" value="1.0" aria-label="Takeoff height in meters" />
-            </label>
-            <div class="flight-actions">
-              <button id="dji-takeoff" type="button" disabled>Take Off</button>
-              <button id="dji-land" class="danger-action" type="button" disabled>Land</button>
-              <button id="dji-emergency-hover" class="danger-action" type="button" disabled>Hover Now</button>
-            </div>
-            <label class="guided-motion-arm">
-              <input id="guided-motion-enable" type="checkbox" />
-              <span>Enable guided movement after first localization confirmation</span>
-            </label>
           </section>
-          <section class="localization-gate-block">
-            <div class="flight-control-title">
-              <strong>Localization Gate</strong>
-              <span id="localization-gate-status">Waiting for first TSolve R,t.</span>
-            </div>
-            <button id="confirm-localization" type="button" disabled>Confirm First Localization</button>
-            <button id="correct-initial-position" type="button" disabled>Correct Initial Position</button>
-            <button id="reset-initial-position" type="button" disabled>Reset Position Correction</button>
+          <section id="localization-gate-section" class="localization-gate-block live-control-section" data-live-section="localization-gate">
+            <button id="toggle-localization-gate-section" class="flight-control-title live-control-section-toggle" type="button" aria-expanded="true" aria-controls="localization-gate-section-body">
+              <span class="live-control-section-title">Localization Gate</span>
+              <span id="localization-gate-status" class="live-control-section-state">Waiting for first TSolve R,t.</span>
+              <span class="live-control-section-chevron" aria-hidden="true">⌄</span>
+            </button>
             <div id="initial-position-status" class="mission-status">No manual position correction.</div>
-          </section>
-          <section id="drone-control-panel" class="mission-panel drone-control-panel is-locked">
-            <div class="mission-head">
-              <span>Mission Target</span>
-              <button id="select-target" type="button">Pick COLMAP Point</button>
+            <div id="localization-gate-section-body" class="live-control-section-body">
+              <button id="confirm-localization" type="button" disabled>Confirm First Localization</button>
+              <button id="correct-initial-position" type="button" disabled>Correct Initial Position</button>
+              <button id="reset-initial-position" type="button" disabled>Reset Position Correction</button>
             </div>
-            <label class="mission-speed">
-              Speed
-              <select id="mission-speed" aria-label="Mission speed">
-                <option value="0.08">0.08 m/s</option>
-                <option value="0.12" selected>0.12 m/s</option>
-                <option value="0.16">0.16 m/s</option>
-                <option value="0.20">0.20 m/s</option>
-              </select>
-            </label>
+          </section>
+          <section id="drone-control-panel" class="mission-panel drone-control-panel live-control-section is-locked" data-live-section="mission-target">
+            <div class="mission-head live-control-section-head">
+              <button id="toggle-mission-target-section" class="live-control-section-toggle" type="button" aria-expanded="true" aria-controls="mission-target-section-body">
+                <span class="live-control-section-title">Mission Target</span>
+                <span class="live-control-section-chevron" aria-hidden="true">⌄</span>
+              </button>
+              <button id="select-target" class="live-control-section-action" type="button">Pick COLMAP Point</button>
+            </div>
             <div id="target-status" class="mission-status">Pick a destination before live localization, then confirm the first R,t before execution.</div>
-            <div id="mission-command-list" class="mission-command-list" aria-live="polite">
-              <div class="mission-command-empty">Plan a path to preview guarded slow movement commands.</div>
-            </div>
-            <div class="mission-actions">
-              <button id="clear-target" type="button" disabled>Clear</button>
-              <button id="plan-mission" type="button" disabled>Plan Path</button>
-              <button id="start-mission" type="button" disabled>Confirm Mission</button>
+            <div id="mission-target-section-body" class="live-control-section-body">
+              <label class="mission-speed">
+                Speed
+                <select id="mission-speed" aria-label="Mission speed">
+                  <option value="0.08">0.08 m/s</option>
+                  <option value="0.12" selected>0.12 m/s</option>
+                  <option value="0.16">0.16 m/s</option>
+                  <option value="0.20">0.20 m/s</option>
+                </select>
+              </label>
+              <div id="mission-command-list" class="mission-command-list" aria-live="polite">
+                <div class="mission-command-empty">Plan a path to preview guarded slow movement commands.</div>
+              </div>
+              <div class="mission-actions">
+                <button id="clear-target" type="button" disabled>Clear</button>
+                <button id="plan-mission" type="button" disabled>Plan Path</button>
+                <button id="start-mission" type="button" disabled>Confirm Mission</button>
+              </div>
             </div>
           </section>
-          <section id="patrol-control-panel" class="mission-panel patrol-control-panel">
-            <div class="mission-head">
-              <span>Patrol Editor</span>
-              <button id="edit-patrol" type="button">Edit Patrol</button>
-            </div>
-            <label class="patrol-name-field">
-              Name
-              <input id="patrol-name" type="text" maxlength="80" value="Room Patrol" aria-label="Patrol name" />
-            </label>
-            <div class="patrol-settings">
-              <label>
-                Speed
-                <select id="patrol-speed" aria-label="Patrol speed">
-                  <option value="0.06">0.06 m/s</option>
-                  <option value="0.08">0.08 m/s</option>
-                  <option value="0.10" selected>0.10 m/s</option>
-                  <option value="0.12">0.12 m/s</option>
-                </select>
-              </label>
-              <label>
-                Altitude
-                <input id="patrol-altitude-m" type="number" min="0.3" max="2" step="0.1" value="1.0" aria-label="Patrol altitude in meters" />
-              </label>
-              <label>
-                Dwell
-                <select id="patrol-dwell-s" aria-label="Patrol dwell time">
-                  <option value="1.5">1.5 s</option>
-                  <option value="2.0" selected>2.0 s</option>
-                  <option value="3.0">3.0 s</option>
-                  <option value="5.0">5.0 s</option>
-                </select>
-              </label>
-              <label>
-                Scan
-                <select id="patrol-scan-mode" aria-label="Patrol scan mode">
-                  <option value="yaw-sweep" selected>left/right sweep</option>
-                  <option value="forward">forward only</option>
-                </select>
-              </label>
-              <label>
-                Mode
-                <select id="patrol-mode" aria-label="Patrol route mode">
-                  <option value="circle" selected>circle: last to first</option>
-                  <option value="back-and-forth">back and forth</option>
-                </select>
-              </label>
+          <section id="patrol-control-panel" class="mission-panel patrol-control-panel live-control-section" data-live-section="patrol-editor">
+            <div class="mission-head live-control-section-head">
+              <button id="toggle-patrol-editor-section" class="live-control-section-toggle" type="button" aria-expanded="true" aria-controls="patrol-editor-section-body">
+                <span class="live-control-section-title">Patrol Editor</span>
+                <span class="live-control-section-chevron" aria-hidden="true">⌄</span>
+              </button>
+              <button id="edit-patrol" class="live-control-section-action" type="button">Edit Patrol</button>
             </div>
             <div id="patrol-status" class="mission-status">Press Edit Patrol, then click 2 or more map points to create a stable scan route.</div>
-            <div id="patrol-command-list" class="mission-command-list" aria-live="polite">
-              <div class="mission-command-empty">Validate patrol to preview slow point-to-point and scan commands.</div>
-            </div>
-            <div class="mission-actions patrol-actions">
-              <button id="clear-patrol" type="button" disabled>Clear</button>
-              <button id="validate-patrol" type="button" disabled>Validate</button>
-              <button id="start-patrol" type="button" disabled>Save Patrol</button>
-              <button id="stop-patrol" class="danger-action" type="button" disabled>Stop Patrol</button>
+            <div id="patrol-editor-section-body" class="live-control-section-body">
+              <label class="patrol-name-field">
+                Name
+                <input id="patrol-name" type="text" maxlength="80" value="Room Patrol" aria-label="Patrol name" />
+              </label>
+              <div class="patrol-settings">
+                <label>
+                  Speed
+                  <select id="patrol-speed" aria-label="Patrol speed">
+                    <option value="0.06">0.06 m/s</option>
+                    <option value="0.08">0.08 m/s</option>
+                    <option value="0.10" selected>0.10 m/s</option>
+                    <option value="0.12">0.12 m/s</option>
+                  </select>
+                </label>
+                <label>
+                  Altitude
+                  <input id="patrol-altitude-m" type="number" min="0.3" max="2" step="0.1" value="1.0" aria-label="Patrol altitude in meters" />
+                </label>
+                <label>
+                  Dwell
+                  <select id="patrol-dwell-s" aria-label="Patrol dwell time">
+                    <option value="1.5">1.5 s</option>
+                    <option value="2.0" selected>2.0 s</option>
+                    <option value="3.0">3.0 s</option>
+                    <option value="5.0">5.0 s</option>
+                  </select>
+                </label>
+                <label>
+                  Scan
+                  <select id="patrol-scan-mode" aria-label="Patrol scan mode">
+                    <option value="yaw-sweep" selected>left/right sweep</option>
+                    <option value="forward">forward only</option>
+                  </select>
+                </label>
+                <label>
+                  Mode
+                  <select id="patrol-mode" aria-label="Patrol route mode">
+                    <option value="circle" selected>circle: last to first</option>
+                    <option value="back-and-forth">back and forth</option>
+                  </select>
+                </label>
+              </div>
+              <div id="patrol-command-list" class="mission-command-list" aria-live="polite">
+                <div class="mission-command-empty">Validate patrol to preview slow point-to-point and scan commands.</div>
+              </div>
+              <div class="mission-actions patrol-actions">
+                <button id="clear-patrol" type="button" disabled>Clear</button>
+                <button id="validate-patrol" type="button" disabled>Validate</button>
+                <button id="start-patrol" type="button" disabled>Save Patrol</button>
+                <button id="stop-patrol" class="danger-action" type="button" disabled>Stop Patrol</button>
+              </div>
             </div>
           </section>
         </div>
@@ -553,6 +579,7 @@
       </div>
       <div class="controls map-control-dock">
         <button id="start">Play Live Replay</button>
+        <button id="simulate-live-path" type="button">Create New Live Path</button>
         <button id="back-library">Map Library</button>
         <button id="reset">Reset View</button>
         <button id="view-iso">3D</button>
@@ -560,6 +587,11 @@
         <button id="view-side">Side</button>
         <button id="view-drone">Drone View</button>
         <button id="flip-z">Flip Z</button>
+        <button id="toggle-mesh" type="button" hidden disabled>Show Mesh</button>
+        <button id="align-map-mesh" type="button" hidden disabled>Align Mesh</button>
+        <button id="lock-map-mesh" type="button" hidden disabled>Lock Mesh</button>
+        <button id="toggle-mesh-ceiling" type="button" hidden disabled aria-pressed="false">Hide Ceiling</button>
+        <button id="restore-mesh-wall" type="button" hidden disabled>Restore Wall</button>
         <button id="toggle-points">Hide Points</button>
         <button id="toggle-cameras">Hide Cameras</button>
         <button id="toggle-coverage-risk">Coverage Risk</button>
@@ -601,7 +633,7 @@
             <button id="new-patrol" type="button">+ New Patrol</button>
           </div>
         </div>
-        <p class="saved-patrols-copy">Create patrols offline on a clean map. At flight time ATLAS replans from the live localized drone pose to the nearest patrol point.</p>
+        <p class="saved-patrols-copy">Start once from any localized position. ATLAS will enter Point 1, verify it online, then fly exactly two complete circles.</p>
         <div id="saved-patrol-list" class="saved-patrol-list" aria-live="polite"></div>
       </section>
       <div class="panel">
@@ -693,7 +725,8 @@
       </section>
     </aside>
   </main>
-  <script src="app.js?v=181"></script>
+  <script src="app.js?v=204"></script>
   <script type="module" src="drone_glb_overlay.js?v=23"></script>
+  <script type="module" src="map_mesh_overlay.js?v=20260806-one-time-placement-v8"></script>
 </body>
 </html>

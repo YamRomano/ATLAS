@@ -156,6 +156,29 @@ body.show-start {
   cursor: default;
 }
 
+.topbar-film-review {
+  position: absolute;
+  left: 200px;
+  padding: 8px 11px;
+  border: 1px solid rgba(105, 218, 255, 0.34);
+  background: rgba(12, 51, 76, 0.62);
+  color: #ddf7ff;
+  font-size: 10px;
+  font-weight: 850;
+  letter-spacing: 0.1em;
+  text-decoration: none;
+  text-transform: uppercase;
+}
+
+.topbar-film-review:hover {
+  border-color: rgba(130, 235, 255, 0.72);
+  background: rgba(21, 80, 111, 0.82);
+}
+
+.show-start .topbar-film-review {
+  left: 124px;
+}
+
 .show-start .nav-back {
   display: none;
 }
@@ -718,9 +741,59 @@ body.show-start {
 }
 
 #map {
+  position: relative;
+  z-index: 1;
   width: 100%;
   height: 100%;
   display: block;
+}
+
+#map-mesh {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  width: 100%;
+  height: 100%;
+  display: none;
+  pointer-events: none;
+}
+
+#map-mesh.mesh-placement-active {
+  z-index: 7;
+  pointer-events: auto;
+  cursor: grab;
+  touch-action: none;
+  outline: 1px dashed rgba(126, 224, 255, 0.72);
+  outline-offset: -2px;
+}
+
+#map-mesh.mesh-placement-active.mesh-placement-dragging {
+  cursor: grabbing;
+}
+
+#align-map-mesh.active,
+#lock-map-mesh.active {
+  border-color: #8ee7ff;
+  box-shadow: 0 0 14px rgba(78, 206, 255, 0.28);
+}
+
+/* Placement raises the GL canvas so it can receive drag gestures. Keep the
+   dock—and especially the irreversible one-time lock—above that canvas. */
+body[data-map-mesh-placement="editing"] .map-control-dock {
+  z-index: 20;
+}
+
+body[data-map-mesh-placement="editing"] #lock-map-mesh {
+  position: relative;
+  z-index: 21;
+  border-color: #bff3ff;
+  background: linear-gradient(135deg, rgba(23, 134, 180, 0.96), rgba(10, 72, 116, 0.96));
+  box-shadow: 0 0 0 2px rgba(145, 232, 255, 0.22), 0 0 22px rgba(66, 207, 255, 0.34);
+}
+
+#toggle-mesh.mesh-loading {
+  cursor: progress;
+  opacity: 0.78;
 }
 
 #drone3d {
@@ -1141,6 +1214,27 @@ body.show-start {
     radial-gradient(circle at 0% 0%, rgba(255, 220, 92, 0.12), transparent 46%);
 }
 
+.enemy-detection-toggle {
+  display: grid;
+  grid-template-columns: 18px 1fr;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  color: #dff8ff;
+  border: 1px solid rgba(255, 217, 112, 0.20);
+  background: rgba(2, 9, 20, 0.52);
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1.25;
+}
+
+.enemy-detection-toggle input {
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  accent-color: #73e7ff;
+}
+
 .enemy-live-detection {
   min-height: 28px;
   padding: 8px;
@@ -1283,6 +1377,99 @@ body.show-start {
 .flight-control-title {
   display: grid;
   gap: 3px;
+}
+
+.live-control-section-toggle {
+  appearance: none;
+  width: 100%;
+  min-width: 0;
+  min-height: 0 !important;
+  padding: 2px 0 4px !important;
+  border: 0;
+  border-bottom: 1px solid rgba(111, 220, 255, 0.12);
+  border-radius: 0;
+  color: inherit;
+  background: transparent;
+  box-shadow: none;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 3px 10px;
+  text-align: left;
+}
+
+.live-control-section-toggle:hover,
+.live-control-section-toggle:focus-visible {
+  border-color: rgba(129, 231, 255, 0.42);
+  color: inherit;
+  background: linear-gradient(90deg, rgba(75, 192, 238, 0.10), transparent);
+  box-shadow: none;
+}
+
+.live-control-section-toggle:focus-visible {
+  outline: 1px solid rgba(130, 232, 255, 0.72);
+  outline-offset: 3px;
+}
+
+.live-control-section-title {
+  grid-column: 1;
+  color: #f2fbff !important;
+  font-size: 11px !important;
+  font-weight: 900;
+  letter-spacing: 0.14em;
+  line-height: 1.2 !important;
+  text-transform: uppercase;
+}
+
+.live-control-section-state {
+  grid-column: 1;
+}
+
+.live-control-section-chevron {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  align-self: center;
+  margin: 0 !important;
+  color: #70e4ff !important;
+  font-size: 18px !important;
+  line-height: 1 !important;
+  transform: rotate(0deg);
+  transform-origin: center;
+  transition: transform 160ms ease, color 160ms ease;
+}
+
+.live-control-section.is-collapsed .live-control-section-chevron {
+  color: #9ab8c4 !important;
+  transform: rotate(-90deg);
+}
+
+.live-control-section-body {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.live-control-section.is-collapsed .live-control-section-body,
+.live-control-section.is-collapsed .live-control-section-action {
+  display: none;
+}
+
+.live-control-section.is-collapsed {
+  gap: 7px;
+  border-color: rgba(111, 220, 255, 0.28);
+  box-shadow: inset 3px 0 0 rgba(103, 223, 255, 0.34);
+}
+
+.live-control-section-head {
+  align-items: start;
+}
+
+.live-control-section-head .live-control-section-toggle {
+  flex: 1 1 auto;
+}
+
+.live-control-section-head .live-control-section-action {
+  flex: 0 0 auto;
 }
 
 .flight-control-title strong {

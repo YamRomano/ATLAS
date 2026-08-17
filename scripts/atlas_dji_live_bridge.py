@@ -23,15 +23,19 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import itertools
 import json
 import math
 import os
+import queue
 import re
 import signal
+import socket
 import sys
 import threading
 import time
+import traceback
 import types
 import uuid
 from pathlib import Path
@@ -55,6 +59,33 @@ GUIDED_DEFAULT_MAX_VERTICAL_RC = 0.025
 GUIDED_DEFAULT_MAX_STEP_SECONDS = 3.0
 GUIDED_DEFAULT_POSE_RECOVERY_SECONDS = 45.0
 GUIDED_RECOVERY_HOVER_SECONDS = 0.20
+GUIDED_YAW_SIGN_CONFIRMATION_PULSES = 3
+GUIDED_BASELINE_CATCHUP_DISAGREEMENT = 0.55
+CONTROL_NEUTRAL_ACK_TIMEOUT_SECONDS = 0.50
+CONTROL_RECONNECT_TIMEOUT_SECONDS = 0.45
+CONTROL_RECONNECT_ATTEMPTS = 3
+
+
+class ControlLinkSafetyError(RuntimeError):
+    """A motion command had an uncertain control-link outcome.
+
+    Non-zero RC commands must never be retried after a socket error because the
+    phone may already have applied the first command.  The attached fields let
+    the UI distinguish a confirmed recovered hover from a failure to confirm
+    neutral sticks at all.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        neutral_confirmed: bool,
+        control_link_recovered: bool,
+    ) -> None:
+        super().__init__(message)
+        self.neutral_confirmed = bool(neutral_confirmed)
+        self.control_link_recovered = bool(control_link_recovered)
+        self.requires_relocalization = True
 
 
 class StopFlag:
@@ -63,6 +94,58 @@ class StopFlag:
 
     def handler(self, signum, frame) -> None:  # noqa: ANN001
         self.stop = True
+
+
+class DecodedFrameListener:
+    """Track actual decoder callbacks instead of repeatedly reading a cached frame.
+
+    OpenDJI.getFrame() returns the most recently decoded ndarray forever.  When
+    the Android H264 stream stalls, polling that method at 10 FPS therefore
+    writes hundreds of byte-identical JPEGs and makes a frozen camera look like
+    a healthy live source.  OpenDJI's listener is invoked only when its decoder
+    produces a new frame, which gives the bridge the freshness signal it needs.
+    """
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._sequence = 0
+        self._frame: Any = None
+        self._received_unix: float | None = None
+
+    def onValue(self, value: Any) -> None:  # OpenDJI EventListener interface
+        with self._lock:
+            self._sequence += 1
+            self._frame = value
+            self._received_unix = time.time()
+
+    def latest(self) -> tuple[int, Any, float | None]:
+        with self._lock:
+            return self._sequence, self._frame, self._received_unix
+
+    def age_seconds(self, now: float | None = None) -> float | None:
+        with self._lock:
+            received_unix = self._received_unix
+        if received_unix is None:
+            return None
+        return max(0.0, float(now if now is not None else time.time()) - received_unix)
+
+
+def live_video_motion_safety_issue(
+    frame_age_seconds: float | None,
+    *,
+    maximum_age_seconds: float = 1.25,
+) -> str | None:
+    """Return a blocking reason when live video is not genuinely updating."""
+    if frame_age_seconds is None:
+        return "no fresh decoded DJI video frame is available; refusing flight movement"
+    if not math.isfinite(float(frame_age_seconds)):
+        return "DJI video freshness is invalid; refusing flight movement"
+    if float(frame_age_seconds) > max(0.1, float(maximum_age_seconds)):
+        return (
+            f"DJI video stream is frozen ({float(frame_age_seconds):.1f}s without a new "
+            "decoded frame); refusing flight movement"
+        )
+    return None
 
 
 def atomic_write_bytes(path: Path, data: bytes) -> None:
@@ -95,6 +178,27 @@ def append_jsonl(path: Path, payload: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(payload, default=str) + "\n")
+
+
+def file_sha256(path: Path) -> str | None:
+    """Return a reproducible runtime fingerprint without mutating the file."""
+    try:
+        digest = hashlib.sha256()
+        with Path(path).open("rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(chunk)
+        return digest.hexdigest()
+    except OSError:
+        return None
+
+
+def enemy_detection_control_enabled(path: Path) -> bool:
+    """Fail closed: live inference runs only after an explicit operator opt-in."""
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (FileNotFoundError, OSError, json.JSONDecodeError):
+        return False
+    return payload.get("enabled") is True
 
 
 def read_altitude(drone: Any, OpenDJI: Any) -> str | None:
@@ -180,12 +284,15 @@ def climb_to_requested_height(
                 last_alt = current_alt
                 if current_alt >= target_abs - 0.15:
                     break
-            drone.move(0.0, TAKEOFF_VERTICAL_SPEED, 0.0, 0.0, False)
+            execute_rc_pulse(
+                drone,
+                du=TAKEOFF_VERTICAL_SPEED,
+                seconds=TAKEOFF_STEP_SECONDS,
+            )
             steps += 1
-            time.sleep(TAKEOFF_STEP_SECONDS)
     finally:
         try:
-            drone.move(0.0, 0.0, 0.0, 0.0, True)
+            neutral_hover(drone, 0.0)
         except Exception:
             pass
         if control_enabled:
@@ -214,6 +321,30 @@ def clamp_float(value: Any, default: float, lo: float, hi: float) -> float:
     return max(lo, min(hi, out))
 
 
+def mission_arrival_radii(
+    arrival_radius: float,
+    arrival_deadband: float,
+    *,
+    patrol_stage: str,
+    strict_target: bool = False,
+) -> tuple[float, float]:
+    """Return hard/soft radii without letting entry stop outside the loop gate.
+
+    A loop may use the indoor soft deadband at its intermediate patrol points,
+    but the Point-1 entry leg must leave enough localization margin for the
+    repeatable loop. Connected patrol packets tag that one-time cruise as the
+    entry stage while later loop cruises retain the normal indoor deadband.
+    """
+    hard_radius = max(0.0, float(arrival_radius))
+    if strict_target:
+        precision_radius = min(hard_radius, 0.15)
+        return precision_radius, precision_radius
+    if str(patrol_stage or "").strip().lower() == "entry":
+        entry_radius = min(hard_radius, 0.20)
+        return entry_radius, entry_radius
+    return hard_radius, hard_radius + max(0.0, float(arrival_deadband))
+
+
 def dji_control_response_ok(response: Any) -> bool:
     if response is None:
         return True
@@ -231,10 +362,197 @@ def dji_control_response_reason(response: Any) -> str:
     return f"DJI refused virtual-stick control: {text}"
 
 
+def stabilized_pose_safety_issue(
+    pose: dict[str, Any] | None,
+    *,
+    max_horizontal_disagreement: float = 0.35,
+) -> str | None:
+    """Reject a synthetic/frozen position before it can guide translation."""
+    if not isinstance(pose, dict):
+        return None
+    if pose.get("rotation_position_locked") or pose.get("translation_allowed") is False:
+        return "localizer room position is rotation-frozen; refusing patrol translation"
+    if (
+        pose.get("route_visual_monitor_required") is True
+        and str(pose.get("pose_source") or "") == "patrol_visual_route_recovery"
+    ):
+        try:
+            monitor_leg = int(pose.get("route_visual_monitor_leg_index") or 0)
+        except (TypeError, ValueError):
+            monitor_leg = 0
+        monitor_label = f"patrol leg {monitor_leg}" if monitor_leg > 0 else "patrol leg"
+        try:
+            monitor_inliers = int(pose.get("route_visual_monitor_inliers") or 0)
+            temporal_monitor = bool(
+                pose.get("route_visual_monitor_temporal_recovery") is True
+                or pose.get("route_visual_temporal_recovery") is True
+            )
+            monitor_minimum = max(
+                90 if temporal_monitor else 120,
+                int(pose.get("route_visual_monitor_minimum_inliers") or 0),
+            )
+        except (TypeError, ValueError):
+            return f"{monitor_label} baseline supervision metadata is invalid; refusing translation"
+        if pose.get("route_visual_monitor_verified") is not True:
+            reason = str(pose.get("route_visual_monitor_reason") or "not verified")
+            return f"{monitor_label} baseline supervision is not verified ({reason}); refusing translation"
+        if monitor_inliers < monitor_minimum:
+            return (
+                f"{monitor_label} baseline supervision has {monitor_inliers} inliers, below "
+                f"the {monitor_minimum} gate; refusing translation"
+            )
+        # Appearance progress is intentionally conservative and can lag
+        # metric motion on a long, visually repetitive wall.  It is valid for
+        # checking the active leg and for explicit recovery, but must never
+        # override or veto an otherwise continuous route-gated TSolve center.
+    if str(pose.get("pose_source") or "") == "patrol_visual_route_recovery":
+        try:
+            inliers = int(pose.get("route_visual_inliers") or 0)
+            temporal_recovery = bool(
+                pose.get("route_visual_temporal_recovery") is True
+            )
+            minimum = max(
+                90 if temporal_recovery else 120,
+                int(pose.get("route_visual_minimum_inliers") or 0),
+            )
+            hits = int(pose.get("route_visual_acquisition_hits") or 0)
+            required_hits = (
+                max(
+                    5,
+                    int(
+                        pose.get(
+                            "route_visual_temporal_recovery_required_hits"
+                        )
+                        or 0
+                    ),
+                )
+                if temporal_recovery
+                else 2
+            )
+            progress = float(pose.get("route_visual_progress"))
+        except (TypeError, ValueError):
+            return "visual patrol recovery metadata is invalid; refusing translation"
+        if pose.get("route_visual_verified") is not True:
+            return "visual patrol recovery is not verified; refusing translation"
+        if inliers < minimum:
+            return (
+                f"visual patrol recovery has {inliers} inliers, below the {minimum} gate; "
+                "refusing translation"
+            )
+        if hits < required_hits:
+            required_label = "two" if required_hits == 2 else str(required_hits)
+            return (
+                "visual patrol recovery needs "
+                f"{required_label} consistent frames; refusing translation"
+            )
+        if not math.isfinite(progress) or progress < 0.0 or progress > 1.0:
+            return "visual patrol recovery progress is outside the active leg"
+
+    def finite_center(value: Any) -> list[float] | None:
+        if not isinstance(value, (list, tuple)) or len(value) < 3:
+            return None
+        try:
+            center = [float(value[0]), float(value[1]), float(value[2])]
+        except (TypeError, ValueError):
+            return None
+        return center if all(math.isfinite(item) for item in center) else None
+
+    published = finite_center(pose.get("rcenter"))
+    raw = finite_center(pose.get("rotation_raw_rcenter"))
+    if published is None or raw is None:
+        return None
+    disagreement = math.hypot(published[0] - raw[0], published[2] - raw[2])
+    if disagreement > max(0.0, float(max_horizontal_disagreement)):
+        if (
+            pose.get("rotation_anchor_is_position_truth") is True
+            and pose.get("rotation_anchor_commanded") is True
+            and pose.get("rotation_position_source") == "post_yaw_room_bias"
+        ):
+            # A controller-confirmed yaw-only command cannot translate the
+            # aircraft. TSolve's monocular center may change coordinate roots
+            # during that turn, so the saved command anchor and its constant
+            # room bias are the valid position track. This exception never
+            # applies while the pose is frozen above, nor to an optical-only
+            # inferred turn.
+            return None
+        return (
+            "published/raw localizer positions disagree by "
+            f"{disagreement:.3f} map units; refusing patrol translation"
+        )
+    return None
+
+
+def baseline_supervised_pose_jump_issue(
+    pose: dict[str, Any] | None,
+    *,
+    step: float,
+    base_step_limit: float,
+    disagreement_limit: float = GUIDED_BASELINE_CATCHUP_DISAGREEMENT,
+) -> str | None:
+    """Reject a skipped-frame catch-up only when the recorded route contradicts it.
+
+    Ordinary per-frame TSolve motion remains authoritative.  This additional
+    gate is deliberately narrower: it applies only when a candidate exceeds
+    the normal 0.30 m step, and the independently matched patrol baseline is
+    both strong and more than 0.55 m away.  That is the exact combination in
+    Live ATLAS 16:42:09's false Point-1-to-2 jump.
+    """
+    if not isinstance(pose, dict) or float(step) <= max(0.0, float(base_step_limit)):
+        return None
+    if pose.get("route_visual_monitor_required") is not True:
+        return None
+    if pose.get("route_visual_monitor_verified") is not True:
+        return None
+    try:
+        inliers = int(pose.get("route_visual_monitor_inliers") or 0)
+        minimum = max(120, int(pose.get("route_visual_monitor_minimum_inliers") or 0))
+        disagreement = float(pose.get("route_visual_monitor_disagreement_m"))
+    except (TypeError, ValueError):
+        return None
+    if inliers < minimum or not math.isfinite(disagreement):
+        return None
+    if disagreement <= max(0.0, float(disagreement_limit)):
+        return None
+    try:
+        leg = int(pose.get("route_visual_monitor_leg_index") or 0)
+    except (TypeError, ValueError):
+        leg = 0
+    label = f"patrol leg {leg}" if leg > 0 else "patrol leg"
+    return (
+        f"{label} baseline contradicts a {float(step):.3f} map-unit catch-up "
+        f"({disagreement:.3f} map-unit disagreement); refusing translation"
+    )
+
+
+def guided_command_pose_safety_issue(
+    gate: dict[str, Any] | None,
+    *,
+    yaw: float = 0.0,
+    lr: float = 0.0,
+    bf: float = 0.0,
+    du: float = 0.0,
+) -> str | None:
+    """Allow a stabilized pose for yaw/hover, never for room translation.
+
+    Live ATLAS 14:17:50 deliberately anchored room position during in-place
+    rotations.  That is useful for heading control, but a later regression
+    let the same synthetic position authorize forward pulses.  Keep the
+    reference turn behavior while enforcing the safety rule at the final RC
+    command boundary where the intended motion is known.
+    """
+    del yaw, du  # These channels do not translate in the room X/Z plane.
+    if abs(float(lr or 0.0)) <= 1e-6 and abs(float(bf or 0.0)) <= 1e-6:
+        return None
+    pose = gate.get("pose") if isinstance(gate, dict) else None
+    return stabilized_pose_safety_issue(pose)
+
+
 def latest_tsolve_pose_gate(
     pose_stream_path: Path | None,
     max_age_seconds: float,
     max_recent_hold_frames: int = 2,
+    *,
+    allow_rotation_frozen: bool = False,
 ) -> dict[str, Any]:
     if pose_stream_path is None:
         return {"ok": False, "reason": "mission has no TSolve pose stream path"}
@@ -321,10 +639,163 @@ def latest_tsolve_pose_gate(
             # Motion direction is not heading: using it creates a feedback loop
             # where a sideways drift is interpreted as the new forward axis.
             "rheading": raw_heading,
-            "rheading_raw": raw_heading,
-            "rheading_source": "tsolve_rotation",
+            "rheading_raw": pose.get("rheading_raw") or raw_heading,
+            "rheading_source": pose.get("rheading_source") or "tsolve_rotation",
             "center": pose.get("center"),
             "R": pose.get("R"),
+            "t": pose.get("t"),
+            "rotation_raw_rcenter": pose.get("rotation_raw_rcenter"),
+            "rotation_position_anchor": pose.get("rotation_position_anchor"),
+            "rotation_position_locked": bool(pose.get("rotation_position_locked")),
+            "translation_allowed": pose.get("translation_allowed"),
+            "rotation_position_bias": pose.get("rotation_position_bias"),
+            "rotation_position_source": pose.get("rotation_position_source"),
+            "rotation_reanchor_rejected": bool(pose.get("rotation_reanchor_rejected")),
+            "rotation_reanchored_after_turn": bool(
+                pose.get("rotation_reanchored_after_turn")
+            ),
+            "rotation_anchor_is_position_truth": bool(
+                pose.get("rotation_anchor_is_position_truth")
+            ),
+            "rotation_anchor_commanded": bool(pose.get("rotation_anchor_commanded")),
+            # Optical yaw is carried independently from route position.  The
+            # patrol control loop needs these fields when a visual-route pose
+            # is primary; omitting them silently reverted steering to the
+            # older baseline frame heading even with hundreds of fresh tracks.
+            "rotation_heading": pose.get("rotation_heading"),
+            "rotation_heading_source": pose.get("rotation_heading_source"),
+            "rotation_heading_tracks": pose.get("rotation_heading_tracks"),
+            "rotation_heading_delta_deg": pose.get("rotation_heading_delta_deg"),
+            "pose_source": pose.get("pose_source"),
+            "route_visual_verified": pose.get("route_visual_verified"),
+            "route_visual_progress": pose.get("route_visual_progress"),
+            "route_visual_published_progress": pose.get(
+                "route_visual_published_progress"
+            ),
+            "route_visual_progress_lag": pose.get("route_visual_progress_lag"),
+            "route_visual_translation_safe": pose.get(
+                "route_visual_translation_safe"
+            ),
+            "route_visual_weak_endpoint_recovery": pose.get(
+                "route_visual_weak_endpoint_recovery"
+            ),
+            "route_visual_temporal_recovery": pose.get(
+                "route_visual_temporal_recovery"
+            ),
+            "route_visual_temporal_recovery_hits": pose.get(
+                "route_visual_temporal_recovery_hits"
+            ),
+            "route_visual_temporal_recovery_required_hits": pose.get(
+                "route_visual_temporal_recovery_required_hits"
+            ),
+            "route_visual_inliers": pose.get("route_visual_inliers"),
+            "route_visual_ratio_matches": pose.get("route_visual_ratio_matches"),
+            "route_visual_anchor": pose.get("route_visual_anchor"),
+            "route_visual_source_frame": pose.get("route_visual_source_frame"),
+            "route_visual_acquisition_hits": pose.get("route_visual_acquisition_hits"),
+            "route_visual_minimum_inliers": pose.get("route_visual_minimum_inliers"),
+            "route_visual_map_id": pose.get("route_visual_map_id"),
+            "route_visual_patrol_id": pose.get("route_visual_patrol_id"),
+            "route_visual_baseline_replay_id": pose.get(
+                "route_visual_baseline_replay_id"
+            ),
+            "route_visual_monitor_required": pose.get("route_visual_monitor_required"),
+            "route_visual_monitor_verified": pose.get("route_visual_monitor_verified"),
+            "route_visual_monitor_reason": pose.get("route_visual_monitor_reason"),
+            "route_visual_monitor_inliers": pose.get("route_visual_monitor_inliers"),
+            "route_visual_monitor_minimum_inliers": pose.get(
+                "route_visual_monitor_minimum_inliers"
+            ),
+            "route_visual_monitor_temporal_recovery": pose.get(
+                "route_visual_monitor_temporal_recovery"
+            ),
+            "route_visual_monitor_temporal_recovery_hits": pose.get(
+                "route_visual_monitor_temporal_recovery_hits"
+            ),
+            "route_visual_monitor_temporal_recovery_required_hits": pose.get(
+                "route_visual_monitor_temporal_recovery_required_hits"
+            ),
+            "route_visual_monitor_progress": pose.get("route_visual_monitor_progress"),
+            "route_visual_monitor_tsolve_progress": pose.get(
+                "route_visual_monitor_tsolve_progress"
+            ),
+            "route_visual_monitor_disagreement_m": pose.get(
+                "route_visual_monitor_disagreement_m"
+            ),
+            "route_visual_monitor_leg_index": pose.get("route_visual_monitor_leg_index"),
+            "route_visual_monitor_translation_locked": pose.get(
+                "route_visual_monitor_translation_locked"
+            ),
+            # These fields are produced by the progress-independent whole-leg
+            # endpoint verifier.  The patrol controller consumes the compact
+            # pose payload returned here, not the raw pose stream.  Omitting
+            # them made taught_endpoint_arrival_verified() impossible to
+            # satisfy even while the raw stream reported hundreds of verified
+            # endpoint observations.
+            "route_visual_endpoint_guarded": pose.get(
+                "route_visual_endpoint_guarded"
+            ),
+            "route_visual_endpoint_guard_progress": pose.get(
+                "route_visual_endpoint_guard_progress"
+            ),
+            "route_visual_endpoint_safe_prearrival_progress": pose.get(
+                "route_visual_endpoint_safe_prearrival_progress"
+            ),
+            "route_visual_endpoint_checked": pose.get(
+                "route_visual_endpoint_checked"
+            ),
+            "route_visual_endpoint_verified": pose.get(
+                "route_visual_endpoint_verified"
+            ),
+            "route_visual_endpoint_match_consensus_verified": pose.get(
+                "route_visual_endpoint_match_consensus_verified"
+            ),
+            "route_visual_endpoint_view_geometry_verified": pose.get(
+                "route_visual_endpoint_view_geometry_verified"
+            ),
+            "route_visual_endpoint_view_scale_min": pose.get(
+                "route_visual_endpoint_view_scale_min"
+            ),
+            "route_visual_endpoint_view_scale_max": pose.get(
+                "route_visual_endpoint_view_scale_max"
+            ),
+            "route_visual_endpoint_hits": pose.get("route_visual_endpoint_hits"),
+            "route_visual_endpoint_required_hits": pose.get(
+                "route_visual_endpoint_required_hits"
+            ),
+            "route_visual_endpoint_minimum_inliers": pose.get(
+                "route_visual_endpoint_minimum_inliers"
+            ),
+            "route_visual_endpoint_candidate_progress": pose.get(
+                "route_visual_endpoint_candidate_progress"
+            ),
+            "route_visual_endpoint_best_progress": pose.get(
+                "route_visual_endpoint_best_progress"
+            ),
+            "route_visual_endpoint_best_inliers": pose.get(
+                "route_visual_endpoint_best_inliers"
+            ),
+            "route_visual_endpoint_best_anchor": pose.get(
+                "route_visual_endpoint_best_anchor"
+            ),
+            "route_visual_verified_rewind": pose.get(
+                "route_visual_verified_rewind"
+            ),
+            "route_visual_verified_rewind_progress": pose.get(
+                "route_visual_verified_rewind_progress"
+            ),
+            "route_visual_verified_rewind_inliers": pose.get(
+                "route_visual_verified_rewind_inliers"
+            ),
+            "route_visual_verified_rewind_hits": pose.get(
+                "route_visual_verified_rewind_hits"
+            ),
+            "route_visual_verified_rewind_required_hits": pose.get(
+                "route_visual_verified_rewind_required_hits"
+            ),
+            "route_verified_visual_rewind_applied": pose.get(
+                "route_verified_visual_rewind_applied"
+            ),
             **({"recent_hold_fallback_pose": True, "trailing_hold_frames": hold_count} if fallback else {}),
         }
 
@@ -339,13 +810,74 @@ def latest_tsolve_pose_gate(
                 break
             trailing_holds += 1
 
+        # At a shared waypoint the old visual leg ends before the new leg has
+        # acquired enough image consensus.  The localizer deliberately emits
+        # the exact trusted waypoint position plus independently tracked
+        # optical yaw during that handoff.  Treating the third such frame as a
+        # total pose failure created a circular Point-2->3 deadlock: the bridge
+        # refused to yaw until localization recovered, while the new leg could
+        # not acquire until the camera yawed toward it.
+        #
+        # This gate is yaw/hover-only.  It requires the localizer's explicit
+        # translation lock, a fresh strong optical heading, and the narrowly
+        # identified trusted-position hold reason.  The final RC command gate
+        # still rejects every forward/lateral command from this pose.
+        try:
+            held_heading_tracks = int(latest_pose.get("rotation_heading_tracks") or 0)
+        except (TypeError, ValueError):
+            held_heading_tracks = 0
+        held_reason = str(
+            latest_pose.get("hold_reason") or latest_pose.get("rejected_reason") or ""
+        )
+        rotation_handoff_hold = bool(
+            allow_rotation_frozen
+            and latest_pose.get("held_pose") is True
+            and latest_pose.get("rotation_position_locked") is True
+            and latest_pose.get("translation_allowed") is False
+            and pose_room_center(latest_pose) is not None
+            and held_heading_tracks >= 16
+            and "holding_trusted_position_with_fresh_rotation_heading" in held_reason
+        )
+        if rotation_handoff_hold:
+            held_result = {
+                "ok": True,
+                "pose": pose_payload(
+                    latest_pose,
+                    fallback=True,
+                    hold_count=trailing_holds,
+                ),
+                "age_seconds": age,
+                "processed_count": processed_count,
+                "latest_instance_id": latest_pose.get("instance_id"),
+                "rotation_handoff_hold": True,
+                "trailing_hold_frames": trailing_holds,
+                "hold_reason": held_reason,
+            }
+            received_unix = held_result["pose"].get("received_unix")
+            try:
+                observation_age = time.time() - float(received_unix)
+            except (TypeError, ValueError):
+                observation_age = None
+            if observation_age is not None:
+                held_result["observation_age_seconds"] = observation_age
+                if observation_age > max_age_seconds:
+                    held_result["ok"] = False
+                    held_result["reason"] = (
+                        "rotation-handoff observation is stale "
+                        f"({observation_age:.2f}s > {max_age_seconds:.2f}s)"
+                    )
+            return held_result
+
         if (
             fallback_pose is not None
             and trailing_holds <= max(0, int(max_recent_hold_frames))
             and (fallback_pose.get("rcenter") or fallback_pose.get("center"))
         ):
+            safety_issue = stabilized_pose_safety_issue(fallback_pose)
+            if allow_rotation_frozen:
+                safety_issue = None
             fallback_result = {
-                "ok": True,
+                "ok": safety_issue is None,
                 "pose": pose_payload(fallback_pose, fallback=True, hold_count=trailing_holds),
                 "age_seconds": age,
                 "processed_count": processed_count,
@@ -354,6 +886,8 @@ def latest_tsolve_pose_gate(
                 "trailing_hold_frames": trailing_holds,
                 "hold_reason": latest_pose.get("hold_reason") or latest_pose.get("rejected_reason"),
             }
+            if safety_issue is not None:
+                fallback_result["reason"] = safety_issue
             received_unix = fallback_result["pose"].get("received_unix")
             try:
                 observation_age = time.time() - float(received_unix)
@@ -389,6 +923,19 @@ def latest_tsolve_pose_gate(
             "age_seconds": age,
             "processed_count": processed_count,
             "latest_instance_id": latest_pose.get("instance_id"),
+        }
+
+    safety_issue = stabilized_pose_safety_issue(latest_pose)
+    if allow_rotation_frozen:
+        safety_issue = None
+    if safety_issue is not None:
+        return {
+            "ok": False,
+            "reason": safety_issue,
+            "age_seconds": age,
+            "processed_count": processed_count,
+            "latest_instance_id": latest_pose.get("instance_id"),
+            "position_safety_rejected": True,
         }
 
     result = {
@@ -465,6 +1012,435 @@ def latest_rotation_only_heading(
     }
 
 
+def latest_recorded_departure_heading(
+    pose_stream_path: Path | None,
+    max_age_seconds: float,
+    *,
+    map_id: str,
+    patrol_id: str,
+    baseline_replay_id: str,
+    expected_leg_index: int | None = None,
+) -> dict[str, Any]:
+    """Read the absolute recorded-view heading correction for an audited turn.
+
+    Unlike accumulated optical flow, this observation compares the current
+    camera image directly with the recorded departure images at Point 3.  It
+    is heading-only evidence and never authorizes position or translation.
+    """
+    if pose_stream_path is None or not pose_stream_path.exists():
+        return {"ok": False, "reason": "recorded heading pose stream is unavailable"}
+    try:
+        payload = json.loads(pose_stream_path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        return {"ok": False, "reason": f"recorded heading pose stream unreadable: {exc}"}
+    poses = payload.get("poses") if isinstance(payload.get("poses"), list) else []
+    latest = next((pose for pose in reversed(poses) if isinstance(pose, dict)), None)
+    if latest is None:
+        return {"ok": False, "reason": "no recorded heading observation is available"}
+    if latest.get("route_visual_heading_required") is not True:
+        return {"ok": False, "reason": "latest frame has no recorded departure heading gate"}
+    if latest.get("route_visual_heading_verified") is not True:
+        return {
+            "ok": False,
+            "reason": str(
+                latest.get("route_visual_heading_reason")
+                or "recorded departure heading is not verified"
+            ),
+        }
+    try:
+        observed_leg_index = int(latest.get("route_visual_heading_leg_index") or 0)
+    except (TypeError, ValueError):
+        observed_leg_index = 0
+    if (
+        expected_leg_index is not None
+        and observed_leg_index != int(expected_leg_index)
+    ):
+        return {
+            "ok": False,
+            "reason": "recorded departure heading patrol-leg mismatch",
+        }
+    expected_identity = (str(map_id), str(patrol_id), str(baseline_replay_id))
+    observed_identity = (
+        str(latest.get("route_visual_heading_map_id") or ""),
+        str(latest.get("route_visual_heading_patrol_id") or ""),
+        str(latest.get("route_visual_heading_baseline_replay_id") or ""),
+    )
+    if not all(expected_identity) or observed_identity != expected_identity:
+        return {"ok": False, "reason": "recorded departure heading identity mismatch"}
+    try:
+        correction_deg = float(latest.get("route_visual_heading_correction_deg"))
+        inliers = int(latest.get("route_visual_heading_inliers") or 0)
+        expected_floor = (
+            30
+            if expected_leg_index == 4
+            else (72 if expected_leg_index == 1 else 120)
+        )
+        minimum_inliers = max(
+            expected_floor,
+            int(latest.get("route_visual_heading_minimum_inliers") or 0),
+        )
+        received_unix = float(latest.get("received_unix"))
+    except (TypeError, ValueError):
+        return {"ok": False, "reason": "recorded departure heading metadata is invalid"}
+    current_heading = normalize_xz(
+        vector3(latest.get("route_visual_heading_current"))
+    )
+    recorded_heading = normalize_xz(
+        vector3(latest.get("route_visual_heading_recorded"))
+    )
+    if current_heading is None or recorded_heading is None:
+        return {
+            "ok": False,
+            "reason": "recorded departure heading vectors are unavailable",
+        }
+    age = time.time() - received_unix
+    if not math.isfinite(correction_deg):
+        return {"ok": False, "reason": "recorded departure heading correction is invalid"}
+    if inliers < minimum_inliers:
+        return {
+            "ok": False,
+            "reason": (
+                f"recorded departure heading has {inliers} inliers, below "
+                f"the {minimum_inliers} gate"
+            ),
+        }
+    if not math.isfinite(age) or age > max_age_seconds:
+        return {
+            "ok": False,
+            "reason": (
+                f"recorded departure heading is stale "
+                f"({age:.2f}s > {max_age_seconds:.2f}s)"
+            ),
+            "age_seconds": age,
+        }
+    return {
+        "ok": True,
+        "correction_deg": correction_deg,
+        "inliers": inliers,
+        "minimum_inliers": minimum_inliers,
+        "anchor": latest.get("route_visual_heading_anchor"),
+        "source_frame": latest.get("route_visual_heading_source_frame"),
+        "age_seconds": age,
+        "received_unix": received_unix,
+        "instance_id": latest.get("instance_id"),
+        "current_heading": current_heading,
+        "recorded_heading": recorded_heading,
+    }
+
+
+def verified_endpoint_turn_departure_gate(
+    source_gate: dict[str, Any] | None,
+    *,
+    position_anchor: list[float] | None,
+    heading_observation: dict[str, Any] | None,
+    expected_leg_index: int | None,
+    endpoint_handoff_verified: bool,
+    endpoint_handoff_source: str | None,
+    stable_heading_frames: int,
+    required_stable_heading_frames: int = 3,
+) -> dict[str, Any] | None:
+    """Authorize one bounded 4->1 departure from the verified Point-4 anchor.
+
+    Point 4 is independently verified *before* the aircraft begins its in-place
+    yaw.  Yaw cannot change the aircraft's room position, so demanding a second
+    translation solution after the turn creates a circular wait in the exact
+    weak view where the first small forward movement is needed to reacquire
+    normal route tracking.  This gate combines the already-verified endpoint
+    position with three current, absolute recorded-departure heading matches.
+
+    It is deliberately a controller-local one-command prior, not a synthetic
+    metric localization.  The cruise loop consumes it for one ordinary 0.30 s
+    low-stick command and then requires a new observed pose/progress before any
+    additional translation.
+    """
+    if not endpoint_handoff_verified or expected_leg_index != 4:
+        return None
+    if endpoint_handoff_source not in {"metric_tsolve", "verified_visual_endpoint"}:
+        return None
+    anchor = vector3(position_anchor)
+    observation = heading_observation if isinstance(heading_observation, dict) else {}
+    if anchor is None or observation.get("ok") is not True:
+        return None
+    try:
+        stable = int(stable_heading_frames)
+        required = max(3, int(required_stable_heading_frames))
+        correction_deg = float(observation.get("correction_deg"))
+        inliers = int(observation.get("inliers") or 0)
+        minimum_inliers = max(
+            30,
+            int(observation.get("minimum_inliers") or 0),
+        )
+        received_unix = float(observation.get("received_unix"))
+    except (TypeError, ValueError):
+        return None
+    if observation.get("optical_fine_handoff") is True:
+        try:
+            optical_tracks = int(observation.get("optical_tracks") or 0)
+            absolute_correction_deg = float(
+                observation.get("absolute_correction_deg")
+            )
+            optical_delta_deg = float(observation.get("optical_delta_deg"))
+            observation_gap_seconds = float(
+                observation.get("observation_gap_seconds")
+            )
+        except (TypeError, ValueError):
+            return None
+        if (
+            optical_tracks < 60
+            or abs(absolute_correction_deg) > 6.0
+            or abs(optical_delta_deg) > 3.5
+            or observation_gap_seconds < -0.05
+            or observation_gap_seconds > 2.5
+        ):
+            return None
+    current_heading = normalize_xz(vector3(observation.get("current_heading")))
+    if (
+        stable < required
+        or not math.isfinite(correction_deg)
+        or abs(correction_deg) > 4.0
+        or inliers < minimum_inliers
+        or not math.isfinite(received_unix)
+        or current_heading is None
+    ):
+        return None
+
+    gate = dict(source_gate) if isinstance(source_gate, dict) else {}
+    source_pose = gate.get("pose") if isinstance(gate.get("pose"), dict) else {}
+    pose = dict(source_pose)
+    pose.update(
+        {
+            "received_unix": received_unix,
+            "rcenter": anchor,
+            "rheading": current_heading,
+            "rheading_source": "recorded_patrol_departure_view",
+            # This is no longer the localizer's rotation-frozen publication.
+            # It is the unchanged, independently verified endpoint position.
+            "rotation_raw_rcenter": None,
+            "rotation_position_anchor": anchor,
+            "rotation_position_locked": False,
+            "translation_allowed": True,
+            "rotation_position_source": "verified_endpoint_turn_handoff",
+            "pose_source": "verified_endpoint_turn_departure",
+            "verified_endpoint_turn_departure": True,
+            "verified_endpoint_turn_leg_index": 4,
+            "verified_endpoint_turn_heading_inliers": inliers,
+            "verified_endpoint_turn_heading_correction_deg": correction_deg,
+            "verified_endpoint_turn_handoff_source": endpoint_handoff_source,
+        }
+    )
+    gate.update(
+        {
+            "ok": True,
+            "pose": pose,
+            # ``position_anchor`` is already in ATLAS room coordinates.
+            "pose_offset_room": [0.0, 0.0, 0.0],
+            "recent_hold_fallback": False,
+            "rotation_handoff_hold": False,
+            "verified_endpoint_turn_departure": True,
+        }
+    )
+    return gate
+
+
+def verified_optical_endpoint_turn_departure_gate(
+    source_gate: dict[str, Any] | None,
+    *,
+    position_anchor: list[float] | None,
+    heading_observation: dict[str, Any] | None,
+    heading_error_rad: float | None,
+    expected_leg_index: int | None,
+    endpoint_handoff_verified: bool,
+    stable_heading_frames: int,
+    required_stable_heading_frames: int = 3,
+) -> dict[str, Any] | None:
+    """Authorize one bounded 3->4 pulse after a verified Point-3 turn.
+
+    Point 3 was already independently verified at the end of the preceding
+    2->3 leg.  The following command is yaw-only, so that position remains
+    physically valid even when the localizer publishes a rotation-locked
+    hold.  Three fresh, strong optical-heading observations may therefore
+    combine with that saved endpoint for exactly one ordinary low-stick
+    departure pulse.  The normal post-command progress gate still blocks a
+    second pulse until a new translation observation arrives.
+
+    This deliberately does not authorize arbitrary optical-flow position or
+    change the Point-4 arrival checks.
+    """
+    if not endpoint_handoff_verified or expected_leg_index != 3:
+        return None
+    anchor = vector3(position_anchor)
+    observation = heading_observation if isinstance(heading_observation, dict) else {}
+    if anchor is None or observation.get("ok") is not True:
+        return None
+    try:
+        stable = int(stable_heading_frames)
+        required = max(3, int(required_stable_heading_frames))
+        heading_error = float(heading_error_rad)
+        tracks = int(observation.get("tracks") or 0)
+        received_unix = float(observation.get("received_unix"))
+    except (TypeError, ValueError):
+        return None
+    current_heading = normalize_xz(vector3(observation.get("heading")))
+    if (
+        stable < required
+        or not math.isfinite(heading_error)
+        or abs(heading_error) > math.radians(10.0)
+        or tracks < 60
+        or not math.isfinite(received_unix)
+        or current_heading is None
+    ):
+        return None
+
+    gate = dict(source_gate) if isinstance(source_gate, dict) else {}
+    source_pose = gate.get("pose") if isinstance(gate.get("pose"), dict) else {}
+    pose = dict(source_pose)
+    pose.update(
+        {
+            "received_unix": received_unix,
+            "rcenter": anchor,
+            "rheading": current_heading,
+            "rheading_source": "optical_flow_yaw",
+            "rotation_raw_rcenter": None,
+            "rotation_position_anchor": anchor,
+            "rotation_position_locked": False,
+            "translation_allowed": True,
+            "rotation_position_source": "verified_point3_turn_handoff",
+            "pose_source": "verified_optical_endpoint_turn_departure",
+            "verified_endpoint_turn_departure": True,
+            "verified_endpoint_turn_leg_index": 3,
+            "verified_endpoint_turn_heading_tracks": tracks,
+            "verified_endpoint_turn_heading_error_deg": math.degrees(
+                heading_error
+            ),
+            "verified_endpoint_turn_handoff_source": (
+                "verified_visual_endpoint"
+            ),
+        }
+    )
+    gate.update(
+        {
+            "ok": True,
+            "pose": pose,
+            "pose_offset_room": [0.0, 0.0, 0.0],
+            "recent_hold_fallback": False,
+            "rotation_handoff_hold": False,
+            "verified_endpoint_turn_departure": True,
+        }
+    )
+    return gate
+
+
+def recorded_heading_optical_fine_handoff(
+    absolute_observation: dict[str, Any] | None,
+    optical_observation: dict[str, Any] | None,
+    *,
+    optical_heading_bias_rad: float | None,
+    max_absolute_error_deg: float = 6.0,
+    max_optical_delta_deg: float = 3.5,
+    max_observation_gap_seconds: float = 2.5,
+    minimum_optical_tracks: int = 60,
+) -> dict[str, Any] | None:
+    """Bridge a brief Point-4 image-match dropout with rebased optical yaw.
+
+    This is not an optical-only turn.  A current recorded-departure image must
+    first place the camera within six degrees of the absolute taught heading.
+    Its measured optical-to-room offset is then held for at most 2.5 seconds
+    and 3.5 degrees of additional yaw.  Strong current optical flow may finish
+    those last few degrees, but position remains locked and the caller still
+    requires three distinct stable frames before the one-command departure
+    handoff can be created.
+    """
+    absolute = (
+        absolute_observation
+        if isinstance(absolute_observation, dict)
+        else {}
+    )
+    optical = optical_observation if isinstance(optical_observation, dict) else {}
+    if absolute.get("ok") is not True or optical.get("ok") is not True:
+        return None
+    if optical_heading_bias_rad is None:
+        return None
+    try:
+        absolute_error_deg = float(absolute.get("correction_deg"))
+        absolute_inliers = int(absolute.get("inliers") or 0)
+        absolute_minimum = max(
+            30,
+            int(absolute.get("minimum_inliers") or 0),
+        )
+        absolute_received = float(absolute.get("received_unix"))
+        optical_received = float(optical.get("received_unix"))
+        optical_tracks = int(optical.get("tracks") or 0)
+    except (TypeError, ValueError):
+        return None
+    if (
+        not math.isfinite(absolute_error_deg)
+        or abs(absolute_error_deg) > max(0.0, float(max_absolute_error_deg))
+        or absolute_inliers < absolute_minimum
+        or optical_tracks < max(16, int(minimum_optical_tracks))
+    ):
+        return None
+    observation_gap = optical_received - absolute_received
+    if (
+        not math.isfinite(observation_gap)
+        or observation_gap < -0.05
+        or observation_gap > max(0.1, float(max_observation_gap_seconds))
+    ):
+        return None
+    absolute_current = normalize_xz(vector3(absolute.get("current_heading")))
+    recorded_target = normalize_xz(vector3(absolute.get("recorded_heading")))
+    optical_current = normalize_xz(vector3(optical.get("heading")))
+    if (
+        absolute_current is None
+        or recorded_target is None
+        or optical_current is None
+    ):
+        return None
+    rebased_current = rotate_xz(
+        optical_current,
+        float(optical_heading_bias_rad),
+    )
+    correction = signed_angle_xz(rebased_current, recorded_target)
+    optical_delta = signed_angle_xz(absolute_current, rebased_current)
+    if correction is None or optical_delta is None:
+        return None
+    correction_deg = math.degrees(correction)
+    optical_delta_deg = math.degrees(optical_delta)
+    if (
+        not math.isfinite(correction_deg)
+        or not math.isfinite(optical_delta_deg)
+        or abs(optical_delta_deg) > max(0.1, float(max_optical_delta_deg))
+        # Optical continuation may reduce the last absolute error; it may not
+        # invent a larger correction or reverse into a new search direction.
+        or abs(correction_deg) > abs(absolute_error_deg) + 0.75
+        or (
+            abs(correction_deg) > 4.0
+            and correction_deg * absolute_error_deg < 0.0
+        )
+    ):
+        return None
+    instance_id = str(optical.get("instance_id") or "")
+    if not instance_id:
+        return None
+    return {
+        "ok": True,
+        "correction_deg": correction_deg,
+        "inliers": absolute_inliers,
+        "minimum_inliers": absolute_minimum,
+        "anchor": absolute.get("anchor"),
+        "source_frame": absolute.get("source_frame"),
+        "received_unix": optical_received,
+        "instance_id": instance_id,
+        "current_heading": rebased_current,
+        "recorded_heading": recorded_target,
+        "optical_fine_handoff": True,
+        "optical_tracks": optical_tracks,
+        "absolute_correction_deg": absolute_error_deg,
+        "optical_delta_deg": optical_delta_deg,
+        "absolute_received_unix": absolute_received,
+        "observation_gap_seconds": observation_gap,
+    }
+
+
 def load_taught_patrol_reference(mission: dict[str, Any]) -> dict[str, Any] | None:
     """Load the optional visual turn reference for this exact map and patrol."""
     map_id = str(mission.get("map_id") or "")
@@ -473,7 +1449,20 @@ def load_taught_patrol_reference(mission: dict[str, Any]) -> dict[str, Any] | No
         return None
     if not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", patrol_id):
         return None
-    path = ROOT / "viewer" / "public" / "maps" / map_id / "taught_patrols" / patrol_id / "reference.json"
+    baseline_replay_id = str(mission.get("baseline_replay_id") or "")
+    if baseline_replay_id and re.fullmatch(r"[A-Za-z0-9_-]{1,160}", baseline_replay_id):
+        path = (
+            ROOT
+            / "viewer"
+            / "public"
+            / "maps"
+            / map_id
+            / "replays"
+            / baseline_replay_id
+            / "reference_candidate.json"
+        )
+    else:
+        path = ROOT / "viewer" / "public" / "maps" / map_id / "taught_patrols" / patrol_id / "reference.json"
     try:
         reference = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
@@ -482,19 +1471,209 @@ def load_taught_patrol_reference(mission: dict[str, Any]) -> dict[str, Any] | No
         return None
     if reference.get("map_id") != map_id or reference.get("patrol_id") != patrol_id:
         return None
-    if not reference.get("complete_loop") or not reference.get("enabled_for_turn_recovery"):
+    enabled = bool(
+        reference.get("enabled_for_turn_recovery")
+        or (
+            baseline_replay_id
+            and reference.get("enabled_for_live_route_gate") is True
+        )
+    )
+    if not reference.get("complete_loop") or not enabled:
         return None
     if not isinstance(reference.get("legs"), list) or len(reference["legs"]) < 4:
         return None
     return reference
 
 
+def load_verified_route_follow_lock(mission: dict[str, Any]) -> dict[str, Any] | None:
+    """Load the pinned heading lock for the complete recorded patrol.
+
+    Legs 1->2->3->4 retain the successful 11:57 live headings.  The missing
+    4->1 leg comes from the separately audited complete-loop baseline, whose
+    held-out frames are also the live position/progress authority.
+    """
+    map_id = str(mission.get("map_id") or "")
+    patrol_id = str(mission.get("patrol_id") or "")
+    if not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", map_id):
+        return None
+    if not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", patrol_id):
+        return None
+    path = (
+        ROOT
+        / "viewer"
+        / "public"
+        / "maps"
+        / map_id
+        / "taught_patrols"
+        / patrol_id
+        / "route_follow_lock.json"
+    )
+    try:
+        lock = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(lock, dict):
+        return None
+    if lock.get("map_id") != map_id or lock.get("patrol_id") != patrol_id:
+        return None
+    if not isinstance(lock.get("legs"), list):
+        return None
+    return lock
+
+
+def verified_route_follow_leg(
+    route_lock: dict[str, Any] | None,
+    taught_leg: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    """Return a verified golden leg only when its point identity matches."""
+    if not isinstance(route_lock, dict) or not isinstance(taught_leg, dict):
+        return None
+    try:
+        expected = (
+            int(taught_leg.get("from_point")),
+            int(taught_leg.get("to_point")),
+        )
+    except (TypeError, ValueError):
+        return None
+    for leg in route_lock.get("legs") or []:
+        if not isinstance(leg, dict) or leg.get("verified") is not True:
+            continue
+        try:
+            identity = (int(leg.get("from_point")), int(leg.get("to_point")))
+            heading = float(leg.get("golden_camera_heading_deg"))
+        except (TypeError, ValueError):
+            continue
+        if identity == expected and math.isfinite(heading):
+            return leg
+    return None
+
+
+def pose_gate_camera_heading(
+    gate: dict[str, Any] | None,
+    *,
+    optical_heading_bias_rad: float | None = None,
+) -> list[float] | None:
+    """Return the raw camera heading used by the recorded 11:57 reference."""
+    pose = gate.get("pose") if isinstance(gate, dict) else None
+    if not isinstance(pose, dict):
+        return None
+    # Route-only position recovery is matched against the older full-loop
+    # baseline, whose recorded camera heading is not necessarily the heading
+    # flown by the verified 11:57 route.  Live ATLAS 15:46 exposed the
+    # conflict directly: fresh 462-track optical yaw was +2.94 degrees (within
+    # 0.75 degrees of the +3.68-degree route lock), while the matched baseline
+    # frame stamped -3.44 degrees and caused 28 unnecessary yaw pulses.  Use
+    # the current optical camera heading for closed-loop steering when it is
+    # strongly tracked.  The dedicated Point-3->4 departure-image verifier is
+    # independent and still supplies its absolute turn correction before
+    # translation starts.
+    if pose.get("pose_source") == "patrol_visual_route_recovery":
+        try:
+            optical_tracks = int(pose.get("rotation_heading_tracks") or 0)
+        except (TypeError, ValueError):
+            optical_tracks = 0
+        optical_heading = normalize_xz(vector3(pose.get("rotation_heading")))
+        if optical_heading is not None and optical_tracks >= 16:
+            return rotate_xz(
+                optical_heading,
+                float(optical_heading_bias_rad or 0.0),
+            )
+    # A recorded-image alignment has already corrected a weak/stale algebraic
+    # rotation. Preserve that verified absolute view. Ordinary metric TSolve
+    # poses use the unmodified camera heading so the golden comparison remains
+    # independent of the body-forward calibration offset.
+    recorded_heading = bool(
+        pose.get("rheading_source")
+        in {"recorded_departure_image_alignment", "recorded_patrol_leg_heading"}
+        or pose.get("pose_source") == "patrol_visual_route_recovery"
+    )
+    value = (
+        pose.get("rheading")
+        if recorded_heading
+        else (pose.get("rheading_raw") or pose.get("rheading"))
+    )
+    return normalize_xz(vector3(value))
+
+
+def verified_route_desired_camera_heading(
+    route_leg: dict[str, Any] | None,
+    *,
+    current_position: list[float] | None,
+    segment_start: list[float] | None,
+    segment_end: list[float] | None,
+    default_lookahead_m: float = 0.35,
+    default_max_correction_deg: float = 7.0,
+) -> list[float] | None:
+    """Follow the successful camera heading with bounded route look-ahead.
+
+    The golden heading reproduces the 11:57 view. A small pure-pursuit
+    correction steers an offset aircraft back to the same segment without
+    replacing that heading with a run-dependent direct waypoint bearing.
+    """
+    if not isinstance(route_leg, dict):
+        return None
+    try:
+        golden_degrees = float(route_leg.get("golden_camera_heading_deg"))
+        lookahead_m = max(
+            0.10,
+            float(route_leg.get("lookahead_m") or default_lookahead_m),
+        )
+        max_correction_deg = max(
+            0.0,
+            min(
+                15.0,
+                float(
+                    route_leg.get("max_route_correction_deg")
+                    or default_max_correction_deg
+                ),
+            ),
+        )
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(golden_degrees):
+        return None
+    golden = [
+        math.cos(math.radians(golden_degrees)),
+        0.0,
+        math.sin(math.radians(golden_degrees)),
+    ]
+    current = vector3(current_position)
+    start = vector3(segment_start)
+    end = vector3(segment_end)
+    tangent = normalize_xz(target_direction_xz(start, end))
+    if current is None or start is None or end is None or tangent is None:
+        return normalize_xz(golden)
+    leg_length = horizontal_xz_distance(start, end)
+    progress = route_segment_progress_xz(current, start, end)
+    if leg_length is None or leg_length <= 1e-9 or progress is None:
+        return normalize_xz(golden)
+    lookahead_progress = max(
+        0.0,
+        min(1.0, float(progress) + lookahead_m / leg_length),
+    )
+    lookahead = [
+        start[0] + (end[0] - start[0]) * lookahead_progress,
+        current[1],
+        start[2] + (end[2] - start[2]) * lookahead_progress,
+    ]
+    recovery_direction = normalize_xz(target_direction_xz(current, lookahead))
+    correction = signed_angle_xz(tangent, recovery_direction)
+    if correction is None:
+        return normalize_xz(golden)
+    correction_limit = math.radians(max_correction_deg)
+    correction = max(-correction_limit, min(correction_limit, correction))
+    return rotate_xz(golden, correction)
+
+
 def taught_leg_for_step(reference: dict[str, Any] | None, step: dict[str, Any]) -> dict[str, Any] | None:
     """Return the taught leg matching this patrol cruise.
 
-    Prefer exact endpoints.  A user may adjust patrol points after teaching,
-    however, so the stable ``Patrol cruise N`` command order is a safe
-    fallback: cruise 2 is point 1→2, cruise 3 is point 2→3, and so on.
+    Taught camera headings are valid only for the geometry they were recorded
+    against. Command order alone is not a safe fallback after a point edit: it
+    can apply a stale turn direction to a newly shaped route.  The point-3 to
+    point-4 weak-visual-sector guard is the one exception: it may be reused
+    after a coordinate correction only when the new leg retains the taught
+    heading.  That guard consumes neither taught endpoints nor taught distance.
     """
     if not isinstance(reference, dict):
         return None
@@ -515,17 +1694,35 @@ def taught_leg_for_step(reference: dict[str, Any] | None, step: dict[str, Any]) 
         ):
             return leg
 
-    title_match = re.fullmatch(
-        r"\s*Patrol cruise\s+(\d+)\s*",
+    # Cruise 1 is the entry to point 1, then cruises 2/3/4 are the taught
+    # 1->2, 2->3 and 3->4 loop legs.  Restore only the known weak-sector
+    # point-3->4 turn when its room-frame direction is still compatible.  This
+    # intentionally does not restore the former command-order fallback for
+    # any other leg (especially the reshaped point-4->1 return).
+    if not re.fullmatch(
+        r"\s*Patrol cruise\s+4\s*",
         str(step.get("title") or ""),
         re.IGNORECASE,
-    )
-    if title_match:
-        # Cruise 1 is the entry leg to point 1 and has no taught loop leg.
-        taught_leg_index = int(title_match.group(1)) - 2
-        legs = reference.get("legs", [])
-        if 0 <= taught_leg_index < len(legs) and isinstance(legs[taught_leg_index], dict):
-            return legs[taught_leg_index]
+    ):
+        return None
+    step_direction = normalize_xz(target_direction_xz(start, end))
+    if step_direction is None:
+        return None
+    step_heading_deg = math.degrees(math.atan2(step_direction[2], step_direction[0]))
+    for leg in reference.get("legs", []):
+        if not isinstance(leg, dict):
+            continue
+        try:
+            from_point = int(leg.get("from_point"))
+            to_point = int(leg.get("to_point"))
+            taught_heading_deg = float(leg.get("expected_heading_deg"))
+        except (TypeError, ValueError):
+            continue
+        heading_error_deg = abs(
+            ((step_heading_deg - taught_heading_deg + 180.0) % 360.0) - 180.0
+        )
+        if from_point == 3 and to_point == 4 and heading_error_deg <= 8.0:
+            return leg
     return None
 
 
@@ -557,6 +1754,139 @@ def is_guarded_point_three_to_four_turn(leg: dict[str, Any] | None) -> bool:
         return int(leg.get("from_point")) == 3 and int(leg.get("to_point")) == 4
     except (TypeError, ValueError):
         return False
+
+
+def is_point_two_to_three_leg(leg: dict[str, Any] | None) -> bool:
+    """Identify the turn whose optical yaw over-count/under-count can oscillate."""
+    if not isinstance(leg, dict):
+        return False
+    try:
+        return int(leg.get("from_point")) == 2 and int(leg.get("to_point")) == 3
+    except (TypeError, ValueError):
+        return False
+
+
+def is_point_four_to_one_leg(leg: dict[str, Any] | None) -> bool:
+    """Identify the return leg whose turn must start from measured Point 4."""
+    if not isinstance(leg, dict):
+        return False
+    try:
+        return int(leg.get("from_point")) == 4 and int(leg.get("to_point")) == 1
+    except (TypeError, ValueError):
+        return False
+
+
+def taught_turn_requires_recorded_departure_view(
+    leg: dict[str, Any] | None,
+) -> bool:
+    """Reserve the newer absolute image-heading gate for Point 4 -> Point 1.
+
+    Live ATLAS 11:57:36 reached Point 4 using the older optical/TSolve turn
+    path at Point 2 -> 3 and Point 3 -> 4.  Adding mandatory recorded-view
+    acquisition to those already-proven corners created long yaw sequences,
+    then a circular wait for a fresh metric position before 3 -> 4 could
+    depart.  Restore the successful pre-Point-4 behavior there.  Point 4 -> 1
+    remains guarded because that is the first unfinished part of the saved
+    run and still needs an absolute departure reference.
+    """
+    return is_point_four_to_one_leg(leg)
+
+
+def taught_leg_requires_precise_arrival(leg: dict[str, Any] | None) -> bool:
+    """Every recorded-loop endpoint must be reached before the next turn."""
+    if not isinstance(leg, dict):
+        return False
+    try:
+        return (
+            int(leg.get("from_point")) in {1, 2, 3, 4}
+            and int(leg.get("to_point")) in {1, 2, 3, 4}
+        )
+    except (TypeError, ValueError):
+        return False
+
+
+def taught_endpoint_arrival_verified(
+    pose: dict[str, Any] | None,
+    *,
+    expected_leg_index: int | None,
+) -> bool:
+    """Require progress-independent baseline evidence at a taught waypoint."""
+    if (
+        not isinstance(pose, dict)
+        or pose.get("route_visual_endpoint_verified") is not True
+        or pose.get("route_visual_endpoint_view_geometry_verified") is not True
+    ):
+        return False
+    try:
+        observed_leg = int(pose.get("route_visual_monitor_leg_index") or 0)
+        expected_leg = int(expected_leg_index or 0)
+        hits = int(pose.get("route_visual_endpoint_hits") or 0)
+        required_hits = max(
+            2, int(pose.get("route_visual_endpoint_required_hits") or 0)
+        )
+        best_progress = float(pose.get("route_visual_endpoint_best_progress"))
+        best_inliers = int(pose.get("route_visual_endpoint_best_inliers") or 0)
+        minimum_inliers = max(
+            72, int(pose.get("route_visual_endpoint_minimum_inliers") or 0)
+        )
+    except (TypeError, ValueError):
+        return False
+    return bool(
+        expected_leg in {1, 2, 3, 4}
+        and observed_leg == expected_leg
+        and hits >= required_hits
+        and best_progress >= 0.90
+        and best_inliers >= minimum_inliers
+    )
+
+
+def taught_endpoint_stale_translation_arrival_verified(
+    pose: dict[str, Any] | None,
+    *,
+    expected_leg_index: int | None,
+) -> bool:
+    """Accept a taught endpoint when metric translation is visibly stale.
+
+    This is deliberately stricter than the ordinary endpoint gate.  It is
+    used only to *stop* an active translation leg; it never authorizes another
+    movement pulse.  Requiring a strong current endpoint candidate as well as
+    the repeated whole-leg consensus prevents an old best match from skipping
+    a waypoint when TSolve and the independently pinned patrol imagery differ.
+    """
+    if not taught_endpoint_arrival_verified(
+        pose,
+        expected_leg_index=expected_leg_index,
+    ):
+        return False
+    if not isinstance(pose, dict):
+        return False
+    if pose.get("route_visual_monitor_verified") is not True:
+        return False
+    if pose.get("route_visual_endpoint_checked") is not True:
+        return False
+    if pose.get("rotation_position_locked") is True:
+        return False
+    if pose.get("translation_allowed") is False:
+        return False
+    try:
+        candidate_progress = float(
+            pose.get("route_visual_endpoint_candidate_progress")
+        )
+        best_progress = float(pose.get("route_visual_endpoint_best_progress"))
+        best_inliers = int(pose.get("route_visual_endpoint_best_inliers") or 0)
+        minimum_inliers = max(
+            90,
+            int(pose.get("route_visual_endpoint_minimum_inliers") or 0),
+        )
+    except (TypeError, ValueError):
+        return False
+    return bool(
+        math.isfinite(candidate_progress)
+        and math.isfinite(best_progress)
+        and candidate_progress >= 0.90
+        and best_progress >= 0.95
+        and best_inliers >= minimum_inliers
+    )
 
 
 def yaw_direction_for_angle(angle: float, override: str | None = None) -> float:
@@ -593,6 +1923,58 @@ def pose_gate_position(gate: dict[str, Any] | None) -> list[float] | None:
     return position
 
 
+def pose_gate_has_fresh_metric_position(gate: dict[str, Any] | None) -> bool:
+    """Return whether the gate contains a current metric TSolve/COLMAP pose.
+
+    A verified patrol-image match is useful for bounded route recovery, but it
+    intentionally has no map-space ``R``/``t``.  It must therefore not carry a
+    completed lap straight into another lap as if metric tracking were still
+    healthy.  Likewise, a recent fallback to an older accepted pose is safe for
+    hover/yaw but is not a fresh position measurement.
+    """
+    if not isinstance(gate, dict) or gate.get("ok") is not True:
+        return False
+    if gate.get("recent_hold_fallback") or gate.get("rotation_handoff_hold"):
+        return False
+    pose = gate.get("pose")
+    if not isinstance(pose, dict):
+        return False
+    if pose.get("pose_source") in {
+        "patrol_visual_route_recovery",
+        "verified_endpoint_turn_departure",
+    }:
+        return False
+    if (
+        pose_gate_position(gate) is None
+        or vector3(pose.get("center")) is None
+        or vector3(pose.get("t")) is None
+    ):
+        return False
+    rotation = pose.get("R")
+    if not isinstance(rotation, (list, tuple)) or len(rotation) != 3:
+        return False
+    try:
+        rotation_values = [
+            float(value)
+            for row in rotation
+            for value in (row if isinstance(row, (list, tuple)) else [])
+        ]
+    except (TypeError, ValueError):
+        return False
+    return len(rotation_values) == 9 and all(math.isfinite(value) for value in rotation_values)
+
+
+def pose_gate_rotation_locked(gate: dict[str, Any] | None) -> bool:
+    """Whether a fresh pose is safe for yaw/hover but not translation."""
+    pose = gate.get("pose") if isinstance(gate, dict) else None
+    if not isinstance(pose, dict):
+        return False
+    return bool(
+        pose.get("rotation_position_locked")
+        or pose.get("translation_allowed") is False
+    )
+
+
 def step_target_position(step: dict[str, Any]) -> list[float] | None:
     return vector3(step.get("to")) or vector3(step.get("at"))
 
@@ -601,6 +1983,64 @@ def horizontal_xz_distance(a: list[float] | None, b: list[float] | None) -> floa
     if not a or not b:
         return None
     return ((a[0] - b[0]) ** 2 + (a[2] - b[2]) ** 2) ** 0.5
+
+
+def published_position_advanced_toward_target(
+    before: list[float] | None,
+    after: list[float] | None,
+    target: list[float] | None,
+    *,
+    minimum_improvement: float = 0.015,
+) -> bool:
+    """Require visible room-position progress after a translation pulse."""
+    before_distance = horizontal_xz_distance(before, target)
+    after_distance = horizontal_xz_distance(after, target)
+    return bool(
+        before_distance is not None
+        and after_distance is not None
+        and after_distance <= before_distance - max(0.005, float(minimum_improvement))
+    )
+
+
+def patrol_translation_pulse_progress_issue(
+    before: list[float] | None,
+    after: list[float] | None,
+    target: list[float] | None,
+    *,
+    got_new_pose: bool,
+    maximum_pose_step: float,
+    minimum_improvement: float = 0.015,
+) -> str | None:
+    """Require one trustworthy room-position result for every patrol pulse.
+
+    The DJI bridge is sequential: execute_rc_pulse() always neutralizes the
+    aircraft before this check runs.  Returning an issue therefore keeps the
+    aircraft in neutral-hover recovery and, critically, prevents a second
+    translation pulse from being issued against a frozen displayed pose.
+    """
+    if not got_new_pose:
+        return "no newly processed localization result followed the translation pulse"
+    if before is None or after is None or target is None:
+        return "translation pulse has no complete before/after room position"
+    pose_step = horizontal_xz_distance(before, after)
+    if pose_step is None or not math.isfinite(pose_step):
+        return "translation pulse produced an invalid room-position step"
+    if pose_step > max(0.05, float(maximum_pose_step)):
+        return (
+            f"translation pulse produced a {pose_step:.3f}m pose jump "
+            f"(limit {maximum_pose_step:.3f}m)"
+        )
+    if not published_position_advanced_toward_target(
+        before,
+        after,
+        target,
+        minimum_improvement=minimum_improvement,
+    ):
+        return (
+            "new localization did not advance the published room position "
+            "after one translation pulse"
+        )
+    return None
 
 
 def horizontal_xz_segment_distance(
@@ -620,6 +2060,324 @@ def horizontal_xz_segment_distance(
         return math.hypot(px - sx, pz - sz)
     projection = max(0.0, min(1.0, ((px - sx) * dx + (pz - sz) * dz) / length_sq))
     return math.hypot(px - (sx + projection * dx), pz - (sz + projection * dz))
+
+
+def route_segment_progress_xz(
+    point: list[float] | None,
+    start: list[float] | None,
+    end: list[float] | None,
+) -> float | None:
+    if point is None or start is None or end is None:
+        return None
+    dx = float(end[0]) - float(start[0])
+    dz = float(end[2]) - float(start[2])
+    length_sq = dx * dx + dz * dz
+    if length_sq <= 1e-12:
+        return None
+    return (
+        (float(point[0]) - float(start[0])) * dx
+        + (float(point[2]) - float(start[2])) * dz
+    ) / length_sq
+
+
+def patrol_endpoint_overshoot_distance(
+    point: list[float] | None,
+    segment_start: list[float] | None,
+    segment_end: list[float] | None,
+) -> float | None:
+    """Return signed-route distance beyond the active endpoint, if any."""
+    progress = route_segment_progress_xz(point, segment_start, segment_end)
+    if progress is None or segment_start is None or segment_end is None:
+        return None
+    leg_length = horizontal_xz_distance(segment_start, segment_end)
+    if leg_length is None or leg_length <= 1e-9:
+        return None
+    return max(0.0, (float(progress) - 1.0) * leg_length)
+
+
+def patrol_route_pose_rejection(
+    candidate: list[float] | None,
+    *,
+    segment_start: list[float] | None,
+    segment_end: list[float] | None,
+    previous_progress: float | None,
+    translation_locked: bool,
+    position_anchor: list[float] | None,
+    max_cross_track: float,
+    backward_tolerance: float = 0.045,
+    turn_max_drift: float = 0.16,
+    endpoint_overshoot_correction: bool = False,
+) -> tuple[str | None, float | None]:
+    """Second, command-side defense against off-route/backward poses."""
+    if candidate is None or segment_start is None or segment_end is None:
+        return None, previous_progress
+    guarded_candidate = candidate
+    if translation_locked:
+        anchor = position_anchor or segment_start
+        drift = horizontal_xz_distance(candidate, anchor)
+        if drift is not None and drift > max(0.05, float(turn_max_drift)):
+            return (
+                f"route turn position drift {drift:.3f}m exceeds {turn_max_drift:.3f}m",
+                previous_progress,
+            )
+        # A yaw-only command cannot translate the drone.  The localizer-side
+        # route gate already evaluates progress at this fixed command anchor;
+        # the duplicate bridge gate must do the same.  Using the raw TSolve
+        # candidate here turned ordinary monocular yaw drift into a false
+        # backward-progress abort immediately after takeoff.
+        guarded_candidate = anchor
+    cross_track = horizontal_xz_segment_distance(
+        guarded_candidate,
+        segment_start,
+        segment_end,
+    )
+    if cross_track is not None and cross_track > max(0.10, float(max_cross_track)):
+        return (
+            f"route cross-track error {cross_track:.3f}m exceeds {max_cross_track:.3f}m",
+            previous_progress,
+        )
+    progress = route_segment_progress_xz(
+        guarded_candidate,
+        segment_start,
+        segment_end,
+    )
+    if progress is None:
+        return "route progress is unavailable", previous_progress
+    endpoint_rollback = bool(
+        endpoint_overshoot_correction
+        and not translation_locked
+        and previous_progress is not None
+        and float(previous_progress) >= 0.90
+        and 0.90 <= progress <= 1.20
+        and progress
+        <= float(previous_progress) + max(0.0, float(backward_tolerance))
+    )
+    if (
+        previous_progress is not None
+        and progress
+        < previous_progress - max(0.0, float(backward_tolerance))
+        and not endpoint_rollback
+    ):
+        return (
+            f"route progress moved backward ({progress:.3f} < {previous_progress - backward_tolerance:.3f})",
+            previous_progress,
+        )
+    if progress < -0.16 or progress > 1.20:
+        return f"route progress {progress:.3f} is outside the active segment", previous_progress
+    accepted_progress = (
+        progress
+        if previous_progress is None or endpoint_rollback
+        else max(previous_progress, progress)
+    )
+    return None, accepted_progress
+
+
+def patrol_visual_recovery_reconciliation_ready(
+    pose: dict[str, Any] | None,
+    *,
+    previous_progress: float | None,
+    candidate_progress: float | None,
+    state: dict[str, Any],
+    required_observations: int = 3,
+    max_progress_rollback: float = 0.08,
+    max_progress_jitter: float = 0.012,
+) -> bool:
+    """Confirm a small stale-progress correction from the pinned visual route.
+
+    The monotonic gate normally refuses every backwards pose. During a neutral
+    recovery hover that can deadlock when the controller is slightly ahead of
+    a strong, repeated baseline match: the drone cannot move until the pose is
+    accepted, and the pose cannot advance while the drone is held. Only the
+    caller decides whether the aircraft is in that neutral recovery state.
+    This helper verifies that the replacement itself is independently strong,
+    repeated, and bounded; it never applies to an ordinary TSolve pose.
+    """
+    def reset() -> bool:
+        state.clear()
+        return False
+
+    if not isinstance(pose, dict) or pose.get("pose_source") != "patrol_visual_route_recovery":
+        return reset()
+    if pose.get("route_visual_verified") is not True:
+        return reset()
+    if pose.get("route_visual_monitor_verified") is not True:
+        return reset()
+    if pose.get("rotation_position_locked") is True or pose.get("translation_allowed") is False:
+        return reset()
+    try:
+        previous = float(previous_progress)
+        candidate = float(candidate_progress)
+        visual_progress = float(pose.get("route_visual_progress"))
+        monitor_progress = float(pose.get("route_visual_monitor_progress"))
+        inliers = int(pose.get("route_visual_inliers") or 0)
+        monitor_inliers = int(pose.get("route_visual_monitor_inliers") or 0)
+        minimum = max(
+            120,
+            int(pose.get("route_visual_minimum_inliers") or 0),
+            int(pose.get("route_visual_monitor_minimum_inliers") or 0),
+        )
+        acquisition_hits = int(pose.get("route_visual_acquisition_hits") or 0)
+    except (TypeError, ValueError):
+        return reset()
+    if not all(math.isfinite(value) for value in (previous, candidate, visual_progress, monitor_progress)):
+        return reset()
+    rollback = previous - candidate
+    if rollback <= 0.045 or rollback > max(0.045, float(max_progress_rollback)):
+        return reset()
+    if abs(visual_progress - candidate) > 0.005 or abs(monitor_progress - candidate) > 0.005:
+        return reset()
+    if inliers < minimum or monitor_inliers < minimum or acquisition_hits < 2:
+        return reset()
+
+    instance_id = str(pose.get("instance_id") or "")
+    if not instance_id or instance_id == state.get("last_instance_id"):
+        return False
+    prior_candidate = state.get("candidate_progress")
+    try:
+        stable = prior_candidate is not None and abs(float(prior_candidate) - candidate) <= max_progress_jitter
+    except (TypeError, ValueError):
+        stable = False
+    state["streak"] = int(state.get("streak") or 0) + 1 if stable else 1
+    state["candidate_progress"] = candidate
+    state["last_instance_id"] = instance_id
+    if state["streak"] < max(2, int(required_observations)):
+        return False
+    state.clear()
+    return True
+
+
+def patrol_visual_translation_resume_ready(pose: dict[str, Any] | None) -> bool:
+    """Authorize only a bounded next pulse from a strong pinned-route match.
+
+    This does not declare metric relocalization or authorize continuous
+    flight. It lets the cruise loop leave neutral recovery for at most its
+    normal three tiny pulses, after which live route progress is checked again.
+    """
+    if not isinstance(pose, dict):
+        return False
+    if pose.get("pose_source") != "patrol_visual_route_recovery":
+        return False
+    if pose.get("route_visual_verified") is not True:
+        return False
+    if pose.get("route_visual_monitor_verified") is not True:
+        return False
+    if pose.get("route_visual_translation_safe") is not True:
+        return False
+    if pose.get("rotation_position_locked") is True or pose.get("translation_allowed") is False:
+        return False
+    # Weak endpoint consensus may declare arrival while hovering, but it must
+    # never authorize departure from an intermediate location.
+    if pose.get("route_visual_weak_endpoint_recovery") is True:
+        return False
+    try:
+        progress = float(pose.get("route_visual_progress"))
+        monitor_progress = float(pose.get("route_visual_monitor_progress"))
+        inliers = int(pose.get("route_visual_inliers") or 0)
+        monitor_inliers = int(pose.get("route_visual_monitor_inliers") or 0)
+        temporal_recovery = bool(
+            pose.get("route_visual_temporal_recovery") is True
+        )
+        minimum = max(
+            90 if temporal_recovery else 120,
+            int(pose.get("route_visual_minimum_inliers") or 0),
+            int(pose.get("route_visual_monitor_minimum_inliers") or 0),
+        )
+        acquisition_hits = int(pose.get("route_visual_acquisition_hits") or 0)
+        required_hits = (
+            max(
+                5,
+                int(
+                    pose.get("route_visual_temporal_recovery_required_hits")
+                    or 0
+                ),
+            )
+            if temporal_recovery
+            else 2
+        )
+    except (TypeError, ValueError):
+        return False
+    return bool(
+        math.isfinite(progress)
+        and math.isfinite(monitor_progress)
+        and 0.0 <= progress <= 1.0
+        and abs(progress - monitor_progress) <= 0.01
+        and inliers >= minimum
+        and monitor_inliers >= minimum
+        and acquisition_hits >= required_hits
+    )
+
+
+def patrol_visual_stationary_retry_ready(
+    pose: dict[str, Any] | None,
+    *,
+    retry_available: bool,
+    observed_translation_progress: bool,
+) -> bool:
+    """Permit one low-stick retry from strong live route-image consensus.
+
+    This helper never authorizes an unbounded cruise. The caller consumes the
+    retry before returning to physical control and does not replenish it until
+    ATLAS observes at least 1.5 cm of progress toward the target. That breaks
+    the Point-3 hover deadlock without allowing repeated commands from a frozen
+    model position.
+    """
+    return bool(
+        retry_available
+        and not observed_translation_progress
+        and patrol_visual_translation_resume_ready(pose)
+    )
+
+
+def advance_route_command_progress_ceiling(
+    current_ceiling: float | None,
+    trusted_progress: float | None,
+    command_progress_budget: float,
+) -> float:
+    """Accumulate every real horizontal command's unresolved route budget.
+
+    The published pose can lag the aircraft by more than one RC command.  A
+    new command must therefore extend the existing physical envelope, not
+    replace it with ``published_progress + one_command``.  Replacing the
+    envelope made three Point-2 -> Point-3 commands advertise only 0.287 m of
+    possible travel instead of the commanded 0.54 m, excluding the real live
+    frames from visual relocalization.
+
+    This function is called only for a horizontal command that has passed the
+    command-side pose and geofence gates.  Yaw and neutral hover never call it
+    and therefore never gain translation budget.
+    """
+    bases = [
+        float(value)
+        for value in (current_ceiling, trusted_progress)
+        if isinstance(value, (int, float)) and math.isfinite(float(value))
+    ]
+    base = max(bases or [0.0])
+    try:
+        budget = float(command_progress_budget)
+    except (TypeError, ValueError):
+        budget = 0.0
+    if not math.isfinite(budget):
+        budget = 0.0
+    return min(1.0, max(0.0, base) + max(0.0, budget))
+
+
+def patrol_visual_yaw_anchor_ready(gate: dict[str, Any] | None) -> bool:
+    """Whether one fresh route pose can safely anchor the next in-place yaw.
+
+    A verified full-loop match is an absolute observation of the current
+    recorded route location, so it does not need two additional TSolve samples
+    before rotation.  Held/fallback or still-reconciling visual poses remain
+    ineligible and continue through the normal settle loop.
+    """
+    if not isinstance(gate, dict) or gate.get("ok") is not True:
+        return False
+    if gate.get("recent_hold_fallback") is True:
+        return False
+    pose = gate.get("pose")
+    return bool(
+        patrol_visual_translation_resume_ready(pose)
+        and pose_gate_position(gate) is not None
+    )
 
 
 def point_in_xz_polygon(point: list[float], polygon: list[list[float]]) -> bool:
@@ -720,10 +2478,91 @@ def pursuit_geofence_issue(
     return None
 
 
-def mission_step_sequence(commands: list[Any], patrol_loop: bool):
-    """Yield stable command indexes once, or continuously for a patrol loop."""
-    indexed = enumerate(commands)
-    return itertools.cycle(indexed) if patrol_loop else indexed
+def mission_step_sequence(
+    commands: list[Any],
+    patrol_loop: bool,
+    patrol_laps: int | None = None,
+    loop_start_index: int = 0,
+):
+    """Yield the one-time entry prefix, then the patrol body by lap.
+
+    Browser patrol plans include a current-position -> point-1 entry leg before
+    the closed point-1 -> ... -> point-1 loop.  Repeating the whole packet would
+    incorrectly replay that entry leg between circles.
+    """
+    if not patrol_loop:
+        return iter(enumerate(commands))
+    start = max(0, min(len(commands), int(loop_start_index)))
+    if start >= len(commands):
+        start = 0
+    prefix = tuple(enumerate(commands[:start]))
+    loop_body = tuple((index, commands[index]) for index in range(start, len(commands)))
+    if patrol_laps is None or int(patrol_laps) <= 0:
+        return itertools.chain(prefix, itertools.cycle(loop_body))
+    return itertools.chain(
+        prefix,
+        (
+            (index, command)
+            for _lap in range(int(patrol_laps))
+            for index, command in loop_body
+        ),
+    )
+
+
+def patrol_loop_start_command_index(
+    commands: list[Any],
+    taught_reference: dict[str, Any] | None,
+) -> int:
+    """Find the first actual circle leg (point 1 -> point 2)."""
+    def include_leg_yaw(cruise_index: int) -> int:
+        # A repeated lap must turn from the final 4->1 heading back toward
+        # 1->2 before translating. Connected packets place that yaw directly
+        # before the first loop cruise, after the one-time entry prefix.
+        previous = cruise_index - 1
+        if previous >= 0 and isinstance(commands[previous], dict):
+            if str(commands[previous].get("type") or "").strip().lower() == "yaw":
+                return previous
+        return cruise_index
+
+    cruise_steps = [
+        step
+        for step in commands
+        if isinstance(step, dict) and str(step.get("type") or "").strip().lower() == "cruise"
+    ]
+    reference_leg_count = len(taught_reference.get("legs") or []) if isinstance(taught_reference, dict) else 0
+    first_cruise_leg: dict[str, Any] | None = None
+    if cruise_steps:
+        first_cruise_leg = taught_leg_for_step(taught_reference, cruise_steps[0])
+    if (
+        first_cruise_leg is not None
+        and reference_leg_count > 0
+        and len(cruise_steps) <= reference_leg_count
+    ):
+        # The packet already begins on the closed circle (the fleet controller
+        # can rotate the circle to the nearest waypoint). Repeat it as-is.
+        return 0
+    for index, step in enumerate(commands):
+        if not isinstance(step, dict) or str(step.get("type") or "").strip().lower() != "cruise":
+            continue
+        leg = taught_leg_for_step(taught_reference, step)
+        if not isinstance(leg, dict):
+            continue
+        try:
+            if int(leg.get("from_point")) == 1 and int(leg.get("to_point")) == 2:
+                return include_leg_yaw(index)
+        except (TypeError, ValueError):
+            continue
+    # Current ATLAS route packets call the entry "Patrol cruise 1" and the
+    # first closed-loop leg "Patrol cruise 2". Keep this only as a packet-shape
+    # fallback; endpoint matching above remains authoritative.
+    for index, step in enumerate(commands):
+        if isinstance(step, dict) and re.fullmatch(
+            r"\s*Patrol cruise\s+2\s*",
+            str(step.get("title") or ""),
+            re.IGNORECASE,
+        ):
+            return include_leg_yaw(index)
+    return 0
 
 
 def bounded_pose_step_limit(
@@ -787,7 +2626,11 @@ def observed_motion_axis(
     dx = float(after[0]) - float(before[0])
     dz = float(after[2]) - float(before[2])
     norm = math.hypot(dx, dz)
-    if not math.isfinite(norm) or norm < min_delta:
+    # A probe may explicitly ask to observe sub-threshold motion with
+    # ``min_delta=0``. A fresh localization frame can still contain the exact
+    # same position while the aircraft has not begun moving. Never normalize
+    # that zero vector; report that no body axis was measured instead.
+    if not math.isfinite(norm) or norm <= max(1e-9, float(min_delta)):
         return None, norm
     return [dx / norm, 0.0, dz / norm], norm
 
@@ -818,10 +2661,59 @@ def signed_angle_xz(from_heading: list[float] | None, to_direction: list[float] 
     return math.atan2(cross, dot)
 
 
+def heading_calibration_error_degrees(
+    camera_heading: list[float] | None,
+    measured_forward: list[float] | None,
+    expected_offset_deg: float,
+) -> float | None:
+    """Return disagreement between a measured body axis and fixed camera mounting."""
+    expected_forward = rotate_xz(camera_heading, math.radians(float(expected_offset_deg)))
+    error = signed_angle_xz(expected_forward, measured_forward)
+    if error is None or not math.isfinite(error):
+        return None
+    return abs(math.degrees(error))
+
+
+def yaw_response_is_reversed(
+    expected_heading_sign: float,
+    before_heading: list[float] | None,
+    after_heading: list[float] | None,
+    *,
+    minimum_delta_deg: float = 1.0,
+) -> bool | None:
+    """Classify a fresh yaw response without relying on target-distance changes."""
+    observed_delta = signed_angle_xz(before_heading, after_heading)
+    if (
+        observed_delta is None
+        or abs(float(expected_heading_sign)) <= 0.5
+        or abs(observed_delta) < math.radians(max(0.1, float(minimum_delta_deg)))
+    ):
+        return None
+    return observed_delta * float(expected_heading_sign) < 0.0
+
+
 def target_direction_xz(current: list[float] | None, target: list[float] | None) -> list[float] | None:
     if current is None or target is None:
         return None
     return [target[0] - current[0], 0.0, target[2] - current[2]]
+
+
+def patrol_navigation_direction_xz(
+    current: list[float] | None,
+    target: list[float] | None,
+    *,
+    endpoint_heading: list[float] | None = None,
+) -> list[float] | None:
+    """Keep yaw control usable when TSolve is already exactly at a waypoint.
+
+    A zero target vector means that translation is complete, not that the pose
+    is unusable.  During endpoint image alignment, fall back to the verified
+    route heading so the controller can finish yaw with forward stick locked.
+    """
+    target_direction = normalize_xz(target_direction_xz(current, target))
+    if target_direction is not None:
+        return target_direction
+    return normalize_xz(endpoint_heading)
 
 
 def vertical_rc_toward(current: list[float] | None, target: list[float] | None, max_vertical_rc: float) -> float:
@@ -833,10 +2725,169 @@ def vertical_rc_toward(current: list[float] | None, target: list[float] | None, 
     return max(-max_vertical_rc, min(max_vertical_rc, error * 0.028))
 
 
-def neutral_hover(drone: Any, seconds: float = 0.10) -> None:
-    drone.move(0.0, 0.0, 0.0, 0.0, True)
+def _rc_command(rcw: float, du: float, lr: float, bf: float) -> str:
+    return (
+        f"rc {max(-1.0, min(1.0, float(rcw))):.4f} "
+        f"{max(-1.0, min(1.0, float(du))):.2f} "
+        f"{max(-1.0, min(1.0, float(lr))):.2f} "
+        f"{max(-1.0, min(1.0, float(bf))):.2f}"
+    )
+
+
+def _control_ack_success(response: Any) -> bool:
+    return str(response or "").strip().lower() == "success"
+
+
+def _send_rc_with_bounded_ack(
+    drone: Any,
+    *,
+    rcw: float,
+    du: float,
+    lr: float,
+    bf: float,
+    timeout_seconds: float = CONTROL_NEUTRAL_ACK_TIMEOUT_SECONDS,
+) -> str | None:
+    """Send one RC state and bound how long confirmation may block.
+
+    OpenDJI's public ``move(..., True)`` waits on its response queue without a
+    working timeout.  The live bridge owns the control worker, so it can safely
+    use the same socket and receiver queue while applying a real timeout.  A
+    minimal fallback keeps unit-test and alternate drone adapters compatible.
+    """
+    control_socket = getattr(drone, "_socket_control", None)
+    background = getattr(drone, "_background_control_messages", None)
+    response_queue = getattr(background, "_queue", None)
+    if control_socket is None or response_queue is None:
+        response = drone.move(float(rcw), float(du), float(lr), float(bf), True)
+        if response is not None and not _control_ack_success(response):
+            raise RuntimeError(f"DJI rejected RC command: {response}")
+        return response
+
+    command = _rc_command(rcw, du, lr, bf)
+    control_socket.sendall(bytes(command + "\r\n", "utf-8"))
+    try:
+        response = response_queue.get(
+            block=True,
+            timeout=max(0.05, float(timeout_seconds)),
+        )
+    except queue.Empty as exc:
+        raise TimeoutError(
+            f"DJI control acknowledgement timed out after {float(timeout_seconds):.2f}s"
+        ) from exc
+    if not _control_ack_success(response):
+        raise RuntimeError(f"DJI rejected RC command: {response}")
+    return str(response)
+
+
+def _recv_control_ack(sock: Any, *, maximum_bytes: int = 4096) -> str:
+    received = bytearray()
+    while b"\r\n" not in received and len(received) < maximum_bytes:
+        chunk = sock.recv(min(1024, maximum_bytes - len(received)))
+        if not chunk:
+            raise ConnectionError("DJI control socket closed before neutral acknowledgement")
+        received.extend(chunk)
+    if b"\r\n" not in received:
+        raise RuntimeError("DJI control acknowledgement exceeded its bounded response size")
+    return bytes(received).split(b"\r\n", 1)[0].decode("utf-8", errors="replace")
+
+
+def reconnect_control_and_confirm_neutral(
+    drone: Any,
+    *,
+    attempts: int = CONTROL_RECONNECT_ATTEMPTS,
+    timeout_seconds: float = CONTROL_RECONNECT_TIMEOUT_SECONDS,
+) -> dict[str, Any]:
+    """Replace only OpenDJI's failed control channel and confirm zero sticks.
+
+    Video and telemetry use separate sockets and remain alive.  Neutral is sent
+    directly before a new background reader is installed so its acknowledgement
+    cannot be consumed by a stale response queue.
+    """
+    old_socket = getattr(drone, "_socket_control", None)
+    old_background = getattr(drone, "_background_control_messages", None)
+    background_type = type(old_background) if old_background is not None else None
+    host = getattr(drone, "host_address", None)
+    port = getattr(drone, "PORT_CONTROL", None)
+    if not host or port is None or background_type is None:
+        raise ControlLinkSafetyError(
+            "DJI neutral command failed and this control adapter cannot reconnect safely.",
+            neutral_confirmed=False,
+            control_link_recovered=False,
+        )
+
+    if old_background is not None:
+        try:
+            old_background.stop(timeout=0.20)
+        except Exception:
+            try:
+                if old_socket is not None:
+                    old_socket.close()
+            except Exception:
+                pass
+    elif old_socket is not None:
+        try:
+            old_socket.close()
+        except Exception:
+            pass
+
+    last_error: Exception | None = None
+    for attempt in range(1, max(1, int(attempts)) + 1):
+        replacement = None
+        try:
+            replacement = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            replacement.settimeout(max(0.10, float(timeout_seconds)))
+            replacement.connect((str(host), int(port)))
+            replacement.sendall(b"rc 0.0000 0.00 0.00 0.00\r\n")
+            acknowledgement = _recv_control_ack(replacement)
+            if not _control_ack_success(acknowledgement):
+                raise RuntimeError(f"DJI rejected recovered neutral command: {acknowledgement}")
+            replacement.settimeout(None)
+            new_background = background_type(replacement)
+            drone._socket_control = replacement
+            drone._background_control_messages = new_background
+            return {
+                "neutral_confirmed": True,
+                "control_link_recovered": True,
+                "reconnect_attempt": attempt,
+                "acknowledgement": acknowledgement,
+            }
+        except Exception as exc:
+            last_error = exc
+            if replacement is not None:
+                try:
+                    replacement.close()
+                except Exception:
+                    pass
+            if attempt < max(1, int(attempts)):
+                time.sleep(0.08)
+
+    raise ControlLinkSafetyError(
+        "DJI control link failed and ATLAS could not confirm neutral sticks after "
+        f"{max(1, int(attempts))} reconnect attempts: {last_error}",
+        neutral_confirmed=False,
+        control_link_recovered=False,
+    ) from last_error
+
+
+def neutral_hover(drone: Any, seconds: float = 0.10) -> dict[str, Any]:
+    try:
+        acknowledgement = _send_rc_with_bounded_ack(
+            drone,
+            rcw=0.0,
+            du=0.0,
+            lr=0.0,
+            bf=0.0,
+        )
+        result = {
+            "neutral_confirmed": True,
+            "control_link_recovered": False,
+            "acknowledgement": acknowledgement,
+        }
+    except Exception:
+        result = reconnect_control_and_confirm_neutral(drone)
     if seconds > 0:
         time.sleep(seconds)
+    return result
 
 
 def execute_rc_pulse(
@@ -857,9 +2908,44 @@ def execute_rc_pulse(
         "bf_forward": round(float(bf), 2),
         "seconds": round(max(0.05, float(seconds)), 3),
     }
-    drone.move(float(yaw), float(du), float(lr), float(bf), False)
+    try:
+        _send_rc_with_bounded_ack(
+            drone,
+            rcw=float(yaw),
+            du=float(du),
+            lr=float(lr),
+            bf=float(bf),
+        )
+    except Exception as command_error:
+        try:
+            neutral_result = neutral_hover(drone, 0.03)
+        except ControlLinkSafetyError:
+            raise
+        sent.update(
+            {
+                "motion_command_acknowledged": False,
+                "motion_outcome_uncertain": True,
+                "neutral_confirmed": True,
+                "control_link_recovered": bool(
+                    neutral_result.get("control_link_recovered")
+                ),
+                "requires_pose_recovery": True,
+                "control_error": str(command_error),
+            }
+        )
+        return sent
     time.sleep(max(0.05, float(seconds)))
-    neutral_hover(drone, 0.03)
+    neutral_result = neutral_hover(drone, 0.03)
+    if neutral_result.get("control_link_recovered"):
+        sent.update(
+            {
+                "motion_command_acknowledged": True,
+                "motion_outcome_uncertain": True,
+                "neutral_confirmed": True,
+                "control_link_recovered": True,
+                "requires_pose_recovery": True,
+            }
+        )
     return sent
 
 
@@ -1425,7 +3511,7 @@ def execute_control_command(
         result = drone.disableControl(True)
         height_guard = {"enabled": False, "reason": "not a takeoff command"}
     elif name == "hover":
-        result = drone.move(0, 0, 0, 0, True)
+        result = neutral_hover(drone, 0.0)
         height_guard = {"enabled": False, "reason": "not a takeoff command"}
     elif name == "mission":
         result = execute_guarded_mission_packet(
@@ -1529,9 +3615,44 @@ def execute_guarded_mission_packet(
         mission = dict(mission)
         mission["allow_axis_auto_calibration"] = False
         mission["allow_lateral_rc"] = False
+        # Preserve the server-owned heading verification policy.  The strong
+        # 13:17 and 14:17 runs measured body-forward with a tiny physical probe;
+        # overriding that request here caused later missions to trust an
+        # unverified 0-degree seed and react to one bad yaw observation.
         mission["pulse_seconds"] = max(old_pulse, 0.30)
         mission["axis_probe_seconds"] = max(float(mission.get("axis_probe_seconds") or 0.0), 0.55)
         mission["max_cruise_seconds"] = max(float(mission.get("max_cruise_seconds") or 0.0), 120.0)
+        if bool(mission.get("patrol")):
+            # Server and command bridge both own this safety policy.  Do not
+            # permit a cached browser mission to restore the former three-pulse
+            # blind window or stationary metric test pulses.
+            mission["one_pulse_pose_confirmation"] = True
+            mission["smooth_continuous_cruise"] = True
+            try:
+                requested_cruise_window = float(
+                    mission.get("cruise_window_seconds") or 0.55
+                )
+            except (TypeError, ValueError):
+                requested_cruise_window = 0.55
+            bounded_cruise_window = min(
+                max(requested_cruise_window, 0.45),
+                0.55,
+            )
+            if abs(bounded_cruise_window - requested_cruise_window) > 1e-6:
+                safety_overrides.append(
+                    "bounded cruise_window_seconds to a TSolve-verifiable forward increment"
+                )
+            mission["cruise_window_seconds"] = bounded_cruise_window
+            mission["cruise_pose_watchdog_seconds"] = min(
+                max(float(mission.get("cruise_pose_watchdog_seconds") or 0.0), 0.45),
+                0.75,
+            )
+            # A smaller persistent stick produces visibly smooth indoor
+            # travel and preserves optical overlap better than 0.035 bursts.
+            mission["max_forward_rc"] = min(
+                float(mission.get("max_forward_rc") or GUIDED_DEFAULT_MAX_FORWARD_RC),
+                0.024,
+            )
     pose_max_age = clamp_float(
         mission.get("pose_max_age_seconds"),
         GUIDED_DEFAULT_POSE_MAX_AGE_SECONDS,
@@ -1540,9 +3661,9 @@ def execute_guarded_mission_packet(
     )
     pose_recovery_seconds = clamp_float(
         mission.get("pose_recovery_seconds"),
-        GUIDED_DEFAULT_POSE_RECOVERY_SECONDS,
+        8.0 if bool(mission.get("patrol")) else GUIDED_DEFAULT_POSE_RECOVERY_SECONDS,
         0.5,
-        90.0,
+        8.0 if bool(mission.get("patrol")) else 90.0,
     )
     pulse_seconds = clamp_float(
         mission.get("pulse_seconds"),
@@ -1597,7 +3718,7 @@ def execute_guarded_mission_packet(
         0.25,
         6.0,
     )
-    arrival_radius = clamp_float(
+    configured_arrival_radius = clamp_float(
         mission.get("arrival_radius_map_units"),
         0.22,
         0.05,
@@ -1609,7 +3730,13 @@ def execute_guarded_mission_packet(
         0.0,
         0.35,
     )
-    soft_arrival_radius = arrival_radius + arrival_deadband
+    patrol_stage = str(mission.get("patrol_stage") or "").strip().lower()
+    arrival_radius, soft_arrival_radius = mission_arrival_radii(
+        configured_arrival_radius,
+        arrival_deadband,
+        patrol_stage=patrol_stage,
+    )
+    strict_entry_arrival = patrol_stage in {"entry", "combined"}
     max_cruise_seconds = clamp_float(
         mission.get("max_cruise_seconds"),
         max(8.0, max_step_seconds * 3.0),
@@ -1636,6 +3763,15 @@ def execute_guarded_mission_packet(
         0.0,
         -180.0,
         180.0,
+    )
+    require_physical_forward_probe = bool(mission.get("require_physical_forward_probe")) or not (
+        operator_heading_calibrated
+    )
+    max_heading_calibration_error_deg = clamp_float(
+        mission.get("max_heading_calibration_error_deg"),
+        35.0,
+        10.0,
+        60.0,
     )
     initial_pose_offset_room = vector3(mission.get("initial_pose_offset_room")) or [0.0, 0.0, 0.0]
     initial_pose_offset_room[1] = 0.0
@@ -1667,12 +3803,56 @@ def execute_guarded_mission_packet(
     )
     is_patrol = bool(mission.get("patrol"))
     patrol_loop = is_patrol and bool(mission.get("loop"))
+    continuous_relocalization = bool(
+        is_patrol and mission.get("continuous_relocalization") is not False
+    )
+    one_pulse_pose_confirmation = bool(
+        is_patrol and mission.get("one_pulse_pose_confirmation") is True
+    )
+    smooth_continuous_cruise = bool(
+        is_patrol and mission.get("smooth_continuous_cruise") is True
+    )
+    cruise_window_seconds = clamp_float(
+        mission.get("cruise_window_seconds"),
+        0.55,
+        0.45,
+        0.55,
+    )
+    cruise_pose_watchdog_seconds = clamp_float(
+        mission.get("cruise_pose_watchdog_seconds"),
+        0.65,
+        0.30,
+        1.00,
+    )
+    max_unverified_translation_m = clamp_float(
+        mission.get("max_unverified_translation_m"),
+        0.18,
+        0.05,
+        0.30,
+    )
+    try:
+        requested_patrol_laps = int(mission.get("patrol_laps") or 0)
+    except (TypeError, ValueError):
+        requested_patrol_laps = 0
+    patrol_laps = max(0, min(20, requested_patrol_laps)) if patrol_loop else 1
+    route_monotonic_gate = bool(is_patrol and mission.get("route_monotonic_gate"))
+    route_gate_max_cross_track = min(max_cross_track, 0.55)
+    route_gate_backward_tolerance = 0.045
+    route_gate_turn_max_drift = 0.16
     patrol_safety_barriers = [item for item in mission.get("safety_barriers") or [] if isinstance(item, dict)]
     patrol_safety_obstacles = [item for item in mission.get("safety_obstacles") or [] if isinstance(item, dict)]
     safety_motion_buffer = clamp_float(mission.get("safety_motion_buffer_m"), 0.30, 0.30, 1.0)
     if is_patrol and closed_wall_ring(patrol_safety_barriers) is None:
         raise RuntimeError("patrol requires a closed saved-wall geofence on the selected map")
     taught_reference = load_taught_patrol_reference(mission) if patrol_loop else None
+    verified_route_lock = (
+        load_verified_route_follow_lock(mission) if patrol_loop else None
+    )
+    patrol_loop_start = (
+        patrol_loop_start_command_index(commands, taught_reference)
+        if patrol_loop
+        else 0
+    )
 
     if not guided_enabled:
         for idx, step in enumerate(commands):
@@ -1713,13 +3893,40 @@ def execute_guarded_mission_packet(
     abort_reason: str | None = None
     control_enabled = False
     last_pose_gate: dict[str, Any] | None = None
+    active_route_segment_start: list[float] | None = None
+    active_route_segment_end: list[float] | None = None
+    total_pose_recovery_pause_seconds = 0.0
+
+    def motion_clock() -> float:
+        """Mission time excluding safe hover spent waiting for localization."""
+        return time.monotonic() - total_pose_recovery_pause_seconds
+    active_route_progress: float | None = None
+    # Route-image matching is scale tolerant, so a stationary camera can still
+    # resemble several later views on a long indoor leg.  Keep an explicit
+    # command-side ceiling: vision may publish only distance that a verified
+    # horizontal RC command could physically have produced.  Yaw and neutral
+    # hover never increase this budget.
+    active_route_command_progress_ceiling: float | None = None
+    active_route_command_sequence = 0
+    active_route_translation_locked = False
+    active_route_position_anchor: list[float] | None = None
+    active_endpoint_overshoot_correction = False
+    pose_recovery_active = False
+    route_visual_reconciliation_state: dict[str, Any] = {}
+    current_lap_number = 0
+    lap_metric_checkpoint_pending = False
     rc_summary: dict[str, Any] = {
         "open_dji_move_order": "rcw, du, lr, bf",
         "open_dji_rounding": "yaw to 4 decimals; vertical/lateral/forward to 2 decimals",
         "enable_control_result": None,
         "disable_control_result": None,
         "pulse_counts": {"yaw": 0, "forward": 0, "vertical": 0, "lateral": 0},
+        "lap_metric_checkpoints": [],
         "pulse_samples": [],
+        # Unlike the compact UI samples, this complete trace is retained in
+        # the finished per-session command record so saved camera/pose frames
+        # can be replayed against the exact physical command timeline.
+        "pulse_trace": [],
             "adaptive_axis": {
             "yaw_sign": 1.0,
             "forward_sign": 1.0,
@@ -1737,24 +3944,49 @@ def execute_guarded_mission_packet(
             "heading_trim_deg": heading_trim_deg,
             "operator_heading_calibrated": operator_heading_calibrated,
             "initial_body_heading_offset_deg": initial_body_heading_offset_deg,
+            "require_physical_forward_probe": require_physical_forward_probe,
+            "max_heading_calibration_error_deg": max_heading_calibration_error_deg,
             "initial_pose_offset_room": initial_pose_offset_room,
             "safety_overrides": safety_overrides,
             "taught_turn_reference": {
                 "enabled": taught_reference is not None,
                 "path": (
-                    f"maps/{mission.get('map_id')}/taught_patrols/{mission.get('patrol_id')}/reference.json"
+                    (
+                        f"maps/{mission.get('map_id')}/replays/{mission.get('baseline_replay_id')}/reference_candidate.json"
+                        if mission.get("baseline_replay_id")
+                        else f"maps/{mission.get('map_id')}/taught_patrols/{mission.get('patrol_id')}/reference.json"
+                    )
                     if taught_reference is not None
+                    else None
+                ),
+            },
+            "verified_route_follow": {
+                "enabled": verified_route_lock is not None,
+                "source_replay_id": (
+                    verified_route_lock.get("source_replay_id")
+                    if isinstance(verified_route_lock, dict)
+                    else None
+                ),
+                "verified_through_point": (
+                    verified_route_lock.get("verified_through_point")
+                    if isinstance(verified_route_lock, dict)
+                    else None
+                ),
+                "control_mode": (
+                    verified_route_lock.get("control_mode")
+                    if isinstance(verified_route_lock, dict)
                     else None
                 ),
             },
         }
     body_axes: dict[str, list[float] | None] = {"forward": None, "lateral": None}
-    # Visual model alignment is a useful initial estimate, but it is not proof
-    # of DJI's physical body-forward RC axis. Always verify body-forward from
-    # a small TSolve-observed probe before the first patrol translation.
+    # The camera-to-body mounting is fixed.  When the operator has aligned the
+    # live model, use that COLMAP-derived heading without moving the aircraft
+    # before the route starts.  A physical forward probe remains available as
+    # a fallback only when no operator heading calibration exists.
     calibrated_heading_offset_rad: float | None = None
     if operator_heading_calibrated:
-        rc_summary["adaptive_axis"]["mode"] = "operator_heading_seed_pending_physical_verification"
+        rc_summary["adaptive_axis"]["mode"] = "operator_heading_seed_pending_yaw_verification"
         rc_summary["adaptive_axis"]["operator_heading_seed_deg"] = initial_body_heading_offset_deg
     yaw_sign = 1.0
     forward_sign = 1.0
@@ -1768,13 +4000,48 @@ def execute_guarded_mission_packet(
         samples = rc_summary["pulse_samples"]
         if len(samples) < 16:
             samples.append({"kind": kind, **sent})
+        rc_summary["pulse_trace"].append(
+            {
+                "sequence": len(rc_summary["pulse_trace"]) + 1,
+                "recorded_unix": time.time(),
+                "lap": current_lap_number or None,
+                "kind": kind,
+                **sent,
+            }
+        )
 
     def publish_progress(payload: dict[str, Any]) -> None:
         if progress_callback is None:
             return
         try:
+            route_context = {
+                "map_id": mission.get("map_id"),
+                "patrol_id": mission.get("patrol_id"),
+                "baseline_replay_id": mission.get("baseline_replay_id"),
+                "lap": current_lap_number or None,
+                "patrol_laps": patrol_laps or None,
+            }
+            if active_route_segment_start is not None and active_route_segment_end is not None:
+                route_context.update(
+                    {
+                        "segment_start": active_route_segment_start,
+                        "target": active_route_segment_end,
+                        "translation_locked": active_route_translation_locked,
+                        "position_anchor": active_route_position_anchor,
+                        "route_progress_command_ceiling": (
+                            active_route_command_progress_ceiling
+                        ),
+                        "route_progress_command_sequence": (
+                            active_route_command_sequence
+                        ),
+                        "route_progress_command_budget_m": (
+                            max_unverified_translation_m
+                        ),
+                    }
+                )
             progress_callback(
                 {
+                    **route_context,
                     **payload,
                     "executed_pulses": executed_pulses,
                     "executed_steps": len(executed),
@@ -1794,7 +4061,14 @@ def execute_guarded_mission_packet(
             pose_gate_position(gate),
             patrol_safety_barriers,
             patrol_safety_obstacles,
-            motion_buffer_m=safety_motion_buffer,
+            # Reserve the conservative distance of the next unverified pulse.
+            # With one-pulse confirmation this is the entire unresolved physical
+            # motion budget; it can never accumulate across several commands.
+            motion_buffer_m=(
+                safety_motion_buffer + max_unverified_translation_m
+                if one_pulse_pose_confirmation
+                else safety_motion_buffer
+            ),
         )
         if issue is None:
             return True
@@ -1804,6 +4078,7 @@ def execute_guarded_mission_packet(
                 "phase": "patrol_geofence",
                 "message": abort_reason,
                 "safety_motion_buffer_m": safety_motion_buffer,
+                "max_unverified_translation_m": max_unverified_translation_m,
             }
         )
         try:
@@ -1817,39 +4092,271 @@ def execute_guarded_mission_packet(
         reason: str | None = None,
         *,
         timeout: float | None = None,
+        require_translation_safe: bool = False,
+        translation_target: list[float] | None = None,
+        translation_reference_distance: float | None = None,
+        translation_arrival_radius: float | None = None,
+        require_endpoint_verified: bool = False,
+        endpoint_leg_index: int | None = None,
+        require_observed_translation_progress: bool = False,
+        allow_visual_stationary_retry: bool = False,
+        require_metric_pose: bool = False,
     ) -> dict[str, Any] | None:
-        nonlocal abort_reason, last_pose_gate
+        nonlocal abort_reason, last_pose_gate, active_route_progress
+        nonlocal total_pose_recovery_pause_seconds
+        nonlocal active_route_translation_locked, active_route_position_anchor
+        nonlocal yaw_position_anchor
+        nonlocal pose_recovery_active
         wait_seconds = pose_recovery_seconds if timeout is None else max(0.1, float(timeout))
-        deadline = time.time() + wait_seconds
+        recovery_started = time.monotonic()
+        deadline = recovery_started + wait_seconds
         last_reason = reason or "waiting for a fresh TSolve pose"
-        while time.time() < deadline:
-            if stop_flag is not None and stop_flag.stop:
-                abort_reason = "live localization stop requested"
-                return None
-            if mission_stop_event is not None and mission_stop_event.is_set():
-                abort_reason = "emergency hover requested"
-                return None
-            gate = continuity_guarded_pose_gate()
-            if gate.get("ok") and pose_gate_position(gate) is not None:
-                last_pose_gate = gate
-                return gate
-            last_reason = str(gate.get("reason") or last_reason)
-            publish_progress(
-                {
-                    "phase": "pose_recovery",
-                    "recovery_phase": phase,
-                    "pose_gate": gate,
-                    "message": f"Hovering; waiting for TSolve recovery: {last_reason}",
-                }
+        last_recovery_gate: dict[str, Any] | None = None
+        recovery_display_anchor = pose_gate_position(last_pose_gate)
+
+        # This function issues neutral hover only.  A yaw pulse may have left
+        # both route-lock variables and the cruise loop's navigation anchor
+        # populated, but neither remains valid once online recovery is allowed
+        # to replace the held pose.  Keeping either stale anchor makes the
+        # command-side route gate classify a legitimate recovered position as
+        # impossible turn drift forever.
+        #
+        # Clearing these navigation variables does not authorize aircraft
+        # translation.  Progress continues to advertise an explicit physical
+        # movement lock, and the final RC command gate still requires verified
+        # baseline supervision before any forward/lateral pulse.
+        active_route_translation_locked = False
+        active_route_position_anchor = None
+        yaw_position_anchor = None
+        pose_recovery_active = True
+        # Continuous patrol recovery normally hovers until localization
+        # returns or the operator stops it.  An explicit timeout is different:
+        # callers use it for a bounded checkpoint/turn handoff and must regain
+        # control of the state machine when that deadline expires.
+        bounded_recovery = timeout is not None
+        try:
+            while (
+                (continuous_relocalization and not bounded_recovery)
+                or time.monotonic() < deadline
+            ):
+                if stop_flag is not None and stop_flag.stop:
+                    abort_reason = "live localization stop requested"
+                    return None
+                if mission_stop_event is not None and mission_stop_event.is_set():
+                    abort_reason = "emergency hover requested"
+                    return None
+                elapsed = time.monotonic() - recovery_started
+                publish_progress(
+                    {
+                        "phase": "pose_recovery",
+                        "recovery_phase": phase,
+                        "pose_gate": last_recovery_gate,
+                        "continuous_relocalization": continuous_relocalization,
+                        "require_metric_pose": require_metric_pose,
+                        # A metric checkpoint is a neutral hover, not a yaw
+                        # command.  Permit the localizer to publish the newly
+                        # measured raw room position instead of projecting it
+                        # back onto the old route/yaw anchor. Physical RC
+                        # translation remains locked at zero below.
+                        "metric_position_recovery_allowed": bool(
+                            require_metric_pose
+                        ),
+                        # A failed post-command observation is different from
+                        # an ordinary yaw/hover recovery: the aircraft may
+                        # already have translated inside the accumulated
+                        # command budget.  Tell the localizer it may expose a
+                        # fresh, route-constrained metric center instead of
+                        # pinning every later solve to the pre-command anchor.
+                        # The localizer still caps that recovery at the
+                        # command-progress ceiling and the bridge still
+                        # requires at least 15 mm of observed progress before
+                        # another horizontal command can be issued.
+                        "post_translation_progress_recovery": bool(
+                            require_observed_translation_progress
+                            and translation_target is not None
+                            and translation_reference_distance is not None
+                        ),
+                        "recovery_elapsed_seconds": elapsed,
+                        "translation_locked": True,
+                        # The aircraft is receiving neutral hover commands,
+                        # not yaw commands. Permit the leg-constrained visual
+                        # baseline (and a fresh COLMAP solve) to replace the
+                        # rejected pose while physical translation stays off.
+                        "route_visual_recovery_allowed": True,
+                        "position_anchor": recovery_display_anchor,
+                        "rotation_release_requested": True,
+                        "body_forward_gain": 0.0,
+                        "body_lateral_gain": 0.0,
+                        "message": (
+                            "Hovering with physical movement locked while ATLAS releases "
+                            f"the stale turn anchor and relocalizes online ({elapsed:.1f}s): "
+                            f"{last_reason}"
+                        ),
+                    }
+                )
+                neutral_hover(drone, GUIDED_RECOVERY_HOVER_SECONDS)
+                gate = continuity_guarded_pose_gate()
+                last_recovery_gate = gate
+                candidate_position = pose_gate_position(gate)
+                candidate_distance = horizontal_xz_distance(
+                    candidate_position,
+                    translation_target,
+                )
+                target_arrived = bool(
+                    candidate_distance is not None
+                    and translation_arrival_radius is not None
+                    and candidate_distance <= float(translation_arrival_radius)
+                )
+                endpoint_ready = bool(
+                    not require_endpoint_verified
+                    or taught_endpoint_arrival_verified(
+                        gate.get("pose") if isinstance(gate, dict) else None,
+                        expected_leg_index=endpoint_leg_index,
+                    )
+                )
+                visual_checkpoint_arrived = bool(
+                    endpoint_leg_index is not None
+                    and taught_endpoint_stale_translation_arrival_verified(
+                        gate.get("pose") if isinstance(gate, dict) else None,
+                        expected_leg_index=endpoint_leg_index,
+                    )
+                )
+                metric_pose_ready = pose_gate_has_fresh_metric_position(gate)
+                translation_progress_ready = True
+                visual_stationary_retry = False
+                observed_translation_delta: float | None = None
+                if (
+                    translation_target is not None
+                    and translation_reference_distance is not None
+                ):
+                    candidate_pose = gate.get("pose") if isinstance(gate, dict) else None
+                    metric_pose = bool(
+                        isinstance(candidate_pose, dict)
+                        and candidate_pose.get("pose_source")
+                        != "patrol_visual_route_recovery"
+                    )
+                    visual_bounded_resume = patrol_visual_translation_resume_ready(
+                        candidate_pose
+                    )
+                    observed_translation_progress = bool(
+                        candidate_distance is not None
+                        and candidate_distance
+                        <= float(translation_reference_distance) - 0.015
+                    )
+                    if candidate_distance is not None:
+                        observed_translation_delta = (
+                            float(translation_reference_distance)
+                            - float(candidate_distance)
+                        )
+                    visual_stationary_retry = (
+                        require_observed_translation_progress
+                        and patrol_visual_stationary_retry_ready(
+                            candidate_pose,
+                            retry_available=allow_visual_stationary_retry,
+                            observed_translation_progress=observed_translation_progress,
+                        )
+                    )
+                    translation_progress_ready = bool(
+                        target_arrived
+                        or observed_translation_progress
+                        or visual_checkpoint_arrived
+                        or visual_stationary_retry
+                        or (
+                            visual_bounded_resume
+                            and not require_observed_translation_progress
+                        )
+                    )
+                    if visual_bounded_resume:
+                        gate = {
+                            **gate,
+                            "visual_route_bounded_resume": True,
+                            "visual_route_bounded_resume_progress": candidate_pose.get(
+                                "route_visual_progress"
+                            ),
+                        }
+                    if visual_stationary_retry:
+                        gate = {
+                            **gate,
+                            "visual_route_stationary_retry": True,
+                            "visual_route_stationary_retry_progress_delta_m": (
+                                observed_translation_delta
+                            ),
+                        }
+                pose_ready = bool(
+                    gate.get("ok")
+                    and candidate_position is not None
+                    and translation_progress_ready
+                    and endpoint_ready
+                    and (not require_metric_pose or metric_pose_ready)
+                    and (
+                        not require_translation_safe
+                        or not pose_gate_rotation_locked(gate)
+                        or (target_arrived and not require_metric_pose)
+                    )
+                )
+                if gate.get("ok") and candidate_position is not None:
+                    # Recovery hover physically locks the aircraft, so a
+                    # continuity-checked intermediate model pose can safely
+                    # become the next publication anchor even when it is not
+                    # yet allowed to resume translation. Without this, every
+                    # bounded 2 cm catch-up remained measured from the old
+                    # pose and eventually exceeded the 30 cm step gate before
+                    # reaching the waypoint.
+                    last_pose_gate = gate
+                    recovery_display_anchor = candidate_position
+                    if gate.get("route_progress") is not None:
+                        active_route_progress = float(gate["route_progress"])
+                if pose_ready:
+                    return (
+                        {
+                            **gate,
+                            "visual_checkpoint_arrival": True,
+                        }
+                        if visual_checkpoint_arrived
+                        else gate
+                    )
+                if require_metric_pose and not metric_pose_ready:
+                    last_reason = (
+                        "waiting for a fresh metric TSolve R,t; route-only or held "
+                        "patrol poses cannot start another lap"
+                    )
+                elif require_translation_safe and gate.get("ok") and pose_gate_rotation_locked(gate):
+                    last_reason = "waiting for the rotation-only position lock to release"
+                elif require_endpoint_verified and not endpoint_ready:
+                    last_reason = (
+                        "waiting for progress-independent taught-endpoint image consensus"
+                    )
+                elif (
+                    require_observed_translation_progress
+                    and visual_bounded_resume
+                    and not translation_progress_ready
+                ):
+                    measured_progress = max(0.0, float(observed_translation_delta or 0.0))
+                    last_reason = (
+                        "fresh visual route pose is verified, but observed forward "
+                        f"progress is {measured_progress:.3f} m < 0.015 m; the single "
+                        "bounded retry was already used, so movement remains locked"
+                    )
+                else:
+                    last_reason = str(gate.get("reason") or last_reason)
+            abort_reason = f"TSolve localization did not recover within {wait_seconds:.1f}s ({last_reason})"
+            return None
+        finally:
+            pose_recovery_active = False
+            total_pose_recovery_pause_seconds += max(
+                0.0,
+                time.monotonic() - recovery_started,
             )
-            neutral_hover(drone, GUIDED_RECOVERY_HOVER_SECONDS)
-        abort_reason = f"TSolve localization did not recover within {wait_seconds:.1f}s ({last_reason})"
-        return None
 
     def continuity_guarded_pose_gate() -> dict[str, Any]:
         """Reject a localization jump without poisoning the trusted patrol pose."""
-        gate = latest_tsolve_pose_gate(pose_stream_path, pose_max_age)
+        gate = latest_tsolve_pose_gate(
+            pose_stream_path,
+            pose_max_age,
+            allow_rotation_frozen=is_patrol,
+        )
         if not gate.get("ok"):
+            route_visual_reconciliation_state.clear()
             return gate
         gate = {**gate, "pose_offset_room": initial_pose_offset_room}
         candidate = pose_gate_position(gate)
@@ -1870,30 +4377,129 @@ def execute_guarded_mission_packet(
         # pose until localization returns to the same neighborhood.
         trusted_pose = last_pose_gate.get("pose") if isinstance(last_pose_gate, dict) else {}
         candidate_pose = gate.get("pose") if isinstance(gate, dict) else {}
+        if (
+            isinstance(candidate_pose, dict)
+            and candidate_pose.get("pose_source") == "patrol_visual_route_recovery"
+        ):
+            expected_identity = (
+                str(mission.get("map_id") or ""),
+                str(mission.get("patrol_id") or ""),
+                str(mission.get("baseline_replay_id") or ""),
+            )
+            observed_identity = (
+                str(candidate_pose.get("route_visual_map_id") or ""),
+                str(candidate_pose.get("route_visual_patrol_id") or ""),
+                str(candidate_pose.get("route_visual_baseline_replay_id") or ""),
+            )
+            if not all(expected_identity) or observed_identity != expected_identity:
+                route_visual_reconciliation_state.clear()
+                return {
+                    "ok": False,
+                    "reason": (
+                        "visual patrol recovery identity does not match the active "
+                        "map/patrol/baseline"
+                    ),
+                    "processed_count": gate.get("processed_count"),
+                    "latest_instance_id": candidate_pose.get("instance_id"),
+                    "visual_route_identity_rejected": True,
+                }
         allowed_step = bounded_pose_step_limit(
             trusted_pose.get("received_unix") if isinstance(trusted_pose, dict) else None,
             candidate_pose.get("received_unix") if isinstance(candidate_pose, dict) else None,
             base_limit=max_pose_step,
             hard_limit=max_pose_step_hard,
         )
-        if step <= allowed_step:
-            return gate
-        return {
-            "ok": False,
-            "reason": (
-                f"rejected patrol pose jump {step:.3f} map units "
-                f"(limit {allowed_step:.3f}, frame gap {frame_gap}); keeping last trusted pose"
-            ),
-            "age_seconds": gate.get("age_seconds"),
-            "processed_count": gate.get("processed_count"),
-            "latest_instance_id": (gate.get("pose") or {}).get("instance_id"),
-            "pose_jump_rejected": True,
-            "pose_jump_map_units": step,
-            "pose_jump_limit_map_units": allowed_step,
-        }
+        baseline_issue = baseline_supervised_pose_jump_issue(
+            candidate_pose,
+            step=step,
+            base_step_limit=max_pose_step,
+        )
+        if baseline_issue is not None:
+            route_visual_reconciliation_state.clear()
+            return {
+                "ok": False,
+                "reason": baseline_issue,
+                "age_seconds": gate.get("age_seconds"),
+                "processed_count": gate.get("processed_count"),
+                "latest_instance_id": candidate_pose.get("instance_id"),
+                "baseline_supervised_jump_rejected": True,
+                "pose_jump_map_units": step,
+                "pose_jump_limit_map_units": max_pose_step,
+                "route_visual_monitor_disagreement_m": candidate_pose.get(
+                    "route_visual_monitor_disagreement_m"
+                ),
+            }
+        if step > allowed_step:
+            route_visual_reconciliation_state.clear()
+            return {
+                "ok": False,
+                "reason": (
+                    f"rejected patrol pose jump {step:.3f} map units "
+                    f"(limit {allowed_step:.3f}, frame gap {frame_gap}); keeping last trusted pose"
+                ),
+                "age_seconds": gate.get("age_seconds"),
+                "processed_count": gate.get("processed_count"),
+                "latest_instance_id": (gate.get("pose") or {}).get("instance_id"),
+                "pose_jump_rejected": True,
+                "pose_jump_map_units": step,
+                "pose_jump_limit_map_units": allowed_step,
+            }
+        if route_monotonic_gate:
+            route_reason, candidate_progress = patrol_route_pose_rejection(
+                candidate,
+                segment_start=active_route_segment_start,
+                segment_end=active_route_segment_end,
+                previous_progress=active_route_progress,
+                translation_locked=active_route_translation_locked,
+                position_anchor=active_route_position_anchor,
+                max_cross_track=route_gate_max_cross_track,
+                backward_tolerance=route_gate_backward_tolerance,
+                turn_max_drift=route_gate_turn_max_drift,
+                endpoint_overshoot_correction=(
+                    active_endpoint_overshoot_correction
+                ),
+            )
+            if route_reason is not None:
+                if not route_reason.startswith("route progress moved backward"):
+                    route_visual_reconciliation_state.clear()
+                raw_candidate_progress = route_segment_progress_xz(
+                    candidate,
+                    active_route_segment_start,
+                    active_route_segment_end,
+                )
+                if (
+                    pose_recovery_active
+                    and route_reason.startswith("route progress moved backward")
+                    and patrol_visual_recovery_reconciliation_ready(
+                        candidate_pose,
+                        previous_progress=active_route_progress,
+                        candidate_progress=raw_candidate_progress,
+                        state=route_visual_reconciliation_state,
+                    )
+                ):
+                    return {
+                        **gate,
+                        "route_progress": raw_candidate_progress,
+                        "route_progress_reconciled": True,
+                        "route_progress_previous": active_route_progress,
+                        "route_progress_reconciliation_source": "pinned_visual_route_consensus",
+                    }
+                return {
+                    "ok": False,
+                    "reason": f"rejected patrol pose: {route_reason}; keeping last trusted pose",
+                    "age_seconds": gate.get("age_seconds"),
+                    "processed_count": gate.get("processed_count"),
+                    "latest_instance_id": (gate.get("pose") or {}).get("instance_id"),
+                    "route_pose_rejected": True,
+                    "route_progress": active_route_progress,
+                }
+            route_visual_reconciliation_state.clear()
+            if candidate_progress is not None:
+                gate = {**gate, "route_progress": candidate_progress}
+        return gate
 
     def pose_gate_or_abort() -> dict[str, Any] | None:
-        nonlocal abort_reason, last_pose_gate
+        nonlocal abort_reason, last_pose_gate, active_route_progress
         if stop_flag is not None and stop_flag.stop:
             abort_reason = "live localization stop requested"
             return None
@@ -1907,6 +4513,8 @@ def execute_guarded_mission_packet(
             abort_reason = "latest TSolve pose has no ATLAS room-frame rcenter"
             return None
         last_pose_gate = gate
+        if gate.get("route_progress") is not None:
+            active_route_progress = float(gate["route_progress"])
         return gate
 
     def wait_for_pose_after(previous_gate: dict[str, Any] | None, timeout: float = 1.4) -> dict[str, Any] | None:
@@ -1927,6 +4535,8 @@ def execute_guarded_mission_packet(
         capture_cutoff_unix: float,
         previous_gate: dict[str, Any] | None,
         timeout: float = 5.0,
+        *,
+        abort_on_timeout: bool = True,
     ) -> dict[str, Any] | None:
         """Wait for a camera observation captured after an RC pulse completed."""
         nonlocal abort_reason
@@ -1959,10 +4569,223 @@ def execute_guarded_mission_packet(
                 last_progress_at = time.time()
             time.sleep(0.05)
         if saw_capture_timestamp:
-            abort_reason = "no fresh camera observation arrived after the RC pulse; hovering"
+            if abort_on_timeout:
+                abort_reason = "no fresh camera observation arrived after the RC pulse; hovering"
             return None
         # Older replay streams have no received_unix. Preserve compatibility.
         return wait_for_pose_after(previous_gate, timeout=0.4)
+
+    def execute_guarded_cruise_window(
+        *,
+        current_gate: dict[str, Any],
+        current_position: list[float],
+        target: list[float],
+        bf: float,
+        lr: float,
+        du: float,
+        seconds: float,
+        arrival_radius: float,
+    ) -> tuple[dict[str, Any], dict[str, Any] | None, str | None]:
+        """Fly one low-stick window while current-frame poses supervise it.
+
+        The former controller neutralized after every 0.30 s forward command
+        and only then waited for localization.  That made the aircraft and the
+        viewer visibly pulse even when ten fresh poses per second were
+        available.  This window refreshes DJI's virtual stick at 10 Hz while
+        polling the independent localizer.  It sends neutral immediately if a
+        pose becomes unsafe or the pose stream misses its short watchdog.
+        """
+        nonlocal abort_reason, last_pose_gate, active_route_progress
+
+        command_seconds = max(0.45, min(2.0, float(seconds)))
+        sent = {
+            "rcw_yaw": 0.0,
+            "du_vertical": round(float(du), 2),
+            "lr_lateral": round(float(lr), 2),
+            "bf_forward": round(float(bf), 3),
+            "seconds": round(command_seconds, 3),
+            "smooth_continuous_cruise": True,
+        }
+        try:
+            previous_count = int(current_gate.get("processed_count") or 0)
+        except (TypeError, ValueError):
+            previous_count = 0
+        latest_count = previous_count
+        latest_gate: dict[str, Any] | None = None
+        latest_position = list(current_position)
+        best_target_distance = horizontal_xz_distance(current_position, target)
+        command_started_unix = time.time()
+        command_started = time.monotonic()
+        last_safe_observation = command_started
+        last_progress_observation = command_started
+        next_stick_refresh = command_started
+        issue: str | None = None
+        fresh_observations = 0
+
+        try:
+            while time.monotonic() - command_started < command_seconds:
+                if stop_flag is not None and stop_flag.stop:
+                    abort_reason = "live localization stop requested"
+                    issue = abort_reason
+                    break
+                if mission_stop_event is not None and mission_stop_event.is_set():
+                    abort_reason = "emergency hover requested"
+                    issue = abort_reason
+                    break
+
+                now = time.monotonic()
+                if now >= next_stick_refresh:
+                    try:
+                        _send_rc_with_bounded_ack(
+                            drone,
+                            rcw=0.0,
+                            du=float(du),
+                            lr=float(lr),
+                            bf=float(bf),
+                        )
+                    except Exception as command_error:
+                        try:
+                            neutral_result = neutral_hover(drone, 0.0)
+                        except ControlLinkSafetyError:
+                            raise
+                        sent.update(
+                            {
+                                "motion_command_acknowledged": False,
+                                "motion_outcome_uncertain": True,
+                                "neutral_confirmed": True,
+                                "control_link_recovered": bool(
+                                    neutral_result.get("control_link_recovered")
+                                ),
+                                "requires_pose_recovery": True,
+                                "control_error": str(command_error),
+                            }
+                        )
+                        issue = (
+                            "DJI smooth-cruise acknowledgement was lost; neutral sticks "
+                            "were confirmed and ATLAS must relocalize before resuming"
+                        )
+                        break
+                    next_stick_refresh = now + 0.10
+
+                candidate_gate = continuity_guarded_pose_gate()
+                try:
+                    candidate_count = int(candidate_gate.get("processed_count") or 0)
+                except (TypeError, ValueError):
+                    candidate_count = latest_count
+                if candidate_count > latest_count:
+                    latest_count = candidate_count
+                    if not candidate_gate.get("ok"):
+                        issue = str(
+                            candidate_gate.get("reason")
+                            or "localization became unsafe during smooth cruise"
+                        )
+                        break
+                    candidate_issue = guided_command_pose_safety_issue(
+                        candidate_gate,
+                        yaw=0.0,
+                        lr=lr,
+                        bf=bf,
+                        du=du,
+                    )
+                    if candidate_issue is not None:
+                        issue = candidate_issue
+                        break
+                    candidate_position = pose_gate_position(candidate_gate)
+                    if candidate_position is None:
+                        issue = "smooth cruise pose has no ATLAS room position"
+                        break
+                    pose_step = horizontal_xz_distance(
+                        latest_position,
+                        candidate_position,
+                    )
+                    if pose_step is None or pose_step > max_pose_step:
+                        issue = (
+                            "smooth cruise rejected a current-frame pose step "
+                            f"of {pose_step if pose_step is not None else float('nan'):.3f} m"
+                        )
+                        break
+                    if not enforce_patrol_geofence(
+                        candidate_gate,
+                        "smooth continuous cruise",
+                    ):
+                        issue = abort_reason or "patrol geofence blocked smooth cruise"
+                        break
+                    latest_gate = candidate_gate
+                    latest_position = candidate_position
+                    last_pose_gate = candidate_gate
+                    if candidate_gate.get("route_progress") is not None:
+                        active_route_progress = float(candidate_gate["route_progress"])
+                    fresh_observations += 1
+                    last_safe_observation = now
+                    candidate_distance = horizontal_xz_distance(
+                        candidate_position,
+                        target,
+                    )
+                    if candidate_distance is not None and (
+                        best_target_distance is None
+                        or candidate_distance <= best_target_distance - 0.005
+                    ):
+                        best_target_distance = candidate_distance
+                        last_progress_observation = now
+                    if (
+                        candidate_distance is not None
+                        and candidate_distance <= float(arrival_radius)
+                    ):
+                        break
+                    if now - last_progress_observation > cruise_pose_watchdog_seconds:
+                        issue = (
+                            "fresh frames arrived but the published ATLAS position "
+                            f"did not advance for {cruise_pose_watchdog_seconds:.2f}s"
+                        )
+                        break
+                elif now - last_safe_observation > cruise_pose_watchdog_seconds:
+                    issue = (
+                        "no fresh translation-safe localization arrived within "
+                        f"{cruise_pose_watchdog_seconds:.2f}s of smooth cruise"
+                    )
+                    break
+                time.sleep(0.04)
+        finally:
+            # Zero the stick before the outer controller re-evaluates target
+            # distance and heading. With no inserted sleep this is a watchdog
+            # refresh, not the former visible stop between every tiny pulse.
+            neutral_result = neutral_hover(drone, 0.0)
+            if neutral_result.get("control_link_recovered"):
+                sent.update(
+                    {
+                        "motion_command_acknowledged": True,
+                        "motion_outcome_uncertain": True,
+                        "neutral_confirmed": True,
+                        "control_link_recovered": True,
+                        "requires_pose_recovery": True,
+                    }
+                )
+                if issue is None:
+                    issue = (
+                        "DJI control link closed while ending smooth cruise; neutral sticks "
+                        "were confirmed on a fresh connection and ATLAS must relocalize "
+                        "before resuming"
+                    )
+
+        latest_distance = horizontal_xz_distance(latest_position, target)
+        arrived = bool(
+            latest_distance is not None
+            and latest_distance <= float(arrival_radius)
+        )
+        if issue is None and not arrived:
+            issue = patrol_translation_pulse_progress_issue(
+                current_position,
+                pose_gate_position(latest_gate),
+                target,
+                got_new_pose=fresh_observations > 0,
+                maximum_pose_step=max_pose_step,
+                minimum_improvement=0.010,
+            )
+        sent["fresh_pose_observations"] = fresh_observations
+        sent["actual_seconds"] = round(time.monotonic() - command_started, 3)
+        sent["command_started_unix"] = command_started_unix
+        sent["arrival_detected"] = arrived
+        return sent, latest_gate, issue
 
     def observe_motion_after_probe(
         previous_gate: dict[str, Any] | None,
@@ -2005,14 +4828,39 @@ def execute_guarded_mission_packet(
         reference_gate: dict[str, Any] | None = None,
     ) -> bool:
         nonlocal executed_pulses
+        nonlocal active_route_translation_locked, active_route_position_anchor
         gate_before = reference_gate or pose_gate_or_abort()
         before = pose_gate_position(gate_before)
         if before is None or not enforce_patrol_geofence(gate_before, f"{axis_name} calibration"):
             return False
+        translation_issue = guided_command_pose_safety_issue(gate_before, lr=lr, bf=bf)
+        if translation_issue is not None:
+            publish_progress(
+                {
+                    "phase": "translation_pose_gate",
+                    "axis": axis_name,
+                    "translation_locked": True,
+                    "message": f"Calibration held: {translation_issue}",
+                }
+            )
+            neutral_hover(drone, 0.20)
+            return False
+        # This is a real translation pulse, not a yaw-only command.  Publish
+        # that fact before moving so the live rotation stabilizer releases any
+        # position anchor.  The previous implementation advertised
+        # translation_locked=true with zero gains, causing the localizer to
+        # freeze the forward probe and later report its accumulated motion as
+        # an impossible sideways heading calibration.
+        active_route_translation_locked = False
+        active_route_position_anchor = None
         publish_progress(
             {
                 "phase": "axis_calibration",
                 "axis": axis_name,
+                "translation_locked": False,
+                "position_anchor": None,
+                "body_forward_gain": bf / axis_probe_rc if abs(axis_probe_rc) > 1e-9 else 0.0,
+                "body_lateral_gain": lr / axis_probe_rc if abs(axis_probe_rc) > 1e-9 else 0.0,
                 "message": f"Calibrating safe {axis_name} response from TSolve pose feedback.",
             }
         )
@@ -2061,6 +4909,35 @@ def execute_guarded_mission_packet(
         offset = signed_angle_xz(raw_heading, measured_forward)
         if offset is None or not math.isfinite(offset):
             return False
+        if operator_heading_calibrated:
+            calibration_error_deg = heading_calibration_error_degrees(
+                raw_heading,
+                measured_forward,
+                initial_body_heading_offset_deg,
+            )
+            rc_summary["adaptive_axis"]["heading_calibration_error_deg"] = (
+                round(calibration_error_deg, 3) if calibration_error_deg is not None else None
+            )
+            if (
+                calibration_error_deg is None
+                or calibration_error_deg > max_heading_calibration_error_deg
+            ):
+                body_axes["forward"] = None
+                publish_progress(
+                    {
+                        "phase": "heading_calibration_rejected",
+                        "translation_locked": False,
+                        "position_anchor": None,
+                        "body_forward_gain": 0.0,
+                        "body_lateral_gain": 0.0,
+                        "heading_calibration_error_deg": calibration_error_deg,
+                        "message": (
+                            "Rejected an implausible body-forward measurement; "
+                            "hovering without yaw or route translation."
+                        ),
+                    }
+                )
+                return False
         calibrated_heading_offset_rad = offset
         rc_summary["adaptive_axis"]["mode"] = "calibrated_heading_yaw_then_forward"
         rc_summary["adaptive_axis"]["camera_to_body_heading_offset_deg"] = round(math.degrees(offset), 3)
@@ -2121,6 +4998,32 @@ def execute_guarded_mission_packet(
             "message": f"Mission refused before motion: {abort_reason}",
             "elapsed_seconds": time.time() - started,
         }
+    if patrol_stage == "loop":
+        route = mission.get("route") if isinstance(mission.get("route"), list) else []
+        loop_start = vector3(route[0]) if route else None
+        current_start = pose_gate_position(first_pose)
+        start_error = horizontal_xz_distance(current_start, loop_start)
+        if start_error is None or start_error > 0.24:
+            neutral_hover(drone, 0.25)
+            abort_reason = (
+                "two-circle patrol requires a fresh pose within 0.24 map units of "
+                f"Point 1 (current error {start_error:.3f})"
+                if start_error is not None
+                else "two-circle patrol has no valid Point 1 start pose"
+            )
+            return {
+                "ok": False,
+                "armed": True,
+                "physical_motion_locked": False,
+                "aborted": True,
+                "abort_reason": abort_reason,
+                "executed": executed,
+                "skipped": skipped,
+                "command_count": len(commands),
+                "last_pose_gate": first_pose,
+                "message": f"Mission refused before motion: {abort_reason}",
+                "elapsed_seconds": time.time() - started,
+            }
 
     try:
         rc_summary["enable_control_result"] = drone.enableControl(True)
@@ -2138,6 +5041,7 @@ def execute_guarded_mission_packet(
                 "guided_settings": {
                     "pose_max_age_seconds": pose_max_age,
                     "pose_recovery_seconds": pose_recovery_seconds,
+                    "continuous_relocalization": continuous_relocalization,
                     "pulse_seconds": pulse_seconds,
                     "max_forward_rc": max_forward_rc,
                     "max_lateral_rc": max_lateral_rc,
@@ -2148,6 +5052,7 @@ def execute_guarded_mission_packet(
                     "max_step_seconds": max_step_seconds,
                     "arrival_radius_map_units": arrival_radius,
                     "arrival_deadband_map_units": arrival_deadband,
+                    "strict_entry_arrival": strict_entry_arrival,
                     "max_cruise_seconds": max_cruise_seconds,
                     "max_pose_step_map_units": max_pose_step,
                     "safety_motion_buffer_m": safety_motion_buffer,
@@ -2162,15 +5067,29 @@ def execute_guarded_mission_packet(
             }
         control_enabled = True
 
-        step_source = mission_step_sequence(commands, patrol_loop)
-        for execution_index, (idx, step) in enumerate(step_source):
-            lap_index = execution_index // max(1, len(commands))
+        step_source = mission_step_sequence(
+            commands,
+            patrol_loop,
+            patrol_laps if patrol_laps > 0 else None,
+            patrol_loop_start,
+        )
+        for _execution_index, (idx, step) in enumerate(step_source):
             if not isinstance(step, dict):
                 skipped.append({"index": idx, "type": "unknown", "reason": "invalid command record"})
                 continue
             kind = str(step.get("type", "")).strip().lower()
             title = str(step.get("title", kind or "step"))
-            if patrol_loop and idx == 0:
+            if patrol_loop and idx == patrol_loop_start:
+                current_lap_number += 1
+                lap_metric_checkpoint_pending = current_lap_number > 1
+                # The loop marker precedes the first cruise command.  Do not
+                # publish the completed 4->1 segment under the new lap number;
+                # the Point-1->2 context is installed by the cruise below.
+                active_route_segment_start = None
+                active_route_segment_end = None
+                active_route_progress = None
+                active_route_translation_locked = True
+                active_route_position_anchor = None
                 if len(executed) > 500:
                     del executed[:-250]
                 if len(skipped) > 500:
@@ -2178,8 +5097,16 @@ def execute_guarded_mission_packet(
                 publish_progress(
                     {
                         "phase": "patrol_lap",
-                        "lap": lap_index + 1,
-                        "message": f"Starting patrol lap {lap_index + 1}; ordered route begins at patrol point 1.",
+                        "lap": current_lap_number,
+                        "translation_locked": True,
+                        "message": (
+                            f"Starting patrol lap {current_lap_number}; ordered route begins at patrol point 1."
+                            if current_lap_number == 1
+                            else (
+                                f"Starting patrol lap {current_lap_number}; movement stays locked until "
+                                "Point 1 has fresh metric or verified endpoint localization."
+                            )
+                        ),
                     }
                 )
             if kind == "gate":
@@ -2284,6 +5211,77 @@ def execute_guarded_mission_packet(
                 continue
 
             if kind == "cruise":
+                cruise_stage = str(step.get("patrol_stage") or patrol_stage).strip().lower()
+                taught_leg = taught_leg_for_step(taught_reference, step)
+                route_follow_leg = verified_route_follow_leg(
+                    verified_route_lock,
+                    taught_leg,
+                )
+                try:
+                    route_follow_alignment_enter_deg = max(
+                        2.0,
+                        min(
+                            6.0,
+                            float(
+                                (verified_route_lock or {}).get(
+                                    "alignment_enter_deg", 4.0
+                                )
+                            ),
+                        ),
+                    )
+                    route_follow_alignment_exit_deg = max(
+                        route_follow_alignment_enter_deg + 1.0,
+                        min(
+                            8.0,
+                            float(
+                                (verified_route_lock or {}).get(
+                                    "alignment_exit_deg", 6.0
+                                )
+                            ),
+                        ),
+                    )
+                    route_follow_lookahead_m = max(
+                        0.10,
+                        min(
+                            0.60,
+                            float(
+                                (verified_route_lock or {}).get(
+                                    "lookahead_m", 0.35
+                                )
+                            ),
+                        ),
+                    )
+                    route_follow_max_correction_deg = max(
+                        0.0,
+                        min(
+                            12.0,
+                            float(
+                                (verified_route_lock or {}).get(
+                                    "max_route_correction_deg", 7.0
+                                )
+                            ),
+                        ),
+                    )
+                except (TypeError, ValueError):
+                    route_follow_alignment_enter_deg = 4.0
+                    route_follow_alignment_exit_deg = 6.0
+                    route_follow_lookahead_m = 0.35
+                    route_follow_max_correction_deg = 7.0
+                precise_arrival = taught_leg_requires_precise_arrival(taught_leg)
+                try:
+                    endpoint_leg_index = (
+                        int(taught_leg.get("from_point"))
+                        if precise_arrival and isinstance(taught_leg, dict)
+                        else None
+                    )
+                except (TypeError, ValueError):
+                    endpoint_leg_index = None
+                cruise_arrival_radius, cruise_soft_arrival_radius = mission_arrival_radii(
+                    configured_arrival_radius,
+                    arrival_deadband,
+                    patrol_stage=cruise_stage,
+                    strict_target=precise_arrival,
+                )
                 planned_duration = clamp_float(step.get("duration_s"), pulse_seconds, pulse_seconds, 120.0)
                 distance = clamp_float(step.get("distance"), 0.0, 0.0, 1000.0)
                 if distance <= 1e-4:
@@ -2297,15 +5295,15 @@ def execute_guarded_mission_packet(
                 # A 90-degree corner is alignment work, not failed translation.
                 # Give it a separate bounded allowance before the normal travel
                 # budget, while retaining the overall mission step ceiling.
-                alignment_deadline = time.time() + min(
+                alignment_deadline = motion_clock() + min(
                     max_cruise_seconds,
                     alignment_grace_seconds + max(4.0, planned_duration * 2.2),
                 )
                 # Fresh-pose waits make a real DJI corner consume much more
                 # wall time than its RC command time. Permit extra wall time
                 # only while the measured heading error keeps improving.
-                segment_safety_deadline = time.time() + max_cruise_seconds
-                absolute_segment_deadline = time.time() + min(240.0, max_cruise_seconds * 2.0)
+                segment_safety_deadline = motion_clock() + max_cruise_seconds
+                absolute_segment_deadline = motion_clock() + min(240.0, max_cruise_seconds * 2.0)
                 alignment_progress_deadline = alignment_deadline
                 best_alignment_error_rad = float("inf")
                 forward_budget_seconds = min(
@@ -2319,7 +5317,17 @@ def execute_guarded_mission_packet(
                 travel_started = False
                 forward_command_seconds = 0.0
                 travel_yaw_command_seconds = 0.0
-                start_position = pose_gate_position(gate)
+                raw_start_position = pose_gate_position(gate)
+                segment_start = vector3(step.get("from"))
+                # A verified taught waypoint is the exact shared boundary of
+                # two legs. Start every lap/leg from that recorded boundary,
+                # not from a post-turn monocular center. The latter gave the
+                # failed 14:08 run a false +14.4% head start on Point 2→3.
+                start_position = (
+                    list(segment_start)
+                    if precise_arrival and segment_start is not None
+                    else raw_start_position
+                )
                 initial_distance = horizontal_xz_distance(start_position, target)
                 final_distance = initial_distance
                 closest_distance = initial_distance if initial_distance is not None else float("inf")
@@ -2331,25 +5339,407 @@ def execute_guarded_mission_packet(
                 reached = False
                 arrival_mode = None
                 stale_motion_count = 0
+                stale_motion_reference_position: list[float] | None = None
+                visual_stationary_retry_reference_distance: float | None = None
                 wrong_yaw_pulses = 0
                 last_navigation_mode = "unknown"
                 last_processed_count = None
                 last_pose_age = None
-                yaw_position_anchor = None
+                # Every patrol leg begins with an in-place heading alignment.
+                # A yaw command cannot translate the aircraft, so navigation
+                # must keep the leg's starting position fixed until the first
+                # real forward/lateral pulse.  This prevents monocular center
+                # drift during any waypoint turn, not only point 3 -> point 4.
+                yaw_position_anchor = start_position
                 forward_alignment_locked = False
                 last_alignment_yaw_rc = 0.0
                 blind_yaw_seconds = 0.0
                 max_blind_yaw_seconds = 12.0
-                segment_start = vector3(step.get("from"))
-                taught_leg = taught_leg_for_step(taught_reference, step)
+                active_route_segment_start = segment_start or start_position
+                active_route_segment_end = target
+                active_route_progress = (
+                    0.0
+                    if precise_arrival and segment_start is not None
+                    else route_segment_progress_xz(
+                        start_position,
+                        active_route_segment_start,
+                        active_route_segment_end,
+                    )
+                )
+                # The new leg begins with yaw-only alignment.  Until a real
+                # horizontal command is issued, its complete translation
+                # budget is the trusted start progress (normally exactly 0).
+                active_route_command_progress_ceiling = active_route_progress
+                active_route_command_sequence = 0
+                route_visual_reconciliation_state.clear()
+                active_endpoint_overshoot_correction = False
+                # The rotation-only heading is accumulated from an arbitrary
+                # optical anchor. At Point 3 the direct recorded departure
+                # match supplies an absolute room heading; retain their
+                # measured offset for the complete 3->4 leg instead of
+                # switching back to the raw optical basis after one pulse.
+                route_optical_heading_bias_rad: float | None = None
+                active_route_translation_locked = True
+                active_route_position_anchor = start_position
+                point_three_handoff = is_guarded_point_three_to_four_turn(
+                    taught_leg
+                )
+                point_four_handoff = is_point_four_to_one_leg(taught_leg)
+                verified_endpoint_turn_source_gate: dict[str, Any] | None = None
+                verified_endpoint_turn_anchor: list[float] | None = None
+                verified_endpoint_turn_source: str | None = None
+                if point_three_handoff:
+                    # Capture the independently verified Point-3 endpoint
+                    # before publishing the new 3->4 route context.  The
+                    # localizer intentionally freezes this position during
+                    # the following yaw, so the proof would otherwise be
+                    # hidden by the new leg's rotation-locked hold frames.
+                    point_three_handoff_pose = (
+                        gate.get("pose") if isinstance(gate, dict) else None
+                    )
+                    point_three_handoff_position = pose_gate_position(gate)
+                    point_three_visual_ready = taught_endpoint_arrival_verified(
+                        point_three_handoff_pose,
+                        expected_leg_index=2,
+                    )
+                    point_three_handoff_error = horizontal_xz_distance(
+                        point_three_handoff_position,
+                        segment_start,
+                    )
+                    point_three_handoff_limit = min(0.30, max_pose_step)
+                    if (
+                        point_three_visual_ready
+                        and segment_start is not None
+                        and point_three_handoff_error is not None
+                        and point_three_handoff_error
+                        <= point_three_handoff_limit
+                    ):
+                        verified_endpoint_turn_source_gate = gate
+                        verified_endpoint_turn_anchor = list(segment_start)
+                        verified_endpoint_turn_source = (
+                            "verified_visual_endpoint"
+                        )
+                        rc_summary.setdefault("point3_handoffs", []).append(
+                            {
+                                "lap": current_lap_number,
+                                "instance_id": point_three_handoff_pose.get(
+                                    "instance_id"
+                                ),
+                                "source": verified_endpoint_turn_source,
+                                "position": list(segment_start),
+                                "point3_error_map_units": (
+                                    point_three_handoff_error
+                                ),
+                            }
+                        )
+                        publish_progress(
+                            {
+                                "phase": "point3_handoff_verified",
+                                "step_index": idx,
+                                "step_title": title,
+                                "translation_locked": True,
+                                "position_anchor": segment_start,
+                                "point3_handoff_source": (
+                                    verified_endpoint_turn_source
+                                ),
+                                "point3_position_error_map_units": (
+                                    point_three_handoff_error
+                                ),
+                                "message": (
+                                    "Point-3 endpoint verified before the "
+                                    "rotation-only 3->4 alignment."
+                                ),
+                            }
+                        )
+                if point_four_handoff:
+                    # Route-image progress is deliberately constrained to the
+                    # taught centerline.  It can prove that the camera reached
+                    # the Point-4 visual neighborhood, but it cannot measure a
+                    # small real left/right offset. Prefer a fresh metric pose
+                    # when one already exists, but do not require one before a
+                    # yaw-only command after independent endpoint consensus.
+                    # Live ATLAS 14:41:16 supplied three verified Point-4
+                    # endpoint frames and then waited 30 seconds only because
+                    # this handoff rejected route vision. The recorded
+                    # Point-4 departure gate below still verifies heading
+                    # before the first 4->1 translation pulse.
+                    point_four_metric_gate = gate
+                    point_four_handoff_pose = (
+                        point_four_metric_gate.get("pose")
+                        if isinstance(point_four_metric_gate, dict)
+                        else None
+                    )
+                    point_four_metric_position = pose_gate_position(
+                        point_four_metric_gate
+                    )
+                    point_four_metric_ready = (
+                        pose_gate_has_fresh_metric_position(point_four_metric_gate)
+                        and point_four_metric_position is not None
+                    )
+                    point_four_visual_ready = taught_endpoint_arrival_verified(
+                        point_four_handoff_pose,
+                        expected_leg_index=3,
+                    )
+                    if not point_four_metric_ready and not point_four_visual_ready:
+                        publish_progress(
+                            {
+                                "phase": "point4_endpoint_handoff",
+                                "step_index": idx,
+                                "step_title": title,
+                                "translation_locked": True,
+                                "require_metric_pose": False,
+                                "position_anchor": start_position,
+                                "body_forward_gain": 0.0,
+                                "body_lateral_gain": 0.0,
+                                "message": (
+                                    "Holding position briefly while ATLAS verifies the "
+                                    "Point-4 endpoint before the rotation-only 4->1 turn."
+                                ),
+                            }
+                        )
+                        point_four_metric_gate = wait_for_pose_recovery(
+                            "point4_endpoint_handoff",
+                            "waiting for Point-4 endpoint image consensus before the 4->1 turn",
+                            timeout=8.0,
+                            require_translation_safe=True,
+                            require_endpoint_verified=True,
+                            endpoint_leg_index=3,
+                        )
+                        if point_four_metric_gate is None:
+                            break
+                        point_four_metric_position = pose_gate_position(
+                            point_four_metric_gate
+                        )
+                        point_four_handoff_pose = (
+                            point_four_metric_gate.get("pose") or {}
+                        )
+                        point_four_metric_ready = bool(
+                            pose_gate_has_fresh_metric_position(
+                                point_four_metric_gate
+                            )
+                            and point_four_metric_position is not None
+                        )
+                        point_four_visual_ready = taught_endpoint_arrival_verified(
+                            point_four_handoff_pose,
+                            expected_leg_index=3,
+                        )
+                    point_four_metric_error = (
+                        horizontal_xz_distance(
+                            point_four_metric_position,
+                            segment_start,
+                        )
+                        if point_four_metric_ready
+                        else None
+                    )
+                    point_four_handoff_limit = min(0.30, max_pose_step)
+                    if point_four_metric_ready and (
+                        point_four_metric_error is None
+                        or point_four_metric_error > point_four_handoff_limit
+                    ):
+                        abort_reason = (
+                            "fresh metric Point-4 pose is outside the safe handoff "
+                            f"radius ({point_four_metric_error!s} > "
+                            f"{point_four_handoff_limit:.2f}m); hovering before turn"
+                        )
+                        publish_progress(
+                            {
+                                "phase": "point4_position_correction_required",
+                                "step_index": idx,
+                                "step_title": title,
+                                "translation_locked": True,
+                                "require_metric_pose": True,
+                                "position_anchor": point_four_metric_position,
+                                "point4_position_error_map_units": point_four_metric_error,
+                                "point4_position_limit_map_units": point_four_handoff_limit,
+                                "body_forward_gain": 0.0,
+                                "body_lateral_gain": 0.0,
+                                "message": abort_reason,
+                            }
+                        )
+                        break
+                    if point_four_metric_ready:
+                        point_four_handoff_position = list(point_four_metric_position)
+                        point_four_handoff_source = "metric_tsolve"
+                    elif point_four_visual_ready and segment_start is not None:
+                        point_four_handoff_position = list(segment_start)
+                        point_four_handoff_source = "verified_visual_endpoint"
+                    else:
+                        abort_reason = (
+                            "Point-4 handoff lost both metric and verified visual "
+                            "localization; hovering before turn"
+                        )
+                        break
+                    gate = point_four_metric_gate
+                    last_pose_gate = point_four_metric_gate
+                    start_position = list(point_four_handoff_position)
+                    initial_distance = horizontal_xz_distance(start_position, target)
+                    final_distance = initial_distance
+                    closest_distance = (
+                        initial_distance
+                        if initial_distance is not None
+                        else float("inf")
+                    )
+                    yaw_position_anchor = list(point_four_handoff_position)
+                    active_route_progress = 0.0
+                    active_route_translation_locked = True
+                    active_route_position_anchor = list(point_four_handoff_position)
+                    # Preserve the endpoint proof across the following yaw.
+                    # The live localizer is expected to freeze or reject its
+                    # monocular center during this weak-view rotation, but the
+                    # aircraft cannot physically translate while only yaw RC
+                    # is sent.  A later three-frame absolute departure-heading
+                    # check may consume this anchor for one bounded command.
+                    verified_endpoint_turn_source_gate = point_four_metric_gate
+                    verified_endpoint_turn_anchor = list(point_four_handoff_position)
+                    verified_endpoint_turn_source = point_four_handoff_source
+                    rc_summary.setdefault("point4_handoffs", []).append(
+                        {
+                            "lap": current_lap_number,
+                            "instance_id": (
+                                point_four_handoff_pose.get("instance_id")
+                            ),
+                            "source": point_four_handoff_source,
+                            "position": list(point_four_handoff_position),
+                            "point4_error_map_units": point_four_metric_error,
+                        }
+                    )
+                    publish_progress(
+                        {
+                            "phase": "point4_handoff_verified",
+                            "step_index": idx,
+                            "step_title": title,
+                            "translation_locked": True,
+                            "require_metric_pose": False,
+                            "position_anchor": point_four_handoff_position,
+                            "point4_handoff_source": point_four_handoff_source,
+                            "point4_position_error_map_units": point_four_metric_error,
+                            "message": (
+                                "Point-4 endpoint verified with translation locked; "
+                                "the rotation-only 4->1 alignment may begin."
+                            ),
+                        }
+                    )
+                if lap_metric_checkpoint_pending:
+                    checkpoint_gate = continuity_guarded_pose_gate()
+                    checkpoint_pose = (
+                        checkpoint_gate.get("pose")
+                        if isinstance(checkpoint_gate, dict)
+                        else None
+                    )
+                    checkpoint_position = pose_gate_position(checkpoint_gate)
+                    checkpoint_error = horizontal_xz_distance(
+                        checkpoint_position,
+                        active_route_segment_start,
+                    )
+                    checkpoint_metric_ready = bool(
+                        pose_gate_has_fresh_metric_position(checkpoint_gate)
+                        and not pose_gate_rotation_locked(checkpoint_gate)
+                        and checkpoint_error is not None
+                        and checkpoint_error <= 0.24
+                    )
+                    checkpoint_visual_ready = taught_endpoint_arrival_verified(
+                        checkpoint_pose,
+                        expected_leg_index=4,
+                    )
+                    waited_for_checkpoint = not (
+                        checkpoint_metric_ready or checkpoint_visual_ready
+                    )
+                    if waited_for_checkpoint:
+                        publish_progress(
+                            {
+                                "phase": "lap_endpoint_checkpoint",
+                                "lap": current_lap_number,
+                                "translation_locked": True,
+                                "position_anchor": start_position,
+                                "metric_pose_ready": checkpoint_metric_ready,
+                                "require_metric_pose": False,
+                                "point1_error_map_units": checkpoint_error,
+                                "message": (
+                                    f"Lap {current_lap_number} is holding at Point 1 while ATLAS "
+                                    "verifies the previous 4->1 endpoint before the next "
+                                    "rotation-only alignment."
+                                ),
+                            }
+                        )
+                        checkpoint_gate = wait_for_pose_recovery(
+                            "lap_start_endpoint_checkpoint",
+                            "waiting for verified Point-1 endpoint localization before the next circle",
+                            timeout=8.0,
+                            require_translation_safe=True,
+                            require_endpoint_verified=True,
+                            endpoint_leg_index=4,
+                        )
+                        if checkpoint_gate is None:
+                            break
+                        checkpoint_pose = checkpoint_gate.get("pose") or {}
+                        checkpoint_position = pose_gate_position(checkpoint_gate)
+                        checkpoint_error = horizontal_xz_distance(
+                            checkpoint_position,
+                            active_route_segment_start,
+                        )
+                        checkpoint_metric_ready = bool(
+                            pose_gate_has_fresh_metric_position(checkpoint_gate)
+                            and not pose_gate_rotation_locked(checkpoint_gate)
+                            and checkpoint_error is not None
+                            and checkpoint_error <= 0.24
+                        )
+                        checkpoint_visual_ready = taught_endpoint_arrival_verified(
+                            checkpoint_pose,
+                            expected_leg_index=4,
+                        )
+                    if checkpoint_metric_ready:
+                        checkpoint_source = "metric_tsolve"
+                    elif checkpoint_visual_ready:
+                        # Endpoint vision is constrained to the taught route,
+                        # so use the exact shared Point-1 boundary as the yaw
+                        # anchor. No translation is authorized by this choice.
+                        checkpoint_source = "verified_visual_endpoint"
+                        checkpoint_position = list(active_route_segment_start)
+                        checkpoint_error = 0.0
+                    else:
+                        abort_reason = (
+                            "lap boundary lost both metric and verified visual "
+                            "Point-1 localization; hovering before lap start"
+                        )
+                        break
+                    gate = checkpoint_gate
+                    last_pose_gate = checkpoint_gate
+                    start_position = list(checkpoint_position)
+                    yaw_position_anchor = list(checkpoint_position)
+                    active_route_progress = 0.0
+                    active_route_translation_locked = True
+                    active_route_position_anchor = list(checkpoint_position)
+                    lap_metric_checkpoint_pending = False
+                    checkpoint_record = {
+                        "lap": current_lap_number,
+                        "waited_for_checkpoint": waited_for_checkpoint,
+                        "source": checkpoint_source,
+                        "point1_error_map_units": checkpoint_error,
+                        "instance_id": (checkpoint_gate.get("pose") or {}).get(
+                            "instance_id"
+                        ),
+                    }
+                    rc_summary["lap_metric_checkpoints"].append(checkpoint_record)
+                    publish_progress(
+                        {
+                            "phase": "lap_checkpoint_verified",
+                            "lap": current_lap_number,
+                            "translation_locked": True,
+                            "position_anchor": checkpoint_position,
+                            "checkpoint_source": checkpoint_source,
+                            "metric_pose_ready": checkpoint_metric_ready,
+                            "require_metric_pose": False,
+                            "point1_error_map_units": checkpoint_error,
+                            "message": (
+                                f"Lap {current_lap_number} Point-1 endpoint verified; "
+                                "rotation-only heading alignment may begin."
+                            ),
+                        }
+                    )
                 turn_direction_override = taught_turn_direction_override(taught_leg)
-                guarded_taught_rotation = is_guarded_point_three_to_four_turn(taught_leg)
-                if guarded_taught_rotation:
-                    # A pure yaw cannot translate the aircraft.  Keep point 3
-                    # as the navigation anchor throughout the turn so gradual
-                    # monocular position drift cannot move the apparent
-                    # origin toward point 4.
-                    yaw_position_anchor = start_position
+                guarded_taught_rotation = (
+                    taught_turn_requires_recorded_departure_view(taught_leg)
+                )
                 taught_rotation_yaw_seconds = 0.0
                 max_taught_rotation_yaw_seconds = (
                     45.0 if turn_direction_override == "left" else 24.0
@@ -2364,30 +5754,101 @@ def execute_guarded_mission_packet(
                     # locked until aligned.
                     alignment_progress_deadline = max(
                         alignment_progress_deadline,
-                        time.time() + 190.0,
+                        motion_clock() + 190.0,
                     )
                     segment_safety_deadline = max(
                         segment_safety_deadline,
-                        time.time() + 220.0,
+                        motion_clock() + 220.0,
                     )
                 rotation_alignment_ready_at: float | None = None
                 rotation_heading_stable_frames = 0
                 rotation_heading_last_instance_id: str | None = None
                 required_rotation_heading_stable_frames = 3
+                # Once an absolute departure image has been acquired, retain
+                # that observation and its optical-to-room rebase. Optical
+                # flow may bridge only the last six degrees for 2.5 seconds;
+                # it never becomes an independent absolute turn source. This
+                # removes the yaw/neutral fighting seen at Point 4 while still
+                # preventing the old optical-vs-TSolve direction oscillation.
+                recorded_heading_acquired = False
+                last_recorded_heading_observation: dict[str, Any] | None = None
                 max_rotation_position_recovery_seconds = 25.0
-                rotation_reacquisition_pulses = 0
-                max_rotation_reacquisition_pulses = 3
-                rotation_reacquisition_forward_rc = max(
-                    0.01,
-                    min(0.02, max_forward_rc * 0.60),
-                )
+                if (
+                    calibrated_heading_offset_rad is None
+                    and pose_gate_rotation_locked(gate)
+                ):
+                    # The first connected patrol can inherit a rotation-only
+                    # pose from the startup/model-heading phase. Release that
+                    # stale turn anchor and wait online for a translation-safe
+                    # observation before establishing the initial heading.
+                    active_route_translation_locked = False
+                    active_route_position_anchor = None
+                    publish_progress(
+                        {
+                            "phase": "initial_heading_release_rotation_lock",
+                            "step_index": idx,
+                            "step_title": title,
+                            "translation_locked": False,
+                            "position_anchor": None,
+                            "rotation_release_requested": True,
+                            "message": (
+                                "Initial pose is still rotation-locked; hovering while "
+                                "ATLAS releases it and relocalizes before heading verification."
+                            ),
+                        }
+                    )
+                    unlocked_gate = wait_for_pose_recovery(
+                        "initial_heading_translation_unlock",
+                        "waiting for a translation-safe pose before heading verification",
+                        require_translation_safe=True,
+                    )
+                    if unlocked_gate is None:
+                        break
+                    gate = unlocked_gate
+                    unlocked_position = pose_gate_position(gate)
+                    start_position = (
+                        list(segment_start)
+                        if precise_arrival and segment_start is not None
+                        else unlocked_position
+                    )
+                    yaw_position_anchor = start_position
+                    active_route_progress = (
+                        0.0
+                        if precise_arrival and segment_start is not None
+                        else route_segment_progress_xz(
+                            start_position,
+                            active_route_segment_start,
+                            active_route_segment_end,
+                        )
+                    )
                 if allow_axis_auto_calibration and body_axes["forward"] is None and body_axes["lateral"] is None:
                     rc_summary["adaptive_axis"]["mode"] = "calibrated_body_axes"
                     if not calibrate_body_axes(gate):
                         abort_reason = "could not calibrate DJI body motion axes from TSolve pose feedback"
                         break
                 if calibrated_heading_offset_rad is None:
-                    if calibrate_forward_heading(gate):
+                    if operator_heading_calibrated and not require_physical_forward_probe:
+                        calibrated_heading_offset_rad = math.radians(initial_body_heading_offset_deg)
+                        rc_summary["adaptive_axis"]["mode"] = "operator_heading_seed_yaw_verified"
+                        rc_summary["adaptive_axis"]["camera_to_body_heading_offset_deg"] = round(
+                            initial_body_heading_offset_deg,
+                            3,
+                        )
+                        publish_progress(
+                            {
+                                "phase": "heading_calibration",
+                                "translation_locked": True,
+                                "position_anchor": yaw_position_anchor,
+                                "body_forward_gain": 0.0,
+                                "body_lateral_gain": 0.0,
+                                "message": (
+                                    "Using the operator-aligned COLMAP heading without a pre-route "
+                                    "translation probe; the first yaw pulse will verify DJI direction."
+                                ),
+                                "camera_to_body_heading_offset_deg": initial_body_heading_offset_deg,
+                            }
+                        )
+                    elif calibrate_forward_heading(gate):
                         pass
                     elif abs(heading_trim_deg) > 1e-9:
                         calibrated_heading_offset_rad = 0.0
@@ -2408,9 +5869,11 @@ def execute_guarded_mission_packet(
                             "refusing patrol translation"
                         )
                         break
+                active_route_translation_locked = True
+                active_route_position_anchor = yaw_position_anchor
 
                 while True:
-                    now = time.time()
+                    now = motion_clock()
                     if now >= absolute_segment_deadline:
                         break
                     rotation_wait_active = (
@@ -2463,9 +5926,11 @@ def execute_guarded_mission_packet(
                     # mode.  Otherwise the following post-pulse pose wait can
                     # enter the generic blocking recovery loop even while a
                     # fresh optical heading remains available.
+                    rotation_pose_locked = pose_gate_rotation_locked(gate_attempt)
                     rotation_position_untrusted = (
                         not gate_attempt.get("ok")
                         or bool(gate_attempt.get("recent_hold_fallback"))
+                        or rotation_pose_locked
                     )
                     confirmed_rotation_angle: float | None = None
                     confirmed_rotation_gate: dict[str, Any] | None = None
@@ -2478,20 +5943,170 @@ def execute_guarded_mission_packet(
                         )
                         else {"ok": False}
                     )
-                    if rotation_observation.get("ok"):
+                    recorded_heading_observation = (
+                        latest_recorded_departure_heading(
+                            pose_stream_path,
+                            pose_max_age,
+                            map_id=str(mission.get("map_id") or ""),
+                            patrol_id=str(mission.get("patrol_id") or ""),
+                            baseline_replay_id=str(
+                                mission.get("baseline_replay_id") or ""
+                            ),
+                            expected_leg_index=endpoint_leg_index,
+                        )
+                        if guarded_taught_rotation and not travel_started
+                        else {"ok": False}
+                    )
+                    if (
+                        rotation_observation.get("ok")
+                        or recorded_heading_observation.get("ok")
+                    ):
                         frozen_position = (
                             yaw_position_anchor
                             if yaw_position_anchor is not None
                             else pose_gate_position(last_pose_gate)
                         )
                         visual_direction = normalize_xz(target_direction_xz(frozen_position, target))
-                        visual_angle = signed_angle_xz(rotation_observation.get("heading"), visual_direction)
-                        if visual_angle is not None and abs(visual_angle) <= math.radians(10.0):
+                        optical_angle = (
+                            signed_angle_xz(
+                                rotation_observation.get("heading"), visual_direction
+                            )
+                            if rotation_observation.get("ok")
+                            else None
+                        )
+                        alignment_angle = optical_angle
+                        alignment_tolerance = math.radians(10.0)
+                        alignment_source = "optical_flow_yaw"
+                        alignment_tracks = rotation_observation.get("tracks")
+                        observation_instance_id = str(
+                            rotation_observation.get("instance_id") or ""
+                        )
+                        if guarded_taught_rotation:
+                            # The optical chain is only a coarse turn guide at
+                            # the two weak patrol corners. A direct match
+                            # against this exact leg's recorded departure
+                            # images is its absolute final-heading reference.
+                            if recorded_heading_observation.get("ok"):
+                                recorded_heading_acquired = True
+                                optical_rebase = (
+                                    signed_angle_xz(
+                                        rotation_observation.get("heading"),
+                                        recorded_heading_observation.get(
+                                            "current_heading"
+                                        ),
+                                    )
+                                    if rotation_observation.get("ok")
+                                    else None
+                                )
+                                optical_rebase_ready = bool(
+                                    optical_rebase is not None
+                                    and abs(optical_rebase) <= math.radians(45.0)
+                                )
+                                if optical_rebase_ready:
+                                    route_optical_heading_bias_rad = float(
+                                        optical_rebase
+                                    )
+                                    last_recorded_heading_observation = dict(
+                                        recorded_heading_observation
+                                    )
+                                alignment_angle = math.radians(
+                                    float(
+                                        recorded_heading_observation.get(
+                                            "correction_deg"
+                                        )
+                                    )
+                                )
+                                alignment_tolerance = math.radians(4.0)
+                                alignment_source = "recorded_patrol_departure_view"
+                                alignment_tracks = recorded_heading_observation.get(
+                                    "inliers"
+                                )
+                                observation_instance_id = str(
+                                    recorded_heading_observation.get("instance_id")
+                                    or ""
+                                )
+                                # The direct image match may say the turn is
+                                # complete while accumulated optical yaw still
+                                # uses a different room basis. Do not translate
+                                # until that basis has been calibrated: without
+                                # this gate the 09:54 run accepted 175 degrees,
+                                # moved once, then reverted to 143 degrees and
+                                # resumed an unnecessary turn.
+                                if not optical_rebase_ready:
+                                    alignment_angle = None
+                                    alignment_tolerance = None
+                                    alignment_source = (
+                                        "recorded_view_waiting_optical_rebase"
+                                    )
+                            elif recorded_heading_acquired:
+                                optical_fine_handoff = (
+                                    recorded_heading_optical_fine_handoff(
+                                        last_recorded_heading_observation,
+                                        rotation_observation,
+                                        optical_heading_bias_rad=(
+                                            route_optical_heading_bias_rad
+                                        ),
+                                    )
+                                )
+                                if optical_fine_handoff is not None:
+                                    # Keep the absolute recorded target; only
+                                    # propagate the current camera heading with
+                                    # short, strongly tracked optical yaw. This
+                                    # avoids alternating one yaw pulse with a
+                                    # long neutral wait when inliers fluctuate
+                                    # around the threshold near the target.
+                                    recorded_heading_observation = (
+                                        optical_fine_handoff
+                                    )
+                                    alignment_angle = math.radians(
+                                        float(
+                                            optical_fine_handoff[
+                                                "correction_deg"
+                                            ]
+                                        )
+                                    )
+                                    alignment_tolerance = math.radians(4.0)
+                                    alignment_source = (
+                                        "recorded_view_optical_fine_handoff"
+                                    )
+                                    alignment_tracks = optical_fine_handoff.get(
+                                        "optical_tracks"
+                                    )
+                                    observation_instance_id = str(
+                                        optical_fine_handoff.get("instance_id")
+                                        or ""
+                                    )
+                                else:
+                                    # The absolute anchor is too old, too far
+                                    # from target, or the optical bridge is no
+                                    # longer bounded. Hold neutral and reacquire
+                                    # rather than reversing or overshooting.
+                                    alignment_angle = None
+                                    alignment_tolerance = None
+                                    alignment_source = (
+                                        "recorded_view_reacquisition_hold"
+                                    )
+                            else:
+                                # Do not let an optical estimate inside its
+                                # old +/-10 degree window complete this guarded
+                                # turn. Keep making small search pulses in the
+                                # planned turn direction until the recorded
+                                # departure view is visible and can provide an
+                                # absolute error.
+                                alignment_tolerance = None
+                                if alignment_angle is not None and abs(
+                                    alignment_angle
+                                ) <= math.radians(10.0):
+                                    alignment_angle = math.radians(10.1)
+                                alignment_source = "optical_flow_coarse_search"
+                        heading_aligned = bool(
+                            alignment_angle is not None
+                            and alignment_tolerance is not None
+                            and abs(alignment_angle) <= alignment_tolerance
+                        )
+                        if heading_aligned:
                             forward_alignment_locked = True
                             last_alignment_yaw_rc = 0.0
-                            observation_instance_id = str(
-                                rotation_observation.get("instance_id") or ""
-                            )
                             if (
                                 observation_instance_id
                                 and observation_instance_id != rotation_heading_last_instance_id
@@ -2510,12 +6125,26 @@ def execute_guarded_mission_packet(
                                     "step_index": idx,
                                     "step_title": title,
                                     "taught_leg": [taught_leg.get("from_point"), taught_leg.get("to_point")],
-                                    "heading_error_deg": math.degrees(visual_angle),
-                                    "rotation_tracks": rotation_observation.get("tracks"),
+                                    "heading_error_deg": math.degrees(alignment_angle),
+                                    "heading_source": alignment_source,
+                                    "rotation_tracks": alignment_tracks,
+                                    "recorded_heading_anchor": recorded_heading_observation.get("anchor"),
+                                    "optical_heading_bias_deg": (
+                                        math.degrees(route_optical_heading_bias_rad)
+                                        if route_optical_heading_bias_rad is not None
+                                        else None
+                                    ),
+                                    "translation_locked": True,
+                                    "position_anchor": yaw_position_anchor,
                                     "stable_heading_frames": rotation_heading_stable_frames,
                                     "required_stable_heading_frames": required_rotation_heading_stable_frames,
                                     "message": (
-                                        "Visual turn is aligned with the taught patrol leg; "
+                                        (
+                                            "Recorded departure view is aligned with the taught patrol leg; "
+                                            if guarded_taught_rotation
+                                            else "Visual turn is aligned with the taught patrol leg; "
+                                        )
+                                        +
                                         f"confirming steady heading "
                                         f"({rotation_heading_stable_frames}/"
                                         f"{required_rotation_heading_stable_frames}) before "
@@ -2527,94 +6156,171 @@ def execute_guarded_mission_packet(
                                 neutral_hover(drone, 0.12)
                                 continue
                             if rotation_position_untrusted:
-                                if (
-                                    guarded_taught_rotation
-                                    and rotation_reacquisition_pulses
-                                    < max_rotation_reacquisition_pulses
-                                ):
-                                    if stop_flag is not None and stop_flag.stop:
-                                        abort_reason = "live localization stop requested"
-                                        break
-                                    if (
-                                        mission_stop_event is not None
-                                        and mission_stop_event.is_set()
-                                    ):
-                                        abort_reason = "emergency hover requested"
-                                        break
-                                    # The right turn has converged on three
-                                    # independent optical frames, but the
-                                    # camera is still looking through the
-                                    # point-3 weak-map sector.  Make only a
-                                    # very small straight movement along the
-                                    # known 3→4 corridor to expose new
-                                    # features.  Yaw and lateral channels stay
-                                    # locked, and no further pulse is allowed
-                                    # after the bounded count.
+                                if guarded_taught_rotation:
+                                    endpoint_departure_gate = (
+                                        verified_endpoint_turn_departure_gate(
+                                            verified_endpoint_turn_source_gate,
+                                            position_anchor=(
+                                                verified_endpoint_turn_anchor
+                                            ),
+                                            heading_observation=(
+                                                recorded_heading_observation
+                                            ),
+                                            expected_leg_index=(
+                                                endpoint_leg_index
+                                            ),
+                                            endpoint_handoff_verified=bool(
+                                                point_four_handoff
+                                                and verified_endpoint_turn_anchor
+                                                is not None
+                                            ),
+                                            endpoint_handoff_source=(
+                                                verified_endpoint_turn_source
+                                            ),
+                                            stable_heading_frames=(
+                                                rotation_heading_stable_frames
+                                            ),
+                                            required_stable_heading_frames=(
+                                                required_rotation_heading_stable_frames
+                                            ),
+                                        )
+                                    )
+                                elif point_three_handoff:
+                                    endpoint_departure_gate = (
+                                        verified_optical_endpoint_turn_departure_gate(
+                                            verified_endpoint_turn_source_gate,
+                                            position_anchor=(
+                                                verified_endpoint_turn_anchor
+                                            ),
+                                            heading_observation=(
+                                                rotation_observation
+                                            ),
+                                            heading_error_rad=alignment_angle,
+                                            expected_leg_index=(
+                                                endpoint_leg_index
+                                            ),
+                                            endpoint_handoff_verified=bool(
+                                                verified_endpoint_turn_anchor
+                                                is not None
+                                                and verified_endpoint_turn_source
+                                                == "verified_visual_endpoint"
+                                            ),
+                                            stable_heading_frames=(
+                                                rotation_heading_stable_frames
+                                            ),
+                                            required_stable_heading_frames=(
+                                                required_rotation_heading_stable_frames
+                                            ),
+                                        )
+                                    )
+                                else:
+                                    endpoint_departure_gate = None
+                                if endpoint_departure_gate is not None:
+                                    # The waypoint was verified before the yaw
+                                    # and the new leg's heading is now steady.
+                                    # Requiring another translation solution
+                                    # here deadlocks in a weak view.  Permit one
+                                    # normal low-stick pulse, then require fresh
+                                    # observed progress before any next command.
+                                    confirmed_rotation_gate = endpoint_departure_gate
                                     publish_progress(
                                         {
-                                            "phase": "taught_turn_forward_reacquisition",
+                                            "phase": "verified_endpoint_turn_departure_ready",
                                             "step_index": idx,
                                             "step_title": title,
-                                            "taught_leg": [
-                                                taught_leg.get("from_point"),
-                                                taught_leg.get("to_point"),
-                                            ],
                                             "heading_error_deg": math.degrees(
-                                                visual_angle
+                                                alignment_angle
                                             ),
-                                            "rotation_tracks": rotation_observation.get(
-                                                "tracks"
+                                            "heading_source": alignment_source,
+                                            "rotation_tracks": alignment_tracks,
+                                            "translation_locked": True,
+                                            "position_anchor": (
+                                                verified_endpoint_turn_anchor
                                             ),
-                                            "reacquisition_pulse": (
-                                                rotation_reacquisition_pulses + 1
-                                            ),
-                                            "max_reacquisition_pulses": (
-                                                max_rotation_reacquisition_pulses
-                                            ),
+                                            "bounded_departure_commands": 1,
+                                            "require_observed_progress_after_command": True,
                                             "message": (
-                                                "Point-4 heading is steady; issuing one "
-                                                "bounded low-speed forward pulse to "
-                                                "reacquire map features."
+                                                "Waypoint position and the current departure "
+                                                "heading are independently verified; "
+                                                "one bounded low-stick departure is ready."
                                             ),
                                         }
                                     )
-                                    if not enforce_patrol_geofence(last_pose_gate, "point-4 feature reacquisition"):
-                                        break
-                                    sent = execute_rc_pulse(
-                                        drone,
-                                        yaw=0.0,
-                                        lr=0.0,
-                                        bf=rotation_reacquisition_forward_rc,
-                                        du=0.0,
-                                        seconds=pulse_seconds,
+                                else:
+                                    # The turn is complete and the aircraft is
+                                    # neutrally hovering. Open the route-aware
+                                    # visual recovery path even when TSolve is
+                                    # currently rejected or held. Requiring a
+                                    # healthy non-held TSolve pose before
+                                    # setting this flag creates a circular wait:
+                                    # the baseline matcher stays disabled while
+                                    # the bridge waits for that matcher to
+                                    # recover the position.
+                                    publish_progress(
+                                        {
+                                            "phase": "taught_turn_wait_fresh_position",
+                                            "step_index": idx,
+                                            "step_title": title,
+                                            "heading_error_deg": math.degrees(
+                                                alignment_angle
+                                            ),
+                                            "heading_source": alignment_source,
+                                            "rotation_tracks": alignment_tracks,
+                                            "translation_locked": True,
+                                            "route_visual_recovery_allowed": True,
+                                            "position_anchor": yaw_position_anchor,
+                                            "rotation_release_requested": True,
+                                            "body_forward_gain": 0.0,
+                                            "body_lateral_gain": 0.0,
+                                            "message": (
+                                                "Turn heading is steady; hovering at the "
+                                                "waypoint while the recorded patrol baseline "
+                                                "recovers a translation-safe position. No "
+                                                "forward or lateral command is allowed."
+                                            ),
+                                        }
                                     )
-                                    record_pulse("forward", sent)
-                                    executed_pulses += 1
-                                    pulse_count += 1
-                                    forward_pulse_count += 1
-                                    forward_command_seconds += pulse_seconds
-                                    rotation_reacquisition_pulses += 1
-                                    time.sleep(0.45)
-                                    continue
-                                neutral_hover(drone, 0.12)
-                                continue
-                            # Three distinct optical frames agree and the
-                            # current position is both fresh and close to the
-                            # frozen point-3 anchor.  Preserve the optical
-                            # angle through the normal translation gate so a
-                            # disagreeing monocular rotation cannot restart
-                            # the completed turn.
-                            confirmed_rotation_angle = visual_angle
-                            confirmed_rotation_gate = gate_attempt
-                        elif visual_angle is not None and taught_rotation_yaw_seconds < max_taught_rotation_yaw_seconds:
+                                    # Release the command-side route anchor while
+                                    # issuing neutral hover only. Keeping
+                                    # `active_route_translation_locked` true
+                                    # made the controller reject the first valid
+                                    # visual recovery (0.18 m) against the 0.16 m
+                                    # turn drift limit forever. The recovery
+                                    # helper clears only localization anchors;
+                                    # physical forward/lateral RC remains locked
+                                    # until the verified translation-safe gate
+                                    # returns.
+                                    recovered_gate = wait_for_pose_recovery(
+                                        (
+                                            "taught_turn_recorded_heading_recovery"
+                                            if guarded_taught_rotation
+                                            else "taught_turn_position_recovery"
+                                        ),
+                                        "waiting for the verified recorded route position after heading alignment",
+                                        timeout=max_rotation_position_recovery_seconds,
+                                        require_translation_safe=True,
+                                    )
+                                    if recovered_gate is None:
+                                        break
+                                    confirmed_rotation_gate = recovered_gate
+                            else:
+                                confirmed_rotation_gate = gate_attempt
+                            confirmed_rotation_angle = alignment_angle
+                        elif alignment_angle is not None and taught_rotation_yaw_seconds < max_taught_rotation_yaw_seconds:
                             rotation_heading_stable_frames = 0
                             rotation_heading_last_instance_id = None
                             rotation_alignment_ready_at = None
-                            yaw_scale = max(0.65, min(1.0, abs(visual_angle) / math.radians(70.0)))
+                            yaw_scale = max(0.45, min(1.0, abs(alignment_angle) / math.radians(70.0)))
+                            fine_recorded_alignment = (
+                                alignment_source == "recorded_patrol_departure_view"
+                            )
                             taught_yaw_rc = (
                                 yaw_sign
                                 * max_yaw_rc
-                                * yaw_direction_for_angle(visual_angle, turn_direction_override)
+                                * yaw_direction_for_angle(
+                                    alignment_angle,
+                                    None if fine_recorded_alignment else turn_direction_override,
+                                )
                                 * yaw_scale
                             )
                             last_alignment_yaw_rc = taught_yaw_rc
@@ -2624,14 +6330,18 @@ def execute_guarded_mission_packet(
                                     "step_index": idx,
                                     "step_title": title,
                                     "taught_leg": [taught_leg.get("from_point"), taught_leg.get("to_point")],
-                                    "heading_error_deg": math.degrees(visual_angle),
-                                    "rotation_tracks": rotation_observation.get("tracks"),
+                                    "heading_error_deg": math.degrees(alignment_angle),
+                                    "heading_source": alignment_source,
+                                    "rotation_tracks": alignment_tracks,
+                                    "recorded_heading_reason": recorded_heading_observation.get("reason"),
+                                    "translation_locked": True,
+                                    "position_anchor": yaw_position_anchor,
                                     "rotation_yaw_seconds": taught_rotation_yaw_seconds,
                                     "max_rotation_yaw_seconds": max_taught_rotation_yaw_seconds,
                                     "turn_direction_override": turn_direction_override,
                                     "message": (
-                                        "TSolve position is rejected during a taught corner; "
-                                        "continuing yaw from fresh optical heading only. Forward and lateral are locked."
+                                        "Continuing the guarded turn until the live camera matches "
+                                        "the recorded waypoint departure view. Forward and lateral are locked."
                                     ),
                                 }
                             )
@@ -2659,7 +6369,42 @@ def execute_guarded_mission_packet(
                             )
                             break
                     if (
+                        guarded_taught_rotation
+                        and not travel_started
+                        and confirmed_rotation_gate is None
+                    ):
+                        # Audited patrol turns may translate only after their
+                        # recorded departure view has been observed steadily.
+                        # If both the absolute image matcher and the coarse
+                        # optical guide are temporarily unavailable, fail
+                        # closed here.  Falling through to the generic pose
+                        # heading gate previously allowed a false Point-3
+                        # optical turn to begin translation.
+                        publish_progress(
+                            {
+                                "phase": "taught_turn_wait_recorded_departure_view",
+                                "step_index": idx,
+                                "step_title": title,
+                                "taught_leg": [
+                                    taught_leg.get("from_point"),
+                                    taught_leg.get("to_point"),
+                                ],
+                                "translation_locked": True,
+                                "position_anchor": yaw_position_anchor,
+                                "recorded_heading_reason": recorded_heading_observation.get(
+                                    "reason"
+                                ),
+                                "message": (
+                                    "Waiting online for the recorded waypoint departure view. "
+                                    "Forward and lateral movement remain locked."
+                                ),
+                            }
+                        )
+                        neutral_hover(drone, 0.12)
+                        continue
+                    if (
                         not gate_attempt.get("ok")
+                        and confirmed_rotation_gate is None
                         and not travel_started
                         and abs(last_alignment_yaw_rc) <= 1e-6
                         and isinstance(last_pose_gate, dict)
@@ -2684,6 +6429,7 @@ def execute_guarded_mission_packet(
                             )
                     if (
                         not gate_attempt.get("ok")
+                        and confirmed_rotation_gate is None
                         and not travel_started
                         and abs(last_alignment_yaw_rc) > 1e-6
                         and blind_yaw_seconds < max_blind_yaw_seconds
@@ -2704,6 +6450,8 @@ def execute_guarded_mission_packet(
                                 "step_index": idx,
                                 "step_title": title,
                                 "pose_gate": gate_attempt,
+                                "translation_locked": True,
+                                "position_anchor": yaw_position_anchor,
                                 "blind_yaw_seconds": blind_yaw_seconds,
                                 "max_blind_yaw_seconds": max_blind_yaw_seconds,
                                 "message": (
@@ -2737,11 +6485,6 @@ def execute_guarded_mission_packet(
                         # recovery even though the turn already converged.
                         current_gate = confirmed_rotation_gate
                         last_pose_gate = current_gate
-                        if rotation_reacquisition_pulses > 0:
-                            # A real translation occurred during feature
-                            # reacquisition, so switch from the pure-yaw
-                            # anchor to the newly recovered map position.
-                            yaw_position_anchor = None
                     else:
                         current_gate = pose_gate_or_abort()
                         if current_gate is None:
@@ -2749,11 +6492,14 @@ def execute_guarded_mission_packet(
                     if rotation_alignment_ready_at is not None and current_gate.get("recent_hold_fallback"):
                         publish_progress(
                             {
-                                "phase": "taught_turn_wait_fresh_position",
-                                "step_index": idx,
-                                "step_title": title,
-                                "message": "Turn is visually aligned; holding until a non-held TSolve position arrives before translation.",
-                            }
+                                    "phase": "taught_turn_wait_fresh_position",
+                                    "step_index": idx,
+                                    "step_title": title,
+                                    "translation_locked": True,
+                                    "route_visual_recovery_allowed": True,
+                                    "position_anchor": yaw_position_anchor,
+                                    "message": "Turn is visually aligned; holding until a non-held TSolve position arrives before translation.",
+                                }
                         )
                         neutral_hover(drone, 0.12)
                         continue
@@ -2771,6 +6517,38 @@ def execute_guarded_mission_packet(
                         else raw_current_position
                     )
                     current_distance = horizontal_xz_distance(current_position, target)
+                    if (
+                        visual_stationary_retry_reference_distance is not None
+                        and current_distance is not None
+                        and current_distance
+                        <= visual_stationary_retry_reference_distance - 0.015
+                    ):
+                        # Replenish the one-retry allowance only after the
+                        # localizer has actually observed the movement that
+                        # the previous retry was meant to reveal.
+                        visual_stationary_retry_reference_distance = None
+                    endpoint_overshoot_distance = (
+                        patrol_endpoint_overshoot_distance(
+                            current_position,
+                            segment_start,
+                            target,
+                        )
+                        if precise_arrival
+                        else None
+                    )
+                    if (
+                        endpoint_overshoot_distance is not None
+                        and endpoint_overshoot_distance > 0.40
+                    ):
+                        abort_reason = (
+                            "endpoint overshoot exceeds the 0.40 m bounded reverse "
+                            f"limit ({endpoint_overshoot_distance:.2f} m); hovering"
+                        )
+                        break
+                    active_endpoint_overshoot_correction = bool(
+                        endpoint_overshoot_distance is not None
+                        and endpoint_overshoot_distance > 0.03
+                    )
                     cross_track = horizontal_xz_segment_distance(current_position, segment_start, target)
                     if cross_track is not None and cross_track > max_cross_track:
                         abort_reason = (
@@ -2778,13 +6556,185 @@ def execute_guarded_mission_packet(
                             f"({cross_track:.2f} map units > {max_cross_track:.2f})"
                         )
                         break
+                    endpoint_alignment_pending = False
+                    endpoint_alignment_error: float | None = None
+                    endpoint_desired_heading: list[float] | None = None
                     if current_distance is not None:
                         final_distance = current_distance
-                        if current_distance <= arrival_radius:
+                        endpoint_ready = bool(
+                            not precise_arrival
+                            or taught_endpoint_arrival_verified(
+                                current_gate.get("pose")
+                                if isinstance(current_gate, dict)
+                                else None,
+                                expected_leg_index=endpoint_leg_index,
+                            )
+                        )
+                        visual_checkpoint_arrival = bool(
+                            precise_arrival
+                            and taught_endpoint_stale_translation_arrival_verified(
+                                current_gate.get("pose")
+                                if isinstance(current_gate, dict)
+                                else None,
+                                expected_leg_index=endpoint_leg_index,
+                            )
+                        )
+                        if visual_checkpoint_arrival:
+                            # The aircraft has already reached the independently
+                            # recognized endpoint while TSolve's published
+                            # translation is stale.  End this leg without one
+                            # more forward pulse and hand the exact shared
+                            # waypoint to the next turn as its position anchor.
                             reached = True
-                            arrival_mode = "strict_radius"
+                            arrival_mode = "visual_checkpoint_endpoint_verified"
+                            active_route_translation_locked = True
+                            active_route_position_anchor = list(target)
+                            yaw_position_anchor = list(target)
+                            publish_progress(
+                                {
+                                    "phase": "cruise_arrival",
+                                    "step_index": idx,
+                                    "step_title": title,
+                                    "target": target,
+                                    "distance_to_target": current_distance,
+                                    "arrival_radius": cruise_arrival_radius,
+                                    "soft_arrival_radius": cruise_soft_arrival_radius,
+                                    "translation_locked": True,
+                                    "position_anchor": target,
+                                    "endpoint_leg_index": endpoint_leg_index,
+                                    "visual_checkpoint_arrival": True,
+                                    "message": (
+                                        "Repeated progress-independent endpoint images "
+                                        "verified the waypoint while TSolve translation "
+                                        "was stale; stopping at the checkpoint without "
+                                        "another forward pulse."
+                                    ),
+                                }
+                            )
+                            neutral_hover(drone, 0.25)
                             break
-                        if current_distance <= soft_arrival_radius:
+                        if (
+                            precise_arrival
+                            and current_distance <= cruise_soft_arrival_radius
+                            and not endpoint_ready
+                            and route_follow_leg is not None
+                        ):
+                            endpoint_desired_heading = (
+                                verified_route_desired_camera_heading(
+                                    route_follow_leg,
+                                    current_position=current_position,
+                                    segment_start=segment_start,
+                                    segment_end=target,
+                                    default_lookahead_m=route_follow_lookahead_m,
+                                    default_max_correction_deg=(
+                                        route_follow_max_correction_deg
+                                    ),
+                                )
+                            )
+                            endpoint_camera_heading = pose_gate_camera_heading(
+                                current_gate,
+                                optical_heading_bias_rad=route_optical_heading_bias_rad,
+                            )
+                            endpoint_alignment_error = signed_angle_xz(
+                                endpoint_camera_heading,
+                                endpoint_desired_heading,
+                            )
+                            endpoint_alignment_pending = bool(
+                                endpoint_alignment_error is not None
+                                and abs(endpoint_alignment_error)
+                                > math.radians(route_follow_alignment_enter_deg)
+                            )
+                            if endpoint_alignment_pending:
+                                # Do not enter the neutral-only recovery deadlock
+                                # while the current image is visibly misaligned
+                                # with the successful route. Reuse the normal
+                                # yaw-only controller below; translation remains
+                                # locked until the camera is back on the 11:57
+                                # heading and endpoint imagery can verify arrival.
+                                forward_alignment_locked = False
+                                publish_progress(
+                                    {
+                                        "phase": "taught_endpoint_yaw_realign",
+                                        "step_index": idx,
+                                        "step_title": title,
+                                        "translation_locked": True,
+                                        "position_anchor": current_position,
+                                        "distance_to_target": current_distance,
+                                        "heading_error_deg": math.degrees(
+                                            endpoint_alignment_error
+                                        ),
+                                        "golden_source_replay_id": (
+                                            (verified_route_lock or {}).get(
+                                                "source_replay_id"
+                                            )
+                                        ),
+                                        "message": (
+                                            "Inside the waypoint radius but the camera is not "
+                                            "aligned with the verified 11:57 endpoint view; "
+                                            "correcting yaw only before image verification."
+                                        ),
+                                    }
+                                )
+                        if (
+                            precise_arrival
+                            and current_distance <= cruise_soft_arrival_radius
+                            and not endpoint_ready
+                            and not endpoint_alignment_pending
+                        ):
+                            publish_progress(
+                                {
+                                    "phase": "taught_endpoint_verification",
+                                    "step_index": idx,
+                                    "step_title": title,
+                                    "translation_locked": True,
+                                    "route_visual_recovery_allowed": True,
+                                    "position_anchor": current_position,
+                                    "distance_to_target": current_distance,
+                                    "endpoint_leg_index": endpoint_leg_index,
+                                    "message": (
+                                        "Inside the waypoint radius; hovering until three "
+                                        "progress-independent whole-leg image matches verify "
+                                        "the taught endpoint."
+                                    ),
+                                }
+                            )
+                            verified_gate = wait_for_pose_recovery(
+                                "taught_endpoint_verification",
+                                "waypoint geometry reached without independent endpoint evidence",
+                                translation_target=target,
+                                translation_arrival_radius=cruise_soft_arrival_radius,
+                                require_endpoint_verified=True,
+                                endpoint_leg_index=endpoint_leg_index,
+                            )
+                            if verified_gate is None:
+                                break
+                            current_gate = verified_gate
+                            current_position = pose_gate_position(current_gate)
+                            current_distance = horizontal_xz_distance(
+                                current_position, target
+                            )
+                            final_distance = current_distance
+                            endpoint_ready = taught_endpoint_arrival_verified(
+                                current_gate.get("pose"),
+                                expected_leg_index=endpoint_leg_index,
+                            )
+                        if (
+                            current_distance is not None
+                            and current_distance <= cruise_arrival_radius
+                            and endpoint_ready
+                        ):
+                            reached = True
+                            arrival_mode = (
+                                "strict_radius_endpoint_verified"
+                                if precise_arrival
+                                else "strict_radius"
+                            )
+                            break
+                        if (
+                            current_distance is not None
+                            and current_distance <= cruise_soft_arrival_radius
+                            and endpoint_ready
+                        ):
                             reached = True
                             arrival_mode = "soft_deadband"
                             publish_progress(
@@ -2794,11 +6744,11 @@ def execute_guarded_mission_packet(
                                     "step_title": title,
                                     "target": target,
                                     "distance_to_target": current_distance,
-                                    "arrival_radius": arrival_radius,
-                                    "soft_arrival_radius": soft_arrival_radius,
+                                    "arrival_radius": cruise_arrival_radius,
+                                    "soft_arrival_radius": cruise_soft_arrival_radius,
                                     "message": (
                                         f"Patrol target reached within soft indoor deadband "
-                                        f"({current_distance:.2f} <= {soft_arrival_radius:.2f}); hovering."
+                                        f"({current_distance:.2f} <= {cruise_soft_arrival_radius:.2f}); hovering."
                                     ),
                                 }
                             )
@@ -2817,8 +6767,15 @@ def execute_guarded_mission_packet(
                             )
                             break
 
-                    desired_direction = target_direction_xz(current_position, target)
-                    desired_unit = normalize_xz(desired_direction)
+                    desired_unit = patrol_navigation_direction_xz(
+                        current_position,
+                        target,
+                        endpoint_heading=(
+                            endpoint_desired_heading
+                            if endpoint_alignment_pending
+                            else None
+                        ),
+                    )
                     if desired_unit is None:
                         abort_reason = "could not compute patrol target direction from latest TSolve pose"
                         break
@@ -2828,6 +6785,32 @@ def execute_guarded_mission_packet(
                     heading = pose_gate_heading(
                         current_gate,
                         heading_trim_rad + float(calibrated_heading_offset_rad or 0.0),
+                    )
+                    route_follow_desired_heading = (
+                        verified_route_desired_camera_heading(
+                            route_follow_leg,
+                            current_position=current_position,
+                            segment_start=segment_start,
+                            segment_end=target,
+                            default_lookahead_m=route_follow_lookahead_m,
+                            default_max_correction_deg=(
+                                route_follow_max_correction_deg
+                            ),
+                        )
+                        if route_follow_leg is not None
+                        else None
+                    )
+                    route_follow_camera_heading = (
+                        pose_gate_camera_heading(
+                            current_gate,
+                            optical_heading_bias_rad=route_optical_heading_bias_rad,
+                        )
+                        if route_follow_desired_heading is not None
+                        else None
+                    )
+                    route_follow_angle = signed_angle_xz(
+                        route_follow_camera_heading,
+                        route_follow_desired_heading,
                     )
                     # A probe measures the body axis in the room frame only at
                     # the instant it is made.  It becomes stale as soon as the
@@ -2842,12 +6825,16 @@ def execute_guarded_mission_packet(
                             and not travel_started
                             and confirmed_rotation_angle is not None
                         )
-                        else signed_angle_xz(heading, desired_unit)
+                        else (
+                            route_follow_angle
+                            if route_follow_angle is not None
+                            else signed_angle_xz(heading, desired_unit)
+                        )
                     )
                     if angle is None:
                         abort_reason = "latest TSolve pose has no usable heading or calibrated body axis; refusing patrol translation"
                         break
-                    speed_scale = max(0.32, min(1.0, (current_distance or 0.0) / max(arrival_radius * 5.0, 0.55)))
+                    speed_scale = max(0.32, min(1.0, (current_distance or 0.0) / max(cruise_arrival_radius * 5.0, 0.55)))
                     speed_scale *= corridor_recovery_speed_scale(
                         cross_track,
                         recovery_start=cross_track_recovery_start,
@@ -2856,12 +6843,17 @@ def execute_guarded_mission_packet(
                     yaw_rc = 0.0
                     bf_rc = 0.0
                     lr_rc = 0.0
+                    expected_yaw_heading_sign = 0.0
                     navigation_mode = "camera_heading"
-                    if heading is None:
+                    if heading is None and route_follow_camera_heading is None:
                         abort_reason = "latest TSolve pose has no usable calibrated body heading; refusing patrol translation"
                         break
                     else:
-                        navigation_mode = "fresh_heading_yaw_then_forward"
+                        navigation_mode = (
+                            "verified_1157_route_heading_yaw_then_forward"
+                            if route_follow_angle is not None
+                            else "fresh_heading_yaw_then_forward"
+                        )
                         angle_abs = abs(angle)
                         if (
                             not travel_started
@@ -2874,17 +6866,36 @@ def execute_guarded_mission_packet(
                             )
                         # Hysteresis prevents a fresh but slightly noisy heading
                         # from alternating forever between yaw and forward.
-                        alignment_limit_deg = 14.0 if forward_alignment_locked else 10.0
+                        if route_follow_angle is not None:
+                            # The successful run is the primary steering
+                            # reference through Point 4. Enter translation only
+                            # inside four degrees and resume yaw correction as
+                            # soon as drift exceeds six degrees.
+                            alignment_limit_deg = (
+                                route_follow_alignment_exit_deg
+                                if forward_alignment_locked
+                                else route_follow_alignment_enter_deg
+                            )
+                        elif guarded_taught_rotation:
+                            # The recorded 3->4 corridor passes close to the
+                            # partition. Enter forward flight only below six
+                            # degrees and re-align as soon as error exceeds
+                            # eight; the former 10/14-degree window produced
+                            # the diagonal wall approach in the failed run.
+                            alignment_limit_deg = 8.0 if forward_alignment_locked else 6.0
+                        else:
+                            alignment_limit_deg = 14.0 if forward_alignment_locked else 10.0
                         if angle_abs > math.radians(alignment_limit_deg):
                             forward_alignment_locked = False
                             yaw_scale = max(0.65, min(1.0, angle_abs / math.radians(70.0)))
+                            expected_yaw_heading_sign = yaw_direction_for_angle(
+                                angle,
+                                turn_direction_override if not travel_started else None,
+                            )
                             yaw_rc = (
                                 yaw_sign
                                 * max_yaw_rc
-                                * yaw_direction_for_angle(
-                                    angle,
-                                    turn_direction_override if not travel_started else None,
-                                )
+                                * expected_yaw_heading_sign
                                 * yaw_scale
                             )
                             last_alignment_yaw_rc = yaw_rc
@@ -2893,13 +6904,187 @@ def execute_guarded_mission_packet(
                             # fly only on DJI's body-forward channel.
                             forward_alignment_locked = True
                             last_alignment_yaw_rc = 0.0
-                            bf_rc = max_forward_rc * speed_scale
-                            # Wall time spent hovering, relocalizing, or yawing
-                            # must not consume the forward-travel budget.
-                            travel_started = True
+                            if active_endpoint_overshoot_correction:
+                                # Braking/localization delay can put the drone
+                                # a short distance beyond a checkpoint while
+                                # it is still facing along the route. Reverse
+                                # slowly on the same body axis; never turn 180
+                                # degrees or keep flying farther forward.
+                                reverse_scale = min(
+                                    0.35,
+                                    max(
+                                        0.18,
+                                        float(endpoint_overshoot_distance or 0.0)
+                                        / 0.80,
+                                    ),
+                                )
+                                bf_rc = -max_forward_rc * reverse_scale
+                                navigation_mode = (
+                                    "bounded_endpoint_reverse_correction"
+                                )
+                            else:
+                                bf_rc = max_forward_rc * speed_scale
+                            if guarded_taught_rotation and bf_rc > 0.0:
+                                # Smaller pulses keep camera overlap high for
+                                # continuous baseline verification and make
+                                # every correction visible before the next
+                                # physical movement.
+                                bf_rc = min(bf_rc, max_forward_rc * 0.70)
+                            # Mark travel started only after the final
+                            # command-aware pose gate accepts this pulse.
 
                     forward_gain = bf_rc / max_forward_rc if max_forward_rc > 1e-9 else 0.0
                     lateral_gain = lr_rc / max_lateral_rc if max_lateral_rc > 1e-9 else 0.0
+                    rotation_only_command = (
+                        abs(yaw_rc) > 1e-6
+                        and abs(bf_rc) <= 1e-6
+                        and abs(lr_rc) <= 1e-6
+                    )
+                    if rotation_only_command and travel_started and yaw_position_anchor is None:
+                        # DJI can retain a small amount of forward motion after
+                        # a translation pulse.  Do not declare the pre-yaw
+                        # position immutable until two fresh pose samples show
+                        # that this residual motion has stopped.  Previously we
+                        # anchored immediately, then rejected the legitimate
+                        # 21.8 cm braking distance as rotation drift forever.
+                        active_route_translation_locked = False
+                        active_route_position_anchor = None
+                        publish_progress(
+                            {
+                                "phase": "pre_yaw_translation_settle",
+                                "step_index": idx,
+                                "step_title": title,
+                                "translation_locked": False,
+                                "position_anchor": None,
+                                "message": (
+                                    "Hovering until forward motion settles before the next yaw correction."
+                                ),
+                            }
+                        )
+                        neutral_hover(drone, 0.35)
+                        # A global/recovery TSolve can legitimately leave the
+                        # controller without a newly published pose for several
+                        # seconds. Keep the aircraft neutral while that solve
+                        # finishes instead of treating a short publication gap
+                        # as residual physical motion. The 15:20 live run had
+                        # a ~5.9 s gap here and published a stable pose again
+                        # immediately afterwards; the former fixed 3 s timeout
+                        # aborted the entry to Point 1 unnecessarily.
+                        settle_wait_seconds = max(8.0, pose_recovery_seconds)
+                        settle_deadline = time.time() + settle_wait_seconds
+                        settle_gate = current_gate
+                        settle_position = raw_current_position
+                        try:
+                            settle_count = int(current_gate.get("processed_count") or 0)
+                        except (TypeError, ValueError):
+                            settle_count = 0
+                        # Recovery may already have returned a fresh,
+                        # two-source verified full-loop pose for this exact
+                        # current frame. That absolute route observation is
+                        # sufficient to anchor an in-place yaw immediately.
+                        # Waiting for another such pose created the 10:18
+                        # Point-2->3 deadlock: strong route matches arrived
+                        # about every 9.2 s while the settle window was 8 s,
+                        # so every retry missed the next match by ~1 s.
+                        stable_settle_samples = (
+                            2
+                            if patrol_visual_yaw_anchor_ready(current_gate)
+                            else 0
+                        )
+                        while time.time() < settle_deadline and stable_settle_samples < 2:
+                            candidate_gate = continuity_guarded_pose_gate()
+                            try:
+                                candidate_count = int(candidate_gate.get("processed_count") or 0)
+                            except (TypeError, ValueError):
+                                candidate_count = settle_count
+                            if not candidate_gate.get("ok") or candidate_count <= settle_count:
+                                neutral_hover(drone, 0.08)
+                                continue
+                            candidate_position = pose_gate_position(candidate_gate)
+                            settle_step = horizontal_xz_distance(candidate_position, settle_position)
+                            settle_gate = candidate_gate
+                            settle_count = candidate_count
+                            last_pose_gate = candidate_gate
+                            if candidate_gate.get("route_progress") is not None:
+                                active_route_progress = float(candidate_gate["route_progress"])
+                            if candidate_position is not None:
+                                settle_position = candidate_position
+                            if patrol_visual_yaw_anchor_ready(candidate_gate):
+                                # The full-loop matcher directly observes the
+                                # current recorded route location.  Waiting for
+                                # two more TSolve publications here caused the
+                                # otherwise healthy patrol to freeze before a
+                                # turn whenever TSolve was recovering from a
+                                # repeated-room alias.
+                                stable_settle_samples = 2
+                                break
+                            if settle_step is not None and settle_step <= 0.06:
+                                stable_settle_samples += 1
+                            else:
+                                stable_settle_samples = 0
+                            time.sleep(0.06)
+                        if stable_settle_samples < 2 or settle_position is None:
+                            # A localization timeout is not a flight failure.
+                            # Keep the aircraft in neutral hover, release any
+                            # stale yaw anchor, and let the online localizer
+                            # continue processing the same active leg.  The
+                            # next cruise-loop iteration retries from fresh
+                            # data; only an explicit stop/emergency or a real
+                            # safety barrier may terminate the mission.
+                            yaw_position_anchor = None
+                            active_route_translation_locked = False
+                            active_route_position_anchor = None
+                            publish_progress(
+                                {
+                                    "phase": "pre_yaw_online_recovery",
+                                    "step_index": idx,
+                                    "step_title": title,
+                                    "translation_locked": True,
+                                    "route_visual_recovery_allowed": True,
+                                    "rotation_release_requested": True,
+                                    "position_anchor": settle_position,
+                                    "body_forward_gain": 0.0,
+                                    "body_lateral_gain": 0.0,
+                                    "message": (
+                                        "Position did not settle before yaw; hovering with "
+                                        "movement locked while ATLAS relocalizes online."
+                                    ),
+                                }
+                            )
+                            neutral_hover(drone, GUIDED_RECOVERY_HOVER_SECONDS)
+                            continue
+                        current_gate = settle_gate
+                        yaw_position_anchor = settle_position
+                        active_route_translation_locked = True
+                        active_route_position_anchor = yaw_position_anchor
+                        publish_progress(
+                            {
+                                "phase": "pre_yaw_translation_settled",
+                                "step_index": idx,
+                                "step_title": title,
+                                "translation_locked": True,
+                                "position_anchor": yaw_position_anchor,
+                                "message": (
+                                    "Forward motion settled; rotation position is now anchored."
+                                ),
+                            }
+                        )
+                        # Re-evaluate the desired heading from the settled pose
+                        # before issuing any yaw command.
+                        continue
+                    if rotation_only_command and yaw_position_anchor is None:
+                        yaw_position_anchor = current_position
+                    # Keep the room position fixed only while an actual
+                    # yaw-only command is selected.  As soon as heading is
+                    # aligned and the controller intends to move forward,
+                    # announce hover/translation intent first.  The localizer
+                    # can then release its rotation anchor; the safety gate
+                    # below still prevents any RC translation until a fresh
+                    # unlocked pose is observed.
+                    active_route_translation_locked = rotation_only_command
+                    active_route_position_anchor = (
+                        yaw_position_anchor if active_route_translation_locked else None
+                    )
                     progress = {
                         "phase": "cruise",
                         "step_index": idx,
@@ -2913,7 +7098,15 @@ def execute_guarded_mission_packet(
                         "heading_error_deg": math.degrees(angle),
                         "body_forward_gain": forward_gain,
                         "body_lateral_gain": lateral_gain,
+                        "translation_locked": active_route_translation_locked,
+                        "position_anchor": active_route_position_anchor,
                         "navigation_mode": navigation_mode,
+                        "endpoint_overshoot_correction": (
+                            active_endpoint_overshoot_correction
+                        ),
+                        "endpoint_overshoot_distance_m": (
+                            endpoint_overshoot_distance
+                        ),
                         "turn_direction_override": (
                             turn_direction_override if not travel_started else None
                         ),
@@ -2938,8 +7131,143 @@ def execute_guarded_mission_packet(
                         break
                     if not enforce_patrol_geofence(current_gate, f"closed-loop cruise step {idx}"):
                         break
-                    sent = execute_rc_pulse(drone, yaw=yaw_rc, lr=lr_rc, bf=bf_rc, du=du_rc, seconds=pulse_seconds)
+                    translation_issue = guided_command_pose_safety_issue(
+                        current_gate,
+                        yaw=yaw_rc,
+                        lr=lr_rc,
+                        bf=bf_rc,
+                        du=du_rc,
+                    )
+                    if translation_issue is not None:
+                        release_rotation_lock = bool(
+                            pose_gate_rotation_locked(current_gate)
+                            and (abs(bf_rc) > 1e-6 or abs(lr_rc) > 1e-6)
+                        )
+                        if release_rotation_lock:
+                            active_route_translation_locked = False
+                            active_route_position_anchor = None
+                        publish_progress(
+                            {
+                                "phase": "translation_pose_gate",
+                                "step_index": idx,
+                                "step_title": title,
+                                "translation_locked": (
+                                    False if release_rotation_lock else active_route_translation_locked
+                                ),
+                                "position_anchor": (
+                                    None if release_rotation_lock else active_route_position_anchor
+                                ),
+                                "body_forward_gain": forward_gain,
+                                "body_lateral_gain": lateral_gain,
+                                "rotation_release_requested": release_rotation_lock,
+                                "pose_gate": current_gate,
+                                "message": (
+                                    (
+                                        "Holding neutral while releasing the completed turn's "
+                                        "position lock; waiting for a fresh translation-safe pose."
+                                    )
+                                    if release_rotation_lock
+                                    else (
+                                        f"Holding before forward motion: {translation_issue}. "
+                                        "Yaw-only control remains available while position recovers."
+                                    )
+                                ),
+                            }
+                        )
+                        neutral_hover(drone, 0.12)
+                        continue
+                    horizontal_command = abs(bf_rc) > 1e-6 or abs(lr_rc) > 1e-6
+                    if horizontal_command:
+                        command_start_progress = route_segment_progress_xz(
+                            current_position,
+                            active_route_segment_start,
+                            active_route_segment_end,
+                        )
+                        progress_candidates = [
+                            float(value)
+                            for value in (
+                                active_route_progress,
+                                command_start_progress,
+                            )
+                            if isinstance(value, (int, float))
+                            and math.isfinite(float(value))
+                        ]
+                        command_progress_base = max(progress_candidates or [0.0])
+                        command_leg_length = horizontal_xz_distance(
+                            active_route_segment_start,
+                            active_route_segment_end,
+                        )
+                        command_progress_budget = (
+                            max_unverified_translation_m / command_leg_length
+                            if command_leg_length is not None
+                            and command_leg_length > 1e-9
+                            else 0.0
+                        )
+                        active_route_command_progress_ceiling = (
+                            advance_route_command_progress_ceiling(
+                                active_route_command_progress_ceiling,
+                                command_progress_base,
+                                command_progress_budget,
+                            )
+                        )
+                        active_route_command_sequence += 1
+                        # This is the single publication that authorizes the
+                        # visual route to advance. It occurs only after every
+                        # command-side pose/geofence gate has passed and stays
+                        # active while the real RC command and its captured
+                        # result frame are processed.
+                        publish_progress(
+                            {
+                                **progress,
+                                "phase": "translation_command_active",
+                                "translation_locked": False,
+                                "position_anchor": None,
+                                "physical_translation_active": True,
+                                "message": (
+                                    f"Executing verified horizontal patrol motion: {title}."
+                                ),
+                            }
+                        )
+                    used_smooth_cruise = bool(
+                        smooth_continuous_cruise
+                        and horizontal_command
+                        and abs(yaw_rc) <= 1e-6
+                        and not current_gate.get(
+                            "verified_endpoint_turn_departure"
+                        )
+                    )
+                    smooth_cruise_issue: str | None = None
+                    smooth_after_gate: dict[str, Any] | None = None
+                    if used_smooth_cruise:
+                        sent, smooth_after_gate, smooth_cruise_issue = (
+                            execute_guarded_cruise_window(
+                                current_gate=current_gate,
+                                current_position=current_position,
+                                target=target,
+                                bf=bf_rc,
+                                lr=lr_rc,
+                                du=du_rc,
+                                seconds=cruise_window_seconds,
+                                arrival_radius=cruise_soft_arrival_radius,
+                            )
+                        )
+                    else:
+                        # Turns remain position-locked pulses. Only horizontal
+                        # travel becomes a continuous, pose-supervised cruise.
+                        sent = execute_rc_pulse(
+                            drone,
+                            yaw=yaw_rc,
+                            lr=lr_rc,
+                            bf=bf_rc,
+                            du=du_rc,
+                            seconds=pulse_seconds,
+                        )
                     pulse_completed_unix = time.time()
+                    command_seconds = float(
+                        sent.get("actual_seconds")
+                        or sent.get("seconds")
+                        or pulse_seconds
+                    )
                     if abs(yaw_rc) > 1e-6:
                         if yaw_position_anchor is None:
                             yaw_position_anchor = current_position
@@ -2948,16 +7276,71 @@ def execute_guarded_mission_packet(
                         if travel_started:
                             travel_yaw_command_seconds += pulse_seconds
                     if abs(bf_rc) > 1e-6:
+                        travel_started = True
+                        active_route_translation_locked = False
+                        active_route_position_anchor = None
                         record_pulse("forward", sent)
                         forward_pulse_count += 1
-                        forward_command_seconds += pulse_seconds
+                        forward_command_seconds += command_seconds
                     if abs(lr_rc) > 1e-6:
+                        travel_started = True
                         record_pulse("lateral", sent)
                         lateral_pulse_count += 1
                     if abs(du_rc) > 1e-6:
                         record_pulse("vertical", sent)
                     executed_pulses += 1
                     pulse_count += 1
+                    if smooth_cruise_issue is not None:
+                        if abort_reason:
+                            break
+                        visual_stationary_retry_available = (
+                            visual_stationary_retry_reference_distance is None
+                        )
+                        recovered_progress_gate = wait_for_pose_recovery(
+                            "smooth_continuous_cruise",
+                            smooth_cruise_issue,
+                            require_translation_safe=True,
+                            translation_target=target,
+                            translation_reference_distance=current_distance,
+                            translation_arrival_radius=cruise_soft_arrival_radius,
+                            endpoint_leg_index=endpoint_leg_index,
+                            require_observed_translation_progress=True,
+                            allow_visual_stationary_retry=(
+                                visual_stationary_retry_available
+                            ),
+                        )
+                        if recovered_progress_gate is None:
+                            break
+                        if recovered_progress_gate.get(
+                            "visual_route_stationary_retry"
+                        ):
+                            visual_stationary_retry_reference_distance = (
+                                current_distance
+                            )
+                            publish_progress(
+                                {
+                                    "phase": "visual_stationary_bounded_retry_ready",
+                                    "step_index": idx,
+                                    "step_title": title,
+                                    "translation_locked": True,
+                                    "position_anchor": pose_gate_position(
+                                        recovered_progress_gate
+                                    ),
+                                    "visual_stationary_retry_consumed": True,
+                                    "message": (
+                                        "Strong current route-image consensus permits one "
+                                        "bounded low-stick retry. Another retry remains "
+                                        "locked until ATLAS observes at least 0.015 m of "
+                                        "forward progress."
+                                    ),
+                                }
+                            )
+                        stale_motion_count = 0
+                        stale_motion_reference_position = None
+                        diverging_pulses = 0
+                        # Recovery held zero stick. Recompute navigation from
+                        # its fresh authoritative pose before resuming cruise.
+                        continue
                     if (
                         guarded_taught_rotation
                         and not travel_started
@@ -2978,6 +7361,8 @@ def execute_guarded_mission_packet(
                                     taught_leg.get("from_point"),
                                     taught_leg.get("to_point"),
                                 ],
+                                "translation_locked": True,
+                                "position_anchor": yaw_position_anchor,
                                 "message": (
                                     "Right-turn pulse completed; keeping point-3 position "
                                     "frozen and returning directly to optical heading."
@@ -2986,7 +7371,15 @@ def execute_guarded_mission_packet(
                         )
                         time.sleep(0.08)
                         continue
-                    after_gate = wait_for_pose_captured_after(pulse_completed_unix, current_gate)
+                    after_gate = (
+                        smooth_after_gate
+                        if used_smooth_cruise
+                        else wait_for_pose_captured_after(
+                            pulse_completed_unix,
+                            current_gate,
+                            abort_on_timeout=not one_pulse_pose_confirmation,
+                        )
+                    )
                     if after_gate is None and abort_reason:
                         break
                     raw_after_position = pose_gate_position(after_gate)
@@ -3005,19 +7398,28 @@ def execute_guarded_mission_packet(
                         after_direction = normalize_xz(target_direction_xz(after_position, target))
                         after_angle = signed_angle_xz(after_heading, after_direction)
                         if after_angle is not None:
-                            if turn_direction_override is not None and not travel_started:
-                                # A forced long turn initially increases the
-                                # shortest-angle error by design.  Do not
-                                # mistake that for a reversed DJI yaw channel.
-                                wrong_yaw_pulses = 0
-                                continue
-                            before_error = abs(angle)
-                            after_error = abs(after_angle)
-                            if after_error > before_error + math.radians(2.0):
-                                wrong_yaw_pulses += 1
-                            elif after_error < before_error - math.radians(1.0):
-                                wrong_yaw_pulses = 0
-                            required_wrong_yaw_pulses = 3 if yaw_flip_count == 0 else 5
+                            yaw_response_reversed = yaw_response_is_reversed(
+                                expected_yaw_heading_sign,
+                                heading,
+                                after_heading,
+                            )
+                            if yaw_response_reversed is not None:
+                                if yaw_response_reversed:
+                                    wrong_yaw_pulses += 1
+                                else:
+                                    wrong_yaw_pulses = 0
+                            elif turn_direction_override is None or travel_started:
+                                before_error = abs(angle)
+                                after_error = abs(after_angle)
+                                if after_error > before_error + math.radians(2.0):
+                                    wrong_yaw_pulses += 1
+                                elif after_error < before_error - math.radians(1.0):
+                                    wrong_yaw_pulses = 0
+                            required_wrong_yaw_pulses = (
+                                GUIDED_YAW_SIGN_CONFIRMATION_PULSES
+                                if yaw_flip_count == 0
+                                else 5
+                            )
                             if wrong_yaw_pulses >= required_wrong_yaw_pulses:
                                 if yaw_flip_count == 0:
                                     yaw_sign *= -1.0
@@ -3030,7 +7432,11 @@ def execute_guarded_mission_packet(
                                             "phase": "yaw_sign_correction",
                                             "step_index": idx,
                                             "step_title": title,
-                                            "message": "Yaw moved away from the route twice; reversing yaw sign before forward motion.",
+                                            "message": (
+                                                "Three consecutive fresh yaw observations moved opposite "
+                                                "the requested map direction; reversing DJI yaw before "
+                                                "forward motion."
+                                            ),
                                         }
                                     )
                                 else:
@@ -3044,14 +7450,65 @@ def execute_guarded_mission_packet(
                         isinstance(after_gate, dict)
                         and after_gate.get("processed_count") != current_gate.get("processed_count")
                     )
-                    if not horizontal_pulse:
+                    strict_progress_issue = (
+                        patrol_translation_pulse_progress_issue(
+                            current_position,
+                            after_position,
+                            target,
+                            got_new_pose=got_new_pose,
+                            maximum_pose_step=max_pose_step,
+                        )
+                        if (
+                            horizontal_pulse
+                            and one_pulse_pose_confirmation
+                            and not used_smooth_cruise
+                        )
+                        else None
+                    )
+                    if strict_progress_issue is not None:
+                        recovered_progress_gate = wait_for_pose_recovery(
+                            "translation_progress",
+                            strict_progress_issue,
+                            require_translation_safe=True,
+                            translation_target=target,
+                            translation_reference_distance=current_distance,
+                            translation_arrival_radius=cruise_soft_arrival_radius,
+                            endpoint_leg_index=endpoint_leg_index,
+                            require_observed_translation_progress=True,
+                        )
+                        if recovered_progress_gate is None:
+                            break
                         stale_motion_count = 0
+                        stale_motion_reference_position = None
+                        diverging_pulses = 0
+                        # The recovery loop remained neutral and observed delayed
+                        # progress from this same pulse. Recompute the complete
+                        # navigation state before any next command.
+                        continue
+                    if horizontal_pulse and one_pulse_pose_confirmation:
+                        stale_motion_count = 0
+                        stale_motion_reference_position = None
+                        diverging_pulses = 0
+                        if after_distance is not None:
+                            closest_distance = min(closest_distance, after_distance)
+                    elif not horizontal_pulse:
+                        stale_motion_count = 0
+                        stale_motion_reference_position = None
                     elif not got_new_pose:
+                        if stale_motion_count == 0:
+                            stale_motion_reference_position = list(current_position)
                         stale_motion_count += 1
                     elif after_distance is None:
+                        if stale_motion_count == 0:
+                            stale_motion_reference_position = list(current_position)
                         stale_motion_count += 1
-                    elif after_distance < current_distance - 0.015:
+                    elif published_position_advanced_toward_target(
+                        current_position,
+                        after_position,
+                        target,
+                    ):
                         stale_motion_count = 0
+                        stale_motion_reference_position = None
                         diverging_pulses = 0
                         closest_distance = min(closest_distance, after_distance)
                     elif after_distance > current_distance + 0.08:
@@ -3076,17 +7533,99 @@ def execute_guarded_mission_packet(
                             )
                             break
                     else:
-                        # A fresh TSolve pose arrived, but the tiny RC pulse did
-                        # not change horizontal distance enough to classify as
-                        # progress yet.  Keep watching instead of aborting.
-                        stale_motion_count = max(0, stale_motion_count - 1)
-                    if stale_motion_count >= 12:
-                        abort_reason = "patrol cruise did not receive enough useful TSolve pose progress"
-                        break
+                        # Fresh frame IDs are not movement evidence. The
+                        # landed 10:37:20 run kept sending forward pulses while
+                        # the rendered room position lagged behind the real
+                        # drone all the way to Point 3. Count unchanged model
+                        # positions as stale and lock physical motion quickly.
+                        if stale_motion_count == 0:
+                            stale_motion_reference_position = list(current_position)
+                        stale_motion_count += 1
+                    if stale_motion_count >= 3:
+                        # TSolve publishes asynchronously with respect to DJI
+                        # RC pulses.  Three individual post-command samples can
+                        # each move less than 1.5 cm even while their combined
+                        # window clearly advances.  Judge the whole window
+                        # before declaring localization stale.  The 16:44:59
+                        # run advanced about 0.65 m toward Point 1 but entered
+                        # recovery because this cumulative check was missing.
+                        if published_position_advanced_toward_target(
+                            stale_motion_reference_position,
+                            after_position,
+                            target,
+                        ):
+                            stale_motion_count = 0
+                            stale_motion_reference_position = None
+                            diverging_pulses = 0
+                            closest_distance = min(closest_distance, after_distance)
+                            continue
+                        recovered_progress_gate = wait_for_pose_recovery(
+                            "translation_progress",
+                            (
+                                "fresh camera frames did not advance the published "
+                                "ATLAS room position after three translation pulses"
+                            ),
+                            require_translation_safe=True,
+                            translation_target=target,
+                            translation_reference_distance=current_distance,
+                            translation_arrival_radius=cruise_soft_arrival_radius,
+                            endpoint_leg_index=endpoint_leg_index,
+                            require_observed_translation_progress=True,
+                        )
+                        if recovered_progress_gate is None:
+                            break
+                        stale_motion_count = 0
+                        stale_motion_reference_position = None
+                        # Recompute distance, heading, and arrival from the
+                        # recovered authoritative pose before any new command.
+                        continue
                 if abort_reason:
                     break
                 if not reached:
-                    if isinstance(final_distance, (int, float)) and final_distance <= soft_arrival_radius:
+                    final_endpoint_ready = bool(
+                        not precise_arrival
+                        or taught_endpoint_arrival_verified(
+                            (last_pose_gate or {}).get("pose"),
+                            expected_leg_index=endpoint_leg_index,
+                        )
+                    )
+                    final_visual_checkpoint_arrival = bool(
+                        precise_arrival
+                        and taught_endpoint_stale_translation_arrival_verified(
+                            (last_pose_gate or {}).get("pose"),
+                            expected_leg_index=endpoint_leg_index,
+                        )
+                    )
+                    if final_visual_checkpoint_arrival:
+                        reached = True
+                        arrival_mode = "visual_checkpoint_endpoint_verified_timeout"
+                        active_route_translation_locked = True
+                        active_route_position_anchor = list(target)
+                        yaw_position_anchor = list(target)
+                        publish_progress(
+                            {
+                                "phase": "cruise_arrival",
+                                "step_index": idx,
+                                "step_title": title,
+                                "target": target,
+                                "distance_to_target": final_distance,
+                                "translation_locked": True,
+                                "position_anchor": target,
+                                "endpoint_leg_index": endpoint_leg_index,
+                                "visual_checkpoint_arrival": True,
+                                "message": (
+                                    "Cruise ended with repeated independent endpoint "
+                                    "verification; stopping at the checkpoint without "
+                                    "another forward pulse."
+                                ),
+                            }
+                        )
+                        neutral_hover(drone, 0.25)
+                    elif (
+                        isinstance(final_distance, (int, float))
+                        and final_distance <= cruise_soft_arrival_radius
+                        and final_endpoint_ready
+                    ):
                         reached = True
                         arrival_mode = "timeout_soft_deadband"
                         publish_progress(
@@ -3096,16 +7635,20 @@ def execute_guarded_mission_packet(
                                 "step_title": title,
                                 "target": target,
                                 "distance_to_target": final_distance,
-                                "arrival_radius": arrival_radius,
-                                "soft_arrival_radius": soft_arrival_radius,
+                                "arrival_radius": cruise_arrival_radius,
+                                "soft_arrival_radius": cruise_soft_arrival_radius,
                                 "message": (
                                     f"Patrol cruise timed out near target but inside soft deadband "
-                                    f"({final_distance:.2f} <= {soft_arrival_radius:.2f}); accepting and hovering."
+                                    f"({final_distance:.2f} <= {cruise_soft_arrival_radius:.2f}); accepting and hovering."
                                 ),
                             }
                         )
                         neutral_hover(drone, 0.25)
-                    elif closest_distance < float("inf") and closest_distance <= soft_arrival_radius:
+                    elif (
+                        closest_distance < float("inf")
+                        and closest_distance <= cruise_soft_arrival_radius
+                        and final_endpoint_ready
+                    ):
                         reached = True
                         arrival_mode = "closest_soft_deadband"
                         publish_progress(
@@ -3115,11 +7658,11 @@ def execute_guarded_mission_packet(
                                 "step_title": title,
                                 "target": target,
                                 "distance_to_target": closest_distance,
-                                "arrival_radius": arrival_radius,
-                                "soft_arrival_radius": soft_arrival_radius,
+                                "arrival_radius": cruise_arrival_radius,
+                                "soft_arrival_radius": cruise_soft_arrival_radius,
                                 "message": (
                                     f"Patrol cruise passed within soft deadband "
-                                    f"({closest_distance:.2f} <= {soft_arrival_radius:.2f}); accepting and hovering."
+                                    f"({closest_distance:.2f} <= {cruise_soft_arrival_radius:.2f}); accepting and hovering."
                                 ),
                             }
                         )
@@ -3130,7 +7673,7 @@ def execute_guarded_mission_packet(
                     closest_text = f"{closest_distance:.2f}" if closest_distance < float("inf") else "unknown"
                     abort_reason = (
                         "closed-loop cruise timed out before reaching patrol target "
-                        f"(target radius {arrival_radius:.2f}, soft radius {soft_arrival_radius:.2f}, "
+                        f"(target radius {cruise_arrival_radius:.2f}, soft radius {cruise_soft_arrival_radius:.2f}, "
                         f"initial distance {initial_text}, closest distance {closest_text}, final distance {final_text}, "
                         f"pulses {pulse_count}, forward {forward_pulse_count}, lateral {lateral_pulse_count}, "
                         f"mode {last_navigation_mode}, processed {last_processed_count}, pose age {last_pose_age})"
@@ -3163,8 +7706,9 @@ def execute_guarded_mission_packet(
                         "target": target,
                         "distance": distance,
                         "planned_duration_s": planned_duration,
-                        "arrival_radius": arrival_radius,
-                        "soft_arrival_radius": soft_arrival_radius,
+                        "arrival_radius": cruise_arrival_radius,
+                        "soft_arrival_radius": cruise_soft_arrival_radius,
+                        "patrol_stage": cruise_stage,
                         "arrival_mode": arrival_mode,
                         "initial_distance": initial_distance,
                         "final_distance": final_distance,
@@ -3202,6 +7746,20 @@ def execute_guarded_mission_packet(
                 continue
 
             skipped.append({"index": idx, "type": kind or "unknown", "title": title, "reason": "unsupported mission step"})
+        if abort_reason is None and patrol_loop and patrol_laps > 0:
+            active_route_translation_locked = True
+            active_route_position_anchor = pose_gate_position(last_pose_gate)
+            publish_progress(
+                {
+                    "phase": "patrol_complete",
+                    "lap": patrol_laps,
+                    "completed_laps": patrol_laps,
+                    "message": (
+                        f"Completed exactly {patrol_laps} patrol circles; holding position in hover."
+                    ),
+                }
+            )
+            neutral_hover(drone, 0.30)
     finally:
         try:
             neutral_hover(drone, 0.08)
@@ -3225,6 +7783,13 @@ def execute_guarded_mission_packet(
         "guided_settings": {
             "pose_max_age_seconds": pose_max_age,
             "pose_recovery_seconds": pose_recovery_seconds,
+            "continuous_relocalization": continuous_relocalization,
+            "one_pulse_pose_confirmation": one_pulse_pose_confirmation,
+            "smooth_continuous_cruise": smooth_continuous_cruise,
+            "cruise_window_seconds": cruise_window_seconds,
+            "cruise_pose_watchdog_seconds": cruise_pose_watchdog_seconds,
+            "max_unverified_translation_m": max_unverified_translation_m,
+            "localization_recovery_hover_seconds": total_pose_recovery_pause_seconds,
             "pulse_seconds": pulse_seconds,
             "max_forward_rc": max_forward_rc,
             "max_lateral_rc": max_lateral_rc,
@@ -3238,6 +7803,7 @@ def execute_guarded_mission_packet(
             "max_step_seconds": max_step_seconds,
             "arrival_radius_map_units": arrival_radius,
             "arrival_deadband_map_units": arrival_deadband,
+            "strict_entry_arrival": strict_entry_arrival,
             "max_cruise_seconds": max_cruise_seconds,
             "max_pose_step_map_units": max_pose_step,
             "max_pose_step_hard_map_units": max_pose_step_hard,
@@ -3248,6 +7814,8 @@ def execute_guarded_mission_packet(
             "heading_trim_deg": heading_trim_deg,
             "operator_heading_calibrated": operator_heading_calibrated,
             "initial_body_heading_offset_deg": initial_body_heading_offset_deg,
+            "require_physical_forward_probe": require_physical_forward_probe,
+            "max_heading_calibration_error_deg": max_heading_calibration_error_deg,
         },
         "rc_summary": rc_summary,
         "executed": executed,
@@ -3397,8 +7965,14 @@ def main() -> None:
     ap.add_argument("--out-root", type=Path, default=ROOT / "data" / "dji_live")
     ap.add_argument("--public-root", type=Path, default=ROOT / "viewer" / "public" / "live_dji")
     ap.add_argument("--pose-stream", type=Path, default=None, help="Live poses_partial.json used as the guided-flight freshness gate.")
+    ap.add_argument(
+        "--view-only",
+        action="store_true",
+        help="Receive video and publish localization, but never consume DJI flight commands.",
+    )
     ap.add_argument("--enemy-model", type=Path, default=None, help="Optional trained YOLO model used for live enemy-drone detection.")
     ap.add_argument("--enemy-output", type=Path, default=None, help="Browser-visible enemy detection JSON output.")
+    ap.add_argument("--enemy-control", type=Path, default=None, help="Runtime JSON gate for enabling enemy inference.")
     ap.add_argument("--enemy-detect-fps", type=float, default=5.0, help="Maximum detector rate for moving-target visual servoing.")
     ap.add_argument("--enemy-conf", type=float, default=0.35, help="YOLO confidence threshold for enemy-drone detections.")
     args = ap.parse_args()
@@ -3413,9 +7987,11 @@ def main() -> None:
     public_status_path = args.public_root / "status.json"
     session_status_path = session_root / "status.json"
     enemy_output_path = args.enemy_output or (args.public_root / "enemy_detections.json")
+    enemy_control_path = args.enemy_control or (args.public_root / "enemy_detection_control.json")
     control_command_path = args.public_root / "control_command.json"
     control_status_path = args.public_root / "control_status.json"
     control_history_path = args.public_root / "control_status_history.jsonl"
+    session_control_trace_path = session_root / "control_trace.jsonl"
     frames_csv = query_dir / "frames.csv"
     metadata_path = session_root / "metadata.json"
 
@@ -3438,16 +8014,34 @@ def main() -> None:
         "query_frames": str(query_dir),
         "public_latest": str(latest_path),
         "started_at": time.time(),
-        "control_enabled": True,
+        "control_enabled": not args.view_only,
+        "view_only": bool(args.view_only),
         "control_command_path": str(control_command_path),
         "control_status_path": str(control_status_path),
         "control_history_path": str(control_history_path),
+        "session_control_trace_path": str(session_control_trace_path),
         "pose_stream_path": str(args.pose_stream) if args.pose_stream else None,
         "enemy_model": str(args.enemy_model) if args.enemy_model else None,
         "enemy_output": str(enemy_output_path),
+        "enemy_control": str(enemy_control_path),
         "enemy_detect_fps": args.enemy_detect_fps,
         "enemy_confidence": args.enemy_conf,
-        "note": "This bridge receives frames and accepts explicit takeoff/land/hover commands.",
+        "runtime_fingerprints": {
+            "atlas_dji_live_bridge.py": file_sha256(Path(__file__).resolve()),
+            "atlas_app_server.py": file_sha256(ROOT / "scripts" / "atlas_app_server.py"),
+            "run_bounded_tsolve_video_stream.py": file_sha256(
+                ROOT / "scripts" / "run_bounded_tsolve_video_stream.py"
+            ),
+            "patrol_visual_route_recovery.py": file_sha256(
+                ROOT / "scripts" / "patrol_visual_route_recovery.py"
+            ),
+            "config.json": file_sha256(ROOT / "config.json"),
+        },
+        "note": (
+            "Live Check mode: video and localization only; DJI flight commands are disabled."
+            if args.view_only
+            else "This bridge receives frames and accepts explicit takeoff/land/hover commands."
+        ),
     }
     atomic_write_json(metadata_path, metadata)
 
@@ -3470,9 +8064,12 @@ def main() -> None:
     first_frame_time: float | None = None
     last_shape: tuple[int, int] | None = None
     last_progress_print = 0.0
+    last_stale_status_publish = 0.0
+    last_seen_decoded_sequence = 0
     last_control_id: str | None = None
     enemy_detector = None
     enemy_detection_error = ""
+    enemy_detection_was_enabled = False
     if args.enemy_model:
         try:
             enemy_detector = load_enemy_detector(args.enemy_model)
@@ -3529,6 +8126,8 @@ def main() -> None:
 
     try:
         with OpenDJI(args.phone_ip) as drone:
+            decoded_frames = DecodedFrameListener()
+            drone.frameListener(decoded_frames)
             status.update(
                 {
                     "status": "waiting_for_video",
@@ -3559,6 +8158,14 @@ def main() -> None:
                     }
                     atomic_write_json(control_status_path, control_started)
                     append_jsonl(control_history_path, {**control_started, "event": "started"})
+                    append_jsonl(
+                        session_control_trace_path,
+                        {
+                            **control_started,
+                            "event": "started",
+                            "command_payload": command_payload,
+                        },
+                    )
                     with control_lock:
                         status["last_control"] = control_started
                         status["updated_at"] = time.time()
@@ -3566,6 +8173,12 @@ def main() -> None:
                         atomic_write_json(session_status_path, status)
                     if command_name == "mission":
                         mission_cancel.clear()
+                    if command_name in {"takeoff", "mission"}:
+                        video_issue = live_video_motion_safety_issue(
+                            decoded_frames.age_seconds()
+                        )
+                        if video_issue is not None:
+                            raise RuntimeError(video_issue)
 
                     def publish_progress(progress: dict[str, Any]) -> None:
                         control_progress = {
@@ -3576,6 +8189,10 @@ def main() -> None:
                             "updated_at": time.time(),
                         }
                         atomic_write_json(control_status_path, control_progress)
+                        append_jsonl(
+                            session_control_trace_path,
+                            {**control_progress, "event": "progress"},
+                        )
                         with control_lock:
                             status["last_control"] = control_progress
                             status["updated_at"] = time.time()
@@ -3594,13 +8211,44 @@ def main() -> None:
                     )
                     atomic_write_json(control_status_path, control_result)
                     append_jsonl(control_history_path, {**control_result, "event": "finished"})
+                    append_jsonl(
+                        session_control_trace_path,
+                        {**control_result, "event": "finished"},
+                    )
                     with control_lock:
                         status["last_control"] = control_result
                         status["updated_at"] = time.time()
                         atomic_write_json(public_status_path, status)
                         atomic_write_json(session_status_path, status)
                     print(f"control={control_result['command']} result={control_result.get('result')}")
+                except ControlLinkSafetyError as exc:
+                    traceback.print_exc()
+                    control_result = {
+                        "ok": False,
+                        "id": command_payload.get("id"),
+                        "command": command_payload.get("command"),
+                        "status": "safety_abort",
+                        "safety_critical": True,
+                        "neutral_confirmed": exc.neutral_confirmed,
+                        "control_link_recovered": exc.control_link_recovered,
+                        "requires_relocalization": exc.requires_relocalization,
+                        "message": str(exc),
+                        "error": str(exc),
+                        "updated_at": time.time(),
+                    }
+                    atomic_write_json(control_status_path, control_result)
+                    append_jsonl(control_history_path, {**control_result, "event": "safety_abort"})
+                    append_jsonl(
+                        session_control_trace_path,
+                        {**control_result, "event": "safety_abort"},
+                    )
+                    with control_lock:
+                        status["last_control"] = control_result
+                        status["updated_at"] = time.time()
+                        atomic_write_json(public_status_path, status)
+                        atomic_write_json(session_status_path, status)
                 except Exception as exc:
+                    traceback.print_exc()
                     control_result = {
                         "ok": False,
                         "id": command_payload.get("id"),
@@ -3610,6 +8258,10 @@ def main() -> None:
                     }
                     atomic_write_json(control_status_path, control_result)
                     append_jsonl(control_history_path, {**control_result, "event": "error"})
+                    append_jsonl(
+                        session_control_trace_path,
+                        {**control_result, "event": "error"},
+                    )
                     with control_lock:
                         status["last_control"] = control_result
                         status["updated_at"] = time.time()
@@ -3620,7 +8272,7 @@ def main() -> None:
                         control_busy = False
 
             while not stop.stop:
-                if control_command_path.exists():
+                if not args.view_only and control_command_path.exists():
                     try:
                         command_payload = json.loads(control_command_path.read_text(encoding="utf-8"))
                         command_id = str(command_payload.get("id") or "")
@@ -3655,7 +8307,29 @@ def main() -> None:
                                         "updated_at": time.time(),
                                     }
                                 atomic_write_json(control_status_path, control_result)
-                                append_jsonl(control_history_path, {**control_result, "event": "rejected"})
+                                append_jsonl(
+                                    control_history_path,
+                                    {
+                                        **control_result,
+                                        "event": (
+                                            "emergency_stop"
+                                            if control_result.get("emergency_stop")
+                                            else "rejected"
+                                        ),
+                                    },
+                                )
+                                append_jsonl(
+                                    session_control_trace_path,
+                                    {
+                                        **control_result,
+                                        "event": (
+                                            "emergency_stop"
+                                            if control_result.get("emergency_stop")
+                                            else "rejected"
+                                        ),
+                                        "command_payload": command_payload,
+                                    },
+                                )
                                 with control_lock:
                                     status["last_control"] = control_result
                                     status["updated_at"] = time.time()
@@ -3677,17 +8351,57 @@ def main() -> None:
                         }
                         atomic_write_json(control_status_path, control_result)
                         append_jsonl(control_history_path, {**control_result, "event": "error"})
+                        append_jsonl(
+                            session_control_trace_path,
+                            {**control_result, "event": "error"},
+                        )
                         status["last_control"] = control_result
                         atomic_write_json(public_status_path, status)
                         atomic_write_json(session_status_path, status)
                 now = time.perf_counter()
-                frame = drone.getFrame()
-                if frame is None:
+                decoded_sequence, frame, decoded_unix = decoded_frames.latest()
+                if frame is None or decoded_sequence <= 0:
                     if time.perf_counter() - last_progress_print > 2.0:
                         print("waiting for first frame...")
                         last_progress_print = time.perf_counter()
                     time.sleep(0.03)
                     continue
+
+                if decoded_sequence == last_seen_decoded_sequence:
+                    stale_seconds = decoded_frames.age_seconds()
+                    if (
+                        stale_seconds is not None
+                        and stale_seconds >= 1.0
+                        and time.perf_counter() - last_stale_status_publish >= 1.0
+                    ):
+                        status.update(
+                            {
+                                "status": "video_stale",
+                                "message": (
+                                    "DJI connection is open, but the Android video decoder "
+                                    f"has produced no new frame for {stale_seconds:.1f}s. "
+                                    "Cached frames are not being sent to TSolve."
+                                ),
+                                "decoded_frame_sequence": decoded_sequence,
+                                "last_new_frame_unix": decoded_unix,
+                                "video_stale_seconds": stale_seconds,
+                                "updated_at": time.time(),
+                            }
+                        )
+                        atomic_write_json(public_status_path, status)
+                        atomic_write_json(session_status_path, status)
+                        last_stale_status_publish = time.perf_counter()
+                        print(
+                            f"video stale: no newly decoded DJI frame for {stale_seconds:.1f}s",
+                            flush=True,
+                        )
+                    time.sleep(0.01)
+                    continue
+
+                # This sequence changes only on an actual H264 decoder callback.
+                # It is safe to sample or skip this fresh frame according to the
+                # requested ATLAS FPS, but never publish it more than once.
+                last_seen_decoded_sequence = decoded_sequence
 
                 if first_frame_time is None:
                     first_frame_time = time.perf_counter()
@@ -3719,7 +8433,22 @@ def main() -> None:
                 image_name = f"query_{frame_index:06d}.jpg"
 
                 enemy_detection_summary = None
-                if enemy_detector is not None and now >= next_enemy_detection_time:
+                enemy_detection_is_enabled = enemy_detection_control_enabled(enemy_control_path)
+                if enemy_detection_was_enabled and not enemy_detection_is_enabled:
+                    atomic_write_json(
+                        enemy_output_path,
+                        {
+                            "status": "disabled",
+                            "message": "Enemy detection is disabled by the operator.",
+                            "model": str(args.enemy_model) if args.enemy_model else None,
+                            "detections": [],
+                            "updated_at": time.time(),
+                        },
+                    )
+                elif enemy_detection_is_enabled and not enemy_detection_was_enabled:
+                    next_enemy_detection_time = 0.0
+                enemy_detection_was_enabled = enemy_detection_is_enabled
+                if enemy_detector is not None and enemy_detection_is_enabled and now >= next_enemy_detection_time:
                     next_enemy_detection_time = now + (1.0 / max(0.05, float(args.enemy_detect_fps)))
                     try:
                         detections = detect_enemy_drones(enemy_detector, image, float(args.enemy_conf))
@@ -3773,6 +8502,9 @@ def main() -> None:
                         "latest_width": w,
                         "latest_height": h,
                         "latest_time_sec": elapsed_sec,
+                        "decoded_frame_sequence": decoded_sequence,
+                        "last_new_frame_unix": decoded_unix,
+                        "video_stale_seconds": 0.0,
                         "query_frames": str(query_dir),
                         "frames_csv": str(frames_csv),
                         "enemy_detection": enemy_detection_summary,

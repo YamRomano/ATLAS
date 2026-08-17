@@ -371,8 +371,17 @@ def solve_case(
     action_weights: str,
     fallback_action_weights: str,
     fork_seed: int,
+    fork_on_miss: bool = True,
 ) -> dict[str, Any]:
     solve_static_persistent = runtime_api["solve_static_persistent"]
+    instance_meta = json.loads((instance_dir / "input.json").read_text(encoding="utf-8"))
+    pose_prior_kwargs: dict[str, Any] = {}
+    if instance_meta.get("pose_prior_center") is not None:
+        pose_prior_kwargs = {
+            "pose_prior_center": instance_meta.get("pose_prior_center"),
+            "pose_prior_rotation": instance_meta.get("pose_prior_R"),
+            "pose_prior_max_step": float(instance_meta.get("recovery_max_step") or 0.85),
+        }
     result = solve_static_persistent(
         PnPSolver=runtime_api["PnPSolver"],
         solver_dir=solver_dir,
@@ -387,8 +396,9 @@ def solve_case(
         action_weights=action_weights,
         root_residual_tol=1e-8,
         max_roots=80,
-        fork_on_miss=True,
+        fork_on_miss=bool(fork_on_miss),
         direct_coeff_builder=direct_coeff_builder,
+        **pose_prior_kwargs,
     )
     if not result.get("success") and fallback_action_weights:
         fallback = solve_static_persistent(
@@ -405,8 +415,9 @@ def solve_case(
             action_weights=fallback_action_weights,
             root_residual_tol=1e-8,
             max_roots=80,
-            fork_on_miss=True,
+            fork_on_miss=bool(fork_on_miss),
             direct_coeff_builder=direct_coeff_builder,
+            **pose_prior_kwargs,
         )
         fallback["fallback_used"] = True
         if fallback.get("success"):

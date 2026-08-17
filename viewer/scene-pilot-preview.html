@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Scene Pilot 3D Preview</title>
+    <style>
+      * { box-sizing: border-box; }
+      html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; }
+      body { background: radial-gradient(circle at 50% 30%, #123d61 0%, #071827 62%, #030b12 100%); color: #f5fbff; font: 13px/1.4 Inter, system-ui, sans-serif; }
+      #viewport { position: absolute; inset: 0; }
+      canvas { display: block; width: 100%; height: 100%; }
+      .panel { position: absolute; left: 22px; top: 20px; padding: 13px 16px; border: 1px solid rgba(151, 220, 255, .42); background: rgba(4, 20, 33, .72); box-shadow: 0 14px 48px rgba(0, 0, 0, .28); backdrop-filter: blur(12px); }
+      .title { font-size: 12px; font-weight: 750; letter-spacing: .17em; text-transform: uppercase; }
+      .meta { margin-top: 4px; color: #a8d7ee; }
+      .status { position: absolute; right: 22px; top: 20px; color: #dff5ff; }
+      .hint { position: absolute; left: 22px; bottom: 18px; color: #9bc9df; }
+    </style>
+  </head>
+  <body>
+    <div id="viewport"></div>
+    <div class="panel"><div class="title">Scene Pilot</div><div class="meta">Colored fused-cloud preview · 48 cameras</div></div>
+    <div id="status" class="status">Loading 3D preview…</div>
+    <div class="hint">Drag to orbit · Scroll to zoom · Double-click to reset</div>
+    <script type="module" src="./scene-pilot-preview.js?v=20260803"></script>
+  </body>
+</html>

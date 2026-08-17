@@ -53,6 +53,87 @@ class UploadedVideoCoverageTests(unittest.TestCase):
                 )
         return frame_dir
 
+    def write_patrol_frames(self, name: str, indices: list[int]) -> Path:
+        frame_dir = self.root / name
+        frame_dir.mkdir()
+        with (frame_dir / "frames.csv").open("w", newline="", encoding="utf-8") as handle:
+            writer = csv.DictWriter(
+                handle,
+                fieldnames=["image_name", "source_frame", "time_sec", "width", "height"],
+            )
+            writer.writeheader()
+            for offset, index in enumerate(indices):
+                image_name = f"query_{index:06d}.jpg"
+                (frame_dir / image_name).write_bytes(f"frame-{name}-{index}".encode())
+                writer.writerow(
+                    {
+                        "image_name": image_name,
+                        "source_frame": index,
+                        "time_sec": offset * 0.1,
+                        "width": 1200,
+                        "height": 675,
+                    }
+                )
+        return frame_dir
+
+    def test_two_lap_builder_uses_an_independent_second_recording_and_final_leg(self):
+        baseline = self.write_patrol_frames("baseline", list(range(5)))
+        alternate = self.write_patrol_frames("alternate", [10, 11, 12])
+        output = self.root / "composite"
+        boundaries = {
+            "point2_arrival": 1,
+            "point2_departure": 2,
+            "point3_arrival": 3,
+            "point3_departure": 3,
+            "point4_arrival": 4,
+            "point4_departure": 4,
+            "point1_return": 4,
+        }
+        plan = server.build_recorded_patrol_lap_sequence(
+            source_frame_dir=baseline,
+            output_frame_dir=output,
+            start_frame=0,
+            loop_return_frame=3,
+            next_departure_frame=4,
+            laps=2,
+            phase_boundaries=boundaries,
+            source_replay_id="baseline-replay",
+            second_lap_segments=[
+                {
+                    "source_frame_dir": alternate,
+                    "source_replay_id": "independent-replay",
+                    "start_frame": 10,
+                    "end_frame": 12,
+                    "phase_boundaries": {
+                        "point2_arrival": 11,
+                        "point2_departure": 12,
+                        "point3_arrival": 99,
+                    },
+                },
+                {
+                    "source_frame_dir": baseline,
+                    "source_replay_id": "baseline-replay",
+                    "start_frame": 2,
+                    "end_frame": 3,
+                    "phase_boundaries": boundaries,
+                },
+            ],
+        )
+        self.assertEqual(len(plan), 10)
+        self.assertEqual([row["lap"] for row in plan[:5]], [1] * 5)
+        self.assertEqual([row["lap"] for row in plan[5:]], [2] * 5)
+        self.assertEqual(plan[5]["recorded_source_replay_id"], "independent-replay")
+        self.assertEqual(plan[8]["recorded_source_replay_id"], "baseline-replay")
+        self.assertEqual(plan[5]["recorded_source_frame"], 10)
+        self.assertEqual(plan[-1]["recorded_source_frame"], 3)
+        self.assertTrue((output / "query_000005.jpg").is_file())
+        frame_plan = json.loads((output / "frame_plan.json").read_text(encoding="utf-8"))
+        self.assertTrue(frame_plan["composite_second_lap"])
+        self.assertEqual(
+            frame_plan["source_replay_ids"],
+            ["baseline-replay", "independent-replay"],
+        )
+
     def test_full_extraction_passes(self):
         report = server.validate_extracted_video_coverage(
             self.write_extraction(saved_frames=50),

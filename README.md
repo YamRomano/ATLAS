@@ -1,5 +1,11 @@
 # TSolve Drone Phase-1 Replay Demo
 
+> **Current partner handoff:** branch `David` contains the live ATLAS patrol
+> application, the TSolve/FARES localization sources, route-recovery logic,
+> safety controller, UI, and tests. Start with
+> [`docs/DAVID_HANDOFF.md`](docs/DAVID_HANDOFF.md). The older replay notes below
+> are retained as historical pipeline documentation.
+
 This folder builds the first real replay demo:
 
 ```text

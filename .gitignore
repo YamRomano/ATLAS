@@ -21,6 +21,12 @@ viewer/public/camera_path_lab/
 runs/
 runtime/
 yolov8n.pt
+outputs/
+
+# Local credentials and machine-specific overrides
+config.local.json
+.env
+.env.*
 
 # Local tool installations and environments
 tools/colmap-env/

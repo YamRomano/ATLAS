@@ -1,0 +1,406 @@
+{
+  "passed": true,
+  "kind": "atlas_multirun_patrol_visual_recovery_audit",
+  "baseline": "/Users/yamromano/Documents/PythonF4/PythonF4/drone_phase1_replay_demo_20260706/viewer/public/maps/map_copy_20260730_114851_cfefdc/replays/patrol_baseline_precision_20260813/reference_candidate.json",
+  "bank": "/Users/yamromano/Documents/PythonF4/PythonF4/drone_phase1_replay_demo_20260706/viewer/public/maps/map_copy_20260730_114851_cfefdc/replays/patrol_baseline_precision_20260813/visual_route_recovery_multirun.npz",
+  "variation_model": [
+    "22 percent darker",
+    "15 percent brighter plus offset",
+    "mild Gaussian blur",
+    "1.1 degree rotation, 0.8 percent scale, and 5/-3 pixel shift"
+  ],
+  "stored_anchor_stride": 2,
+  "interior_queries_use_intervening_frames": true,
+  "endpoint_queries_are_stored_anchors_with_perturbation": true,
+  "expected_after_acquisition": 889,
+  "accepted_after_acquisition": 889,
+  "acceptance_ratio": 1.0,
+  "max_progress_error": 0.07639505239867472,
+  "wrong_leg_accepts": [],
+  "baseline_regression_audit": {
+    "passed": true,
+    "baseline": "/Users/yamromano/Documents/PythonF4/PythonF4/drone_phase1_replay_demo_20260706/viewer/public/maps/map_copy_20260730_114851_cfefdc/replays/patrol_baseline_precision_20260813/reference_candidate.json",
+    "bank": "/Users/yamromano/Documents/PythonF4/PythonF4/drone_phase1_replay_demo_20260706/viewer/public/maps/map_copy_20260730_114851_cfefdc/replays/patrol_baseline_precision_20260813/visual_route_recovery_multirun.npz",
+    "laps": 2,
+    "held_out_query_count": 460,
+    "expected_after_acquisition": 452,
+    "accepted_after_acquisition": 452,
+    "acceptance_ratio": 1.0,
+    "max_progress_error": 0.07639505239867472,
+    "mean_progress_error": 0.00645164744745813,
+    "median_runtime_ms": 65.25935400000016,
+    "p95_runtime_ms": 79.55674169999973,
+    "max_runtime_ms": 209.164375,
+    "wrong_leg_accepts": [],
+    "per_leg": [
+      {
+        "lap": 1,
+        "leg": 1,
+        "from_point": 1,
+        "to_point": 2,
+        "query_count": 44,
+        "expected_after_acquisition": 43,
+        "accepted": 43,
+        "acceptance_ratio": 1.0,
+        "max_progress_error": 0.04435979687480762,
+        "median_runtime_ms": 37.031812500000036,
+        "p95_runtime_ms": 91.28552945000021,
+        "rejections": {
+          "visual_route_acquiring": 1
+        }
+      },
+      {
+        "lap": 1,
+        "leg": 2,
+        "from_point": 2,
+        "to_point": 3,
+        "query_count": 50,
+        "expected_after_acquisition": 49,
+        "accepted": 49,
+        "acceptance_ratio": 1.0,
+        "max_progress_error": 0.07639505239867472,
+        "median_runtime_ms": 35.64185449999991,
+        "p95_runtime_ms": 75.45443575000021,
+        "rejections": {
+          "visual_route_acquiring": 1
+        }
+      },
+      {
+        "lap": 1,
+        "leg": 3,
+        "from_point": 3,
+        "to_point": 4,
+        "query_count": 103,
+        "expected_after_acquisition": 102,
+        "accepted": 102,
+        "acceptance_ratio": 1.0,
+        "max_progress_error": 0.011560693641618509,
+        "median_runtime_ms": 67.291667000001,
+        "p95_runtime_ms": 69.56319970000102,
+        "rejections": {
+          "visual_route_acquiring": 1
+        }
+      },
+      {
+        "lap": 1,
+        "leg": 4,
+        "from_point": 4,
+        "to_point": 1,
+        "query_count": 33,
+        "expected_after_acquisition": 32,
+        "accepted": 32,
+        "acceptance_ratio": 1.0,
+        "max_progress_error": 0.005986360725420692,
+        "median_runtime_ms": 57.92000000000108,
+        "p95_runtime_ms": 61.72000039999972,
+        "rejections": {
+          "visual_route_acquiring": 1
+        }
+      },
+      {
+        "lap": 2,
+        "leg": 1,
+        "from_point": 1,
+        "to_point": 2,
+        "query_count": 44,
+        "expected_after_acquisition": 43,
+        "accepted": 43,
+        "acceptance_ratio": 1.0,
+        "max_progress_error": 0.04435979687480762,
+        "median_runtime_ms": 36.68839549999969,
+        "p95_runtime_ms": 90.97426604999815,
+        "rejections": {
+          "visual_route_acquiring": 1
+        }
+      },
+      {
+        "lap": 2,
+        "leg": 2,
+        "from_point": 2,
+        "to_point": 3,
+        "query_count": 50,
+        "expected_after_acquisition": 49,
+        "accepted": 49,
+        "acceptance_ratio": 1.0,
+        "max_progress_error": 0.07639505239867472,
+        "median_runtime_ms": 34.29164600000156,
+        "p95_runtime_ms": 76.15690815000046,
+        "rejections": {
+          "visual_route_acquiring": 1
+        }
+      },
+      {
+        "lap": 2,
+        "leg": 3,
+        "from_point": 3,
+        "to_point": 4,
+        "query_count": 103,
+        "expected_after_acquisition": 102,
+        "accepted": 102,
+        "acceptance_ratio": 1.0,
+        "max_progress_error": 0.011560693641618509,
+        "median_runtime_ms": 67.25487499999971,
+        "p95_runtime_ms": 69.84300060000166,
+        "rejections": {
+          "visual_route_acquiring": 1
+        }
+      },
+      {
+        "lap": 2,
+        "leg": 4,
+        "from_point": 4,
+        "to_point": 1,
+        "query_count": 33,
+        "expected_after_acquisition": 32,
+        "accepted": 32,
+        "acceptance_ratio": 1.0,
+        "max_progress_error": 0.005986360725420692,
+        "median_runtime_ms": 57.928792000002005,
+        "p95_runtime_ms": 61.98946660000075,
+        "rejections": {
+          "visual_route_acquiring": 1
+        }
+      }
+    ]
+  },
+  "independent_recording_audit": {
+    "passed": true,
+    "expected_after_acquisition": 437,
+    "accepted_after_acquisition": 437,
+    "acceptance_ratio": 1.0,
+    "max_progress_error": 0.05070917229412386,
+    "mean_progress_error": 0.0030000198569084474,
+    "median_runtime_ms": 30.296250000001024,
+    "p95_runtime_ms": 32.483852399997915,
+    "max_runtime_ms": 53.238792000000146,
+    "source_mismatches": [],
+    "progress_regressions": [],
+    "per_segment": [
+      {
+        "source_replay_id": "dji_live_20260811_115736_2b91ca",
+        "leg": 1,
+        "from_point": 1,
+        "to_point": 2,
+        "frame_range": [
+          675,
+          930
+        ],
+        "held_out_query_count": 128,
+        "expected_after_acquisition": 127,
+        "accepted": 127,
+        "acceptance_ratio": 1.0,
+        "max_progress_error": 0.0329781066808186,
+        "median_runtime_ms": 25.93422900000042,
+        "p95_runtime_ms": 27.839192000000022,
+        "rejections": {
+          "visual_route_acquiring": 1
+        },
+        "rejection_samples": [
+          {
+            "frame": 676,
+            "variant": 0,
+            "reason": "visual_route_acquiring",
+            "best_inliers": 945
+          }
+        ],
+        "worst_progress_errors": [
+          {
+            "frame": 816,
+            "variant": 2,
+            "truth": 0.2367162189939859,
+            "published": 0.2037381123131673,
+            "error": 0.0329781066808186,
+            "inliers": 647,
+            "source_frame": 813
+          },
+          {
+            "frame": 678,
+            "variant": 1,
+            "truth": 0.028620340208087798,
+            "published": 0.0,
+            "error": 0.028620340208087798,
+            "inliers": 945,
+            "source_frame": 679
+          },
+          {
+            "frame": 818,
+            "variant": 3,
+            "truth": 0.2759395015672348,
+            "published": 0.25583644202969597,
+            "error": 0.020103059537538825,
+            "inliers": 774,
+            "source_frame": 817
+          },
+          {
+            "frame": 824,
+            "variant": 2,
+            "truth": 0.3265997661035854,
+            "published": 0.3081423423767318,
+            "error": 0.01845742372685355,
+            "inliers": 709,
+            "source_frame": 823
+          },
+          {
+            "frame": 858,
+            "variant": 3,
+            "truth": 0.5947898292404749,
+            "published": 0.6120331214494593,
+            "error": 0.017243292208984462,
+            "inliers": 812,
+            "source_frame": 859
+          }
+        ]
+      },
+      {
+        "source_replay_id": "dji_live_20260811_115736_2b91ca",
+        "leg": 2,
+        "from_point": 2,
+        "to_point": 3,
+        "frame_range": [
+          1120,
+          1180
+        ],
+        "held_out_query_count": 31,
+        "expected_after_acquisition": 30,
+        "accepted": 30,
+        "acceptance_ratio": 1.0,
+        "max_progress_error": 0.05070917229412386,
+        "median_runtime_ms": 22.050166999999732,
+        "p95_runtime_ms": 24.852687000000095,
+        "rejections": {
+          "visual_route_acquiring": 1
+        },
+        "rejection_samples": [
+          {
+            "frame": 1121,
+            "variant": 0,
+            "reason": "visual_route_acquiring",
+            "best_inliers": 842
+          }
+        ],
+        "worst_progress_errors": [
+          {
+            "frame": 1157,
+            "variant": 2,
+            "truth": 0.5578793128095926,
+            "published": 0.6085884851037164,
+            "error": 0.05070917229412386,
+            "inliers": 581,
+            "source_frame": 1158
+          },
+          {
+            "frame": 1159,
+            "variant": 3,
+            "truth": 0.6588146961811816,
+            "published": 0.706845294293238,
+            "error": 0.048030598112056344,
+            "inliers": 592,
+            "source_frame": 1160
+          },
+          {
+            "frame": 1163,
+            "variant": 1,
+            "truth": 0.8418336755168744,
+            "published": 0.8898469726079127,
+            "error": 0.0480132970910383,
+            "inliers": 539,
+            "source_frame": 1164
+          },
+          {
+            "frame": 1123,
+            "variant": 1,
+            "truth": 0.04216193142290385,
+            "published": 0.008747971847484456,
+            "error": 0.03341395957541939,
+            "inliers": 807,
+            "source_frame": 1122
+          },
+          {
+            "frame": 1161,
+            "variant": 0,
+            "truth": 0.7521563241621722,
+            "published": 0.7852793539003639,
+            "error": 0.0331230297381917,
+            "inliers": 693,
+            "source_frame": 1162
+          }
+        ]
+      },
+      {
+        "source_replay_id": "dji_live_20260811_115736_2b91ca",
+        "leg": 3,
+        "from_point": 3,
+        "to_point": 4,
+        "frame_range": [
+          1460,
+          2020
+        ],
+        "held_out_query_count": 281,
+        "expected_after_acquisition": 280,
+        "accepted": 280,
+        "acceptance_ratio": 1.0,
+        "max_progress_error": 0.010325795988629427,
+        "median_runtime_ms": 30.952583000001255,
+        "p95_runtime_ms": 32.55129100000076,
+        "rejections": {
+          "visual_route_acquiring": 1
+        },
+        "rejection_samples": [
+          {
+            "frame": 1461,
+            "variant": 0,
+            "reason": "visual_route_acquiring",
+            "best_inliers": 882
+          }
+        ],
+        "worst_progress_errors": [
+          {
+            "frame": 1649,
+            "variant": 2,
+            "truth": 0.4164489994747984,
+            "published": 0.406123203486169,
+            "error": 0.010325795988629427,
+            "inliers": 839,
+            "source_frame": 1644
+          },
+          {
+            "frame": 1475,
+            "variant": 3,
+            "truth": 0.045688108466397696,
+            "published": 0.05386049329446552,
+            "error": 0.00817238482806782,
+            "inliers": 825,
+            "source_frame": 1476
+          },
+          {
+            "frame": 1719,
+            "variant": 1,
+            "truth": 0.5471467082347192,
+            "published": 0.5391052095514897,
+            "error": 0.008041498683229564,
+            "inliers": 820,
+            "source_frame": 1718
+          },
+          {
+            "frame": 1533,
+            "variant": 0,
+            "truth": 0.18552788227902,
+            "published": 0.19242520944617145,
+            "error": 0.00689732716715144,
+            "inliers": 856,
+            "source_frame": 1534
+          },
+          {
+            "frame": 1711,
+            "variant": 1,
+            "truth": 0.5248887761295575,
+            "published": 0.5316188270360855,
+            "error": 0.006730050906528007,
+            "inliers": 855,
+            "source_frame": 1712
+          }
+        ]
+      }
+    ]
+  }
+}

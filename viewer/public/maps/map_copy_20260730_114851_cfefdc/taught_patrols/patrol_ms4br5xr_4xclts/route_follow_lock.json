@@ -1,0 +1,45 @@
+{
+  "version": 1,
+  "kind": "atlas_verified_live_route_follow_lock",
+  "map_id": "map_copy_20260730_114851_cfefdc",
+  "patrol_id": "patrol_ms4br5xr_4xclts",
+  "source_replay_id": "dji_live_20260811_115736_2b91ca",
+  "source_title": "Live ATLAS 11:57:36 plus audited full-loop baseline",
+  "verified_through_point": 4,
+  "control_mode": "closed_loop_visual_heading_with_route_lookahead",
+  "alignment_enter_deg": 4.0,
+  "alignment_exit_deg": 6.0,
+  "lookahead_m": 0.35,
+  "max_route_correction_deg": 7.0,
+  "legs": [
+    {
+      "from_point": 1,
+      "to_point": 2,
+      "golden_camera_heading_deg": 3.683252203582368,
+      "heading_evidence": "median accepted live camera heading while moving on the 11:57 leg",
+      "verified": true
+    },
+    {
+      "from_point": 2,
+      "to_point": 3,
+      "golden_camera_heading_deg": 83.70258659247705,
+      "heading_evidence": "11:57 verified live route heading",
+      "verified": true
+    },
+    {
+      "from_point": 3,
+      "to_point": 4,
+      "golden_camera_heading_deg": 176.56002674912023,
+      "heading_evidence": "11:57 verified live route heading through the Point-4 arrival sector",
+      "verified": true
+    },
+    {
+      "from_point": 4,
+      "to_point": 1,
+      "golden_camera_heading_deg": -96.29741340752297,
+      "heading_evidence": "audited complete-loop patrol baseline patrol_baseline_20260809_154714_d26c33",
+      "verified": true
+    }
+  ],
+  "full_loop_verified_from_recorded_baseline": true
+}
