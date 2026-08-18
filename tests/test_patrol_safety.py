@@ -208,7 +208,7 @@ class PatrolSafetyTests(unittest.TestCase):
         self.assertEqual(hard_radius, 0.24)
         self.assertAlmostEqual(soft_radius, 0.38)
 
-    def test_every_recorded_patrol_endpoint_arrival_is_strict(self):
+    def test_recorded_endpoint_arrival_is_strict_only_through_point_four(self):
         hard_radius, soft_radius = bridge.mission_arrival_radii(
             0.24,
             0.14,
@@ -217,13 +217,18 @@ class PatrolSafetyTests(unittest.TestCase):
         )
         self.assertEqual(hard_radius, 0.15)
         self.assertEqual(soft_radius, 0.15)
-        for from_point, to_point in ((1, 2), (2, 3), (3, 4), (4, 1)):
+        for from_point, to_point in ((1, 2), (2, 3), (3, 4)):
             with self.subTest(from_point=from_point, to_point=to_point):
                 self.assertTrue(
                     bridge.taught_leg_requires_precise_arrival(
                         {"from_point": from_point, "to_point": to_point}
                     )
                 )
+        self.assertFalse(
+            bridge.taught_leg_requires_precise_arrival(
+                {"from_point": 4, "to_point": 1}
+            )
+        )
         self.assertFalse(bridge.taught_leg_requires_precise_arrival(None))
 
     def test_taught_endpoint_requires_independent_consensus_for_correct_leg(self):
@@ -801,7 +806,7 @@ class PatrolSafetyTests(unittest.TestCase):
         )
         self.assertIsNone(issue)
 
-    def test_visual_route_supervises_only_the_two_known_weak_translation_legs(self):
+    def test_visual_route_reference_authority_stops_at_point_four(self):
         source = LOCALIZER_PATH.read_text(encoding="utf-8")
         start = source.index("        # Keep the established 1->2->3 metric path unchanged")
         end = source.index("            route_key = LivePatrolRouteGate._key", start)
@@ -809,7 +814,8 @@ class PatrolSafetyTests(unittest.TestCase):
         self.assertIn('route_context.get("controller_translation_locked") is True', gate)
         self.assertIn('route_context.get("recovery_hover") is True', gate)
         self.assertIn("or force_route_taught_recovery", gate)
-        self.assertIn('int(route_context.get("leg_index") or 0) in {3, 4}', gate)
+        self.assertIn('int(route_context.get("leg_index") or 0) == 3', gate)
+        self.assertIn("reference_frames_enabled", gate)
         self.assertIn("and visual_route_needed", gate)
         self.assertNotIn("or current_pool is None", gate)
         self.assertNotIn("< required_tracking_points(", gate)
@@ -844,7 +850,7 @@ class PatrolSafetyTests(unittest.TestCase):
         # The cooldown predicate is controller-lock scoped, so the first
         # translation frame bypasses it and retries metric recovery at once.
         cooldown_start = source.index("                rotation_recovery_cooling_down = bool(")
-        cooldown_end = source.index("                    for taught_recovery in taught_recoveries:", cooldown_start)
+        cooldown_end = source.index("                    for taught_recovery in recovery_banks:", cooldown_start)
         cooldown = source[cooldown_start:cooldown_end]
         self.assertIn('controller_translation_locked") is True', cooldown)
 
@@ -874,7 +880,7 @@ class PatrolSafetyTests(unittest.TestCase):
             LOCALIZER_PATH.parents[0] / "run_live_tsolve_existing_map_stream.py"
         ).read_text(encoding="utf-8")
         self.assertIn("fork_on_miss: bool = True", runner)
-        self.assertEqual(runner.count("fork_on_miss=bool(fork_on_miss)"), 2)
+        self.assertEqual(runner.count("fork_on_miss=bool(fork_on_miss)"), 3)
         self.assertEqual(
             localizer.count("fork_on_miss=not interactive_recovery"),
             2,
@@ -2042,11 +2048,13 @@ class PatrolSafetyTests(unittest.TestCase):
         self.assertIn("def wait_for_pose_captured_after(", source)
         self.assertIn("timeout: float = 5.0", source)
         self.assertIn("received_unix >= capture_cutoff_unix", source)
-        self.assertIn("yaw_response_reversed = yaw_response_is_reversed(", source)
+        self.assertIn("yaw_response_reversed = yaw_target_error_response(", source)
+        self.assertIn("sign_action = yaw_sign_recovery_action(", source)
         self.assertIn("GUIDED_YAW_SIGN_CONFIRMATION_PULSES = 3", source)
-        self.assertIn("Three consecutive fresh yaw observations moved opposite", source)
+        self.assertIn('"phase": "yaw_feedback_recovery"', source)
+        self.assertIn('"yaw_sign_preserved": yaw_sign', source)
 
-    def test_first_wrong_yaw_from_failed_run_is_classified_for_immediate_reversal(self):
+    def test_raw_yaw_heading_response_classifier_remains_available_for_diagnostics(self):
         heading = lambda degrees: [
             math.cos(math.radians(degrees)),
             0.0,
@@ -2061,6 +2069,67 @@ class PatrolSafetyTests(unittest.TestCase):
         self.assertIsNone(
             bridge.yaw_response_is_reversed(1.0, heading(-12.7), heading(-12.2))
         )
+
+    def test_point_three_delayed_yaw_feedback_does_not_reverse_verified_dji_sign(self):
+        # Exact target-error sequence from atlas_dji_live_20260817_150451_caeecd.
+        # These sub-degree changes were asynchronous/noisy, not proof that the
+        # fixed DJI yaw polarity had reversed in the middle of the mission.
+        errors_deg = [12.05697, 12.04850, 11.71537]
+        votes = [
+            bridge.yaw_target_error_response(
+                math.radians(before),
+                math.radians(after),
+            )
+            for before, after in zip(errors_deg, errors_deg[1:])
+        ]
+        self.assertEqual(votes, [None, None])
+        self.assertEqual(
+            bridge.yaw_sign_recovery_action(
+                yaw_sign_verified=True,
+                wrong_yaw_pulses=3,
+                yaw_flip_count=0,
+            ),
+            "recover",
+        )
+
+    def test_yaw_sign_can_flip_once_only_during_initial_polarity_verification(self):
+        self.assertFalse(
+            bridge.yaw_target_error_response(
+                math.radians(12.0),
+                math.radians(10.0),
+            )
+        )
+        self.assertTrue(
+            bridge.yaw_target_error_response(
+                math.radians(10.0),
+                math.radians(12.0),
+            )
+        )
+        self.assertEqual(
+            bridge.yaw_sign_recovery_action(
+                yaw_sign_verified=False,
+                wrong_yaw_pulses=3,
+                yaw_flip_count=0,
+            ),
+            "flip",
+        )
+        self.assertEqual(
+            bridge.yaw_sign_recovery_action(
+                yaw_sign_verified=False,
+                wrong_yaw_pulses=5,
+                yaw_flip_count=1,
+            ),
+            "abort",
+        )
+
+    def test_route_yaw_before_and_after_use_the_same_camera_heading_basis(self):
+        source = BRIDGE_PATH.read_text(encoding="utf-8")
+        start = source.index("if route_follow_desired_heading is not None:", source.index("raw_after_position"))
+        end = source.index("horizontal_pulse =", start)
+        post_yaw = source[start:end]
+        self.assertIn("pose_gate_camera_heading(", post_yaw)
+        self.assertIn("route_follow_desired_heading", post_yaw)
+        self.assertIn("yaw_target_error_response(\n                                angle,", post_yaw)
 
     def test_hover_now_preempts_an_active_patrol(self):
         server_source = SERVER_PATH.read_text(encoding="utf-8")
@@ -2459,8 +2528,195 @@ class PatrolSafetyTests(unittest.TestCase):
         self.assertIsNone(build(endpoint_handoff_verified=False))
         self.assertIsNone(build(stable_heading_frames=2))
         self.assertIsNone(
-            build(heading_error_rad=math.radians(10.01))
+            build(heading_error_rad=math.radians(4.01))
         )
+        self.assertIsNone(
+            build(heading_error_rad=math.radians(8.607))
+        )
+        self.assertIsNone(
+            build(heading_observation={**observation, "tracks": 59})
+        )
+
+    def test_verified_point_four_turn_handoff_releases_only_one_precise_probe(self):
+        anchor = [-3.0736291183109774, -0.0802621969998909, 1.1113942967930859]
+        source_gate = {
+            "ok": True,
+            "processed_count": 1496,
+            "recent_hold_fallback": True,
+            "rotation_handoff_hold": True,
+            "pose": {
+                "instance_id": "hold_002121",
+                "rcenter": anchor,
+                "rotation_position_locked": True,
+                "translation_allowed": False,
+                "rotation_position_source": "post_yaw_anchor_hold",
+                "pose_source": "patrol_visual_route_recovery",
+            },
+        }
+        heading_observation = {
+            "ok": True,
+            "instance_id": "hold_002124",
+            "received_unix": time.time(),
+            "heading": [-0.13, 0.0, -0.9915],
+            "tracks": 495,
+        }
+
+        gate = bridge.verified_optical_endpoint_turn_departure_gate(
+            source_gate,
+            position_anchor=anchor,
+            heading_observation=heading_observation,
+            heading_error_rad=math.radians(1.8),
+            expected_leg_index=4,
+            endpoint_handoff_verified=True,
+            stable_heading_frames=3,
+            endpoint_handoff_source="verified_visual_endpoint",
+        )
+
+        self.assertIsNotNone(gate)
+        self.assertTrue(gate["verified_endpoint_turn_departure"])
+        self.assertEqual(bridge.pose_gate_position(gate), anchor)
+        self.assertFalse(gate["recent_hold_fallback"])
+        self.assertFalse(gate["rotation_handoff_hold"])
+        self.assertFalse(bridge.pose_gate_rotation_locked(gate))
+        self.assertEqual(
+            gate["pose"]["rotation_position_source"],
+            "verified_point4_turn_handoff",
+        )
+        self.assertEqual(
+            gate["pose"]["verified_endpoint_turn_handoff_source"],
+            "verified_visual_endpoint",
+        )
+        self.assertIsNone(
+            bridge.guided_command_pose_safety_issue(gate, bf=0.012)
+        )
+
+    def test_point_four_visual_arrival_proof_survives_hovers_and_route_change(self):
+        # Exact handoff shape from Live ATLAS 15:30:00: 3->4 ended with
+        # progress-independent endpoint verification, then two neutral hover
+        # steps changed the live route context before 4->1 began.
+        point_four = [
+            -3.0736291183109774,
+            -0.0802621969998909,
+            1.1113942967930859,
+        ]
+        executed = [
+            {
+                "index": 14,
+                "type": "cruise",
+                "title": "Patrol cruise 3",
+                "closed_loop": True,
+                "target": point_four,
+                "endpoint_leg_index": 3,
+                "arrival_mode": "visual_checkpoint_endpoint_verified",
+                "reached": True,
+            },
+            {"index": 15, "type": "hover", "title": "Hover and re-localize"},
+            {"index": 16, "type": "hover", "title": "Patrol point 3"},
+        ]
+
+        record = bridge.prior_verified_endpoint_arrival_record(
+            executed,
+            segment_start=point_four,
+            expected_leg_index=3,
+        )
+
+        self.assertIsNotNone(record)
+        self.assertEqual(record["arrival_mode"], "visual_checkpoint_endpoint_verified")
+
+    def test_point_four_prior_arrival_proof_fails_closed_for_wrong_or_weak_arrival(self):
+        point_four = [-3.0736, -0.0802, 1.1114]
+
+        def record(**changes):
+            value = {
+                "type": "cruise",
+                "closed_loop": True,
+                "target": point_four,
+                "endpoint_leg_index": 3,
+                "arrival_mode": "visual_checkpoint_endpoint_verified",
+                "reached": True,
+            }
+            value.update(changes)
+            return [value]
+
+        self.assertIsNone(
+            bridge.prior_verified_endpoint_arrival_record(
+                record(reached=False),
+                segment_start=point_four,
+                expected_leg_index=3,
+            )
+        )
+        self.assertIsNone(
+            bridge.prior_verified_endpoint_arrival_record(
+                record(arrival_mode="closest_soft_deadband"),
+                segment_start=point_four,
+                expected_leg_index=3,
+            )
+        )
+        self.assertIsNone(
+            bridge.prior_verified_endpoint_arrival_record(
+                record(endpoint_leg_index=2),
+                segment_start=point_four,
+                expected_leg_index=3,
+            )
+        )
+        self.assertIsNone(
+            bridge.prior_verified_endpoint_arrival_record(
+                record(target=[-2.7, -0.0802, 1.1114]),
+                segment_start=point_four,
+                expected_leg_index=3,
+            )
+        )
+
+    def test_point_four_handoff_rotates_while_locked_before_translation_release(self):
+        source = BRIDGE_PATH.read_text(encoding="utf-8")
+        start = source.index("if point_four_handoff:")
+        end = source.index("if lap_metric_checkpoint_pending:", start)
+        handoff = source[start:end]
+        self.assertIn("prior_verified_endpoint_arrival_record(", handoff)
+        self.assertIn("prior_point_four_visual_ready", handoff)
+        self.assertIn("require_translation_safe=False", handoff)
+        self.assertIn(
+            '"the rotation-only 4->1 alignment may begin."',
+            handoff,
+        )
+
+    def test_verified_point_four_turn_handoff_fails_closed(self):
+        source_gate = {
+            "ok": True,
+            "pose": {
+                "rcenter": [-3.0736, -0.0802, 1.1114],
+                "rotation_position_locked": True,
+                "translation_allowed": False,
+            },
+        }
+        observation = {
+            "ok": True,
+            "received_unix": time.time(),
+            "heading": [-0.11, 0.0, -0.994],
+            "tracks": 495,
+        }
+
+        def build(**changes):
+            params = {
+                "source_gate": source_gate,
+                "position_anchor": [-3.0736, -0.0802, 1.1114],
+                "heading_observation": observation,
+                "heading_error_rad": math.radians(2.0),
+                "expected_leg_index": 4,
+                "endpoint_handoff_verified": True,
+                "stable_heading_frames": 3,
+                "endpoint_handoff_source": "verified_visual_endpoint",
+            }
+            params.update(changes)
+            return bridge.verified_optical_endpoint_turn_departure_gate(**params)
+
+        self.assertIsNotNone(build(endpoint_handoff_source="metric_tsolve"))
+        self.assertIsNone(build(endpoint_handoff_source="unverified"))
+        self.assertIsNone(build(stable_heading_frames=2))
+        self.assertIsNone(build(heading_error_rad=math.radians(2.01)))
+        # The exact final error from Live ATLAS 14:21:30 must continue yaw,
+        # never release forward motion or enter the old 25-second deadlock.
+        self.assertIsNone(build(heading_error_rad=math.radians(4.488)))
         self.assertIsNone(
             build(heading_observation={**observation, "tracks": 59})
         )
@@ -2683,7 +2939,7 @@ class PatrolSafetyTests(unittest.TestCase):
         # 11:57:36.  The right-turn direction remains fixed, but mandatory
         # recorded-image acquisition is reserved for the unfinished 4->1 leg.
         self.assertFalse(bridge.taught_turn_requires_recorded_departure_view(leg))
-        self.assertTrue(
+        self.assertFalse(
             bridge.taught_turn_requires_recorded_departure_view(
                 {"from_point": 4, "to_point": 1}
             )
@@ -2853,14 +3109,14 @@ class PatrolSafetyTests(unittest.TestCase):
             "elif alignment_angle is not None", departure_start
         )
         departure = source[departure_start:departure_end]
-        self.assertIn("elif point_three_handoff:", departure)
+        self.assertIn(
+            "elif point_three_handoff or point_four_handoff:", departure
+        )
         self.assertIn(
             "verified_optical_endpoint_turn_departure_gate(", departure
         )
         self.assertIn("heading_error_rad=alignment_angle", departure)
-        self.assertIn(
-            '== "verified_visual_endpoint"', departure
-        )
+        self.assertIn('{"verified_visual_endpoint"}', departure)
         self.assertIn('"bounded_departure_commands": 1', departure)
         self.assertIn(
             '"require_observed_progress_after_command": True', departure
@@ -2880,7 +3136,9 @@ class PatrolSafetyTests(unittest.TestCase):
         self.assertIn('"point4_endpoint_handoff"', checkpoint)
         self.assertIn("require_endpoint_verified=True", checkpoint)
         self.assertIn("endpoint_leg_index=3", checkpoint)
-        self.assertIn("require_translation_safe=True", checkpoint)
+        self.assertIn("require_translation_safe=False", checkpoint)
+        self.assertIn("prior_verified_endpoint_arrival_record(", checkpoint)
+        self.assertIn("prior_point_four_visual_ready", checkpoint)
         self.assertIn("timeout=8.0", checkpoint)
         self.assertIn("point_four_handoff_limit = min(0.30, max_pose_step)", checkpoint)
         self.assertIn('"phase": "point4_position_correction_required"', checkpoint)

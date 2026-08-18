@@ -21,6 +21,7 @@
   "map_camera_model": "SIMPLE_RADIAL",
   "map_matcher": "exhaustive",
   "query_camera_model": "SIMPLE_RADIAL",
+  "tsolve_root_profile": "full",
   "online_colmap_matcher": "exhaustive",
   "live_localizer_mode": "bounded_tracking",
   "live_reference_image_cap": 120,

@@ -55,6 +55,32 @@ def segment_progress(point: Any, start: Any, end: Any) -> float | None:
     return float(((p[[0, 2]] - a[[0, 2]]) @ direction) / length_sq)
 
 
+def geometric_candidate_rank(item: dict[str, Any]) -> tuple[float, ...]:
+    """Rank equal-inlier ORB candidates by independent geometric quality.
+
+    Inlier count deliberately remains the primary key so the established live
+    thresholds and route behavior do not change.  Indoor repeated patterns
+    frequently tie on count, however; for those ties prefer a larger inlier
+    fraction and broader image support, then the lower reprojection residual.
+    """
+    error = item.get("median_reprojection_error_px")
+    try:
+        error_value = float(error)
+    except (TypeError, ValueError):
+        error_value = float("inf")
+    if not math.isfinite(error_value):
+        error_value = float("inf")
+    return (
+        float(int(item.get("inliers") or 0)),
+        float(item.get("inlier_ratio") or 0.0),
+        min(
+            float(item.get("source_coverage") or 0.0),
+            float(item.get("query_coverage") or 0.0),
+        ),
+        -error_value,
+    )
+
+
 def conservative_candidate_progress(
     candidates: list[dict[str, Any]],
     *,
@@ -742,6 +768,7 @@ class PatrolVisualRouteRecovery:
         max_position_step: float = 0.18,
         endpoint_guard_progress: float = 0.84,
         endpoint_required_hits: int = 3,
+        matching_profile: str = "hierarchical",
     ) -> None:
         self.bank_path = Path(bank_path)
         with np.load(self.bank_path, allow_pickle=False) as bank:
@@ -769,6 +796,32 @@ class PatrolVisualRouteRecovery:
                 ] * len(self.anchor_names)
         self.detector = cv2.ORB_create(nfeatures=1200, fastThreshold=10)
         self.matcher = cv2.BFMatcher(cv2.NORM_HAMMING)
+        normalized_matching_profile = str(matching_profile).strip().lower()
+        if normalized_matching_profile not in {"exact", "hierarchical"}:
+            raise ValueError(
+                "matching_profile must be 'exact' or 'hierarchical'"
+            )
+        self.matching_profile = normalized_matching_profile
+        self.last_match_diagnostic: dict[str, Any] = {}
+        # The bank is immutable for the lifetime of this matcher.  Building
+        # descriptor row lists inside every frame/anchor loop used
+        # ``np.flatnonzero`` thousands of times and repeatedly crossed the
+        # Python -> OpenCV boundary.  Cache the rows once and batch all
+        # selected source descriptors into one exact BF query below.  The
+        # distance search and ratio test are unchanged; only their scheduling
+        # is different.
+        anchor_order = np.argsort(self.anchor_ids, kind="stable")
+        anchor_counts = np.bincount(
+            self.anchor_ids,
+            minlength=len(self.anchor_names),
+        )
+        anchor_offsets = np.concatenate(
+            ([0], np.cumsum(anchor_counts, dtype=np.int64))
+        )
+        self._anchor_rows = tuple(
+            anchor_order[anchor_offsets[anchor_id] : anchor_offsets[anchor_id + 1]]
+            for anchor_id in range(len(self.anchor_names))
+        )
         self.minimum_inliers = max(16, int(minimum_inliers))
         # Normal flight retains the strict 120-inlier gate.  During a neutral
         # recovery hover, five consecutive command-bounded observations may
@@ -913,26 +966,174 @@ class PatrolVisualRouteRecovery:
         query_keypoints: list[Any],
         query_descriptors: np.ndarray,
         anchors: list[int],
+        minimum_geometric_inliers: int = 8,
+        force_exact: bool = False,
     ) -> list[dict[str, Any]]:
+        if not anchors:
+            return []
+        valid_anchors = list(
+            dict.fromkeys(
+                int(anchor_id)
+                for anchor_id in anchors
+                if 0 <= int(anchor_id) < len(self._anchor_rows)
+                and len(self._anchor_rows[int(anchor_id)]) > 0
+            )
+        )
+        if not valid_anchors:
+            return []
+
+        # BFMatcher treats every query descriptor independently, so matching
+        # one concatenated source matrix against the same current-frame train
+        # matrix produces the exact same two nearest neighbors as one call per
+        # anchor.  Keep a parallel anchor/local-row lookup to split the result
+        # back into the existing per-anchor homography checks.
+        row_blocks = [self._anchor_rows[anchor_id] for anchor_id in valid_anchors]
+        batched_rows = np.concatenate(row_blocks)
+        batched_anchor_ids = np.repeat(
+            np.asarray(valid_anchors, dtype=np.int32),
+            [len(rows) for rows in row_blocks],
+        )
+        pairs = self.matcher.knnMatch(
+            self.descriptors[batched_rows], query_descriptors, k=2
+        )
+        accepted_by_anchor: dict[int, list[Any]] = {
+            anchor_id: [] for anchor_id in valid_anchors
+        }
+        for batched_index, pair in enumerate(pairs):
+            if (
+                len(pair) == 2
+                and pair[0].distance < 0.78 * pair[1].distance
+            ):
+                accepted_by_anchor[int(batched_anchor_ids[batched_index])].append(
+                    pair[0]
+                )
+
+        # Homography RANSAC, rather than Hamming distance, dominates a wide
+        # endpoint audit.  Its inlier count can never exceed the number of
+        # ratio-test matches supplied to it, so anchors below the caller's
+        # minimum useful inlier count are mathematically unable to affect a
+        # successful decision.  Skip only those impossible fits; this is an
+        # exact upper-bound prune, not an approximate visual shortlist.
+        hierarchy_enabled = bool(
+            self.matching_profile == "hierarchical"
+            and not force_exact
+            and len(valid_anchors) > 16
+        )
+        homography_support_floor = (
+            8
+            if self.matching_profile == "exact" or force_exact
+            else max(8, int(minimum_geometric_inliers))
+        )
+
+        query_points = np.float32([keypoint.pt for keypoint in query_keypoints])
         candidates: list[dict[str, Any]] = []
-        for anchor_id in anchors:
-            rows = np.flatnonzero(self.anchor_ids == anchor_id)
-            pairs = self.matcher.knnMatch(
-                self.descriptors[rows], query_descriptors, k=2
-            )
-            matches = [
-                pair[0]
-                for pair in pairs
-                if len(pair) == 2 and pair[0].distance < 0.78 * pair[1].distance
+        original_order = {
+            anchor_id: position for position, anchor_id in enumerate(valid_anchors)
+        }
+        block_offsets: dict[int, int] = {}
+        block_offset = 0
+        for anchor_id, rows in zip(valid_anchors, row_blocks):
+            block_offsets[anchor_id] = block_offset
+            block_offset += len(rows)
+        anchor_blocks = list(zip(valid_anchors, row_blocks))
+        unselected_anchor_ids: set[int] = set()
+        if hierarchy_enabled:
+            # Build small temporal keyframe blocks independently for each
+            # recorded source run. Descriptor votes select two promising
+            # blocks, and their immediate neighbors form the exact local
+            # homography search. No excluded block is trusted blindly: the
+            # upper-bound check below falls back to the full exact search if
+            # an excluded anchor could still tie or beat the local winner.
+            selected_anchor_ids: set[int] = set()
+            source_groups: dict[str, list[int]] = {}
+            for anchor_id in valid_anchors:
+                source_groups.setdefault(
+                    self.anchor_source_replay_ids[anchor_id], []
+                ).append(anchor_id)
+            for source_anchors in source_groups.values():
+                source_anchors.sort(
+                    key=lambda anchor_id: (
+                        int(self.source_frames[anchor_id]),
+                        float(self.anchor_progress[anchor_id]),
+                    )
+                )
+                keyframe_blocks = [
+                    source_anchors[offset : offset + 4]
+                    for offset in range(0, len(source_anchors), 4)
+                ]
+                block_scores = [
+                    max(
+                        (
+                            len(accepted_by_anchor[anchor_id])
+                            for anchor_id in block
+                        ),
+                        default=0,
+                    )
+                    for block in keyframe_blocks
+                ]
+                selected_blocks = sorted(
+                    range(len(keyframe_blocks)),
+                    key=lambda block_index: block_scores[block_index],
+                    reverse=True,
+                )[:2]
+                for block_index in selected_blocks:
+                    for neighbor_index in range(
+                        max(0, block_index - 1),
+                        min(len(keyframe_blocks), block_index + 2),
+                    ):
+                        selected_anchor_ids.update(
+                            keyframe_blocks[neighbor_index]
+                        )
+            unselected_anchor_ids = set(valid_anchors) - selected_anchor_ids
+            anchor_blocks = [
+                item for item in anchor_blocks if item[0] in selected_anchor_ids
             ]
-            if len(matches) < 8:
+
+        if self.matching_profile == "hierarchical" and not force_exact:
+            # Descriptor support is an upper bound on homography inliers.
+            # Evaluate the strongest upper bounds first so a verified view can
+            # tighten the bound for the remaining dense neighboring anchors.
+            anchor_blocks.sort(
+                key=lambda item: len(accepted_by_anchor[item[0]]),
+                reverse=True,
+            )
+        best_geometric_inliers = 0
+        homography_evaluated = 0
+        upper_bound_pruned = 0
+        maximum_pruned_support = 0
+        for anchor_id, rows in anchor_blocks:
+            # ``queryIdx`` refers to the concatenated source matrix. Convert
+            # it back to this anchor's local descriptor index so all geometric
+            # calculations remain byte-for-byte equivalent to the old loop.
+            matches = accepted_by_anchor[anchor_id]
+            decision_support_floor = homography_support_floor
+            if (
+                self.matching_profile == "hierarchical"
+                and not force_exact
+                and best_geometric_inliers >= homography_support_floor
+            ):
+                # Every current consumer requires either the absolute success
+                # floor or at least 50% of its geometric winner.  Existing
+                # route rules are stricter (72-95%); 50% is the shared lower
+                # bound in their defensive clamps.  If raw matches cannot
+                # reach this number, RANSAC inliers cannot reach it either.
+                decision_support_floor = max(
+                    homography_support_floor,
+                    int(math.ceil(best_geometric_inliers * 0.50)),
+                )
+            if len(matches) < decision_support_floor:
+                upper_bound_pruned += 1
+                maximum_pruned_support = max(
+                    maximum_pruned_support,
+                    len(matches),
+                )
                 continue
+            homography_evaluated += 1
+            block_offset = block_offsets[anchor_id]
             source_xy = np.float32(
-                [self.xy[rows[match.queryIdx]] for match in matches]
+                [self.xy[rows[match.queryIdx - block_offset]] for match in matches]
             )
-            query_xy = np.float32(
-                [query_keypoints[match.trainIdx].pt for match in matches]
-            )
+            query_xy = query_points[[match.trainIdx for match in matches]]
             homography, mask = cv2.findHomography(
                 source_xy,
                 query_xy,
@@ -944,10 +1145,50 @@ class PatrolVisualRouteRecovery:
                 if mask is not None
                 else np.zeros(len(matches), dtype=bool)
             )
+            best_geometric_inliers = max(
+                best_geometric_inliers,
+                int(inlier_mask.sum()),
+            )
             view_scale_min = None
             view_scale_max = None
             endpoint_view_geometry_verified = False
+            inlier_ratio = float(inlier_mask.mean()) if len(inlier_mask) else 0.0
+            median_reprojection_error_px = None
+            horizontal_shift_px = None
+            source_coverage = 0.0
+            query_coverage = 0.0
             if homography is not None and int(inlier_mask.sum()) >= 8:
+                inlier_source_xy = source_xy[inlier_mask]
+                inlier_query_xy = query_xy[inlier_mask]
+                horizontal_shift_px = float(
+                    np.median(inlier_query_xy[:, 0] - inlier_source_xy[:, 0])
+                )
+                try:
+                    projected_inliers = cv2.perspectiveTransform(
+                        inlier_source_xy.reshape(1, -1, 2), homography
+                    )[0]
+                    residuals = np.linalg.norm(
+                        projected_inliers - inlier_query_xy, axis=1
+                    )
+                    if len(residuals) and np.all(np.isfinite(residuals)):
+                        median_reprojection_error_px = float(np.median(residuals))
+                except (cv2.error, ValueError):
+                    median_reprojection_error_px = None
+
+                # Repeated wall/floor texture can produce many concentrated
+                # inliers.  Record how much of each image the verified matches
+                # cover so equally strong candidates can prefer a spatially
+                # supported view instead of a small repeated patch.
+                source_span = np.ptp(inlier_source_xy, axis=0)
+                query_span = np.ptp(inlier_query_xy, axis=0)
+                source_extent = np.ptp(self.xy[rows], axis=0)
+                query_extent = np.ptp(query_points, axis=0)
+                source_coverage = float(
+                    np.prod(source_span / np.maximum(source_extent, 1.0))
+                )
+                query_coverage = float(
+                    np.prod(query_span / np.maximum(query_extent, 1.0))
+                )
                 # A repeated indoor wall can retain hundreds of ORB/homography
                 # inliers even when the aircraft is still well before the
                 # waypoint.  Match count therefore proves scene identity, not
@@ -1001,6 +1242,11 @@ class PatrolVisualRouteRecovery:
                     "progress": float(self.anchor_progress[anchor_id]),
                     "inliers": int(inlier_mask.sum()),
                     "ratio_matches": len(matches),
+                    "inlier_ratio": inlier_ratio,
+                    "median_reprojection_error_px": median_reprojection_error_px,
+                    "horizontal_shift_px": horizontal_shift_px,
+                    "source_coverage": source_coverage,
+                    "query_coverage": query_coverage,
                     "endpoint_view_scale_min": view_scale_min,
                     "endpoint_view_scale_max": view_scale_max,
                     "endpoint_view_geometry_verified": (
@@ -1008,6 +1254,109 @@ class PatrolVisualRouteRecovery:
                     ),
                 }
             )
+        # Preserve bank/route ordering for helper functions whose conservative
+        # tie behavior predates the hierarchy.  Candidate scores themselves
+        # are independent of the evaluation order.
+        candidates.sort(key=lambda item: original_order[int(item["anchor_id"])])
+        best_candidate = (
+            max(candidates, key=geometric_candidate_rank)
+            if candidates
+            else None
+        )
+        best_candidate_inliers = int(
+            best_candidate.get("inliers") or 0
+        ) if best_candidate is not None else 0
+        maximum_unselected_support = max(
+            (
+                len(accepted_by_anchor[anchor_id])
+                for anchor_id in unselected_anchor_ids
+            ),
+            default=0,
+        )
+        required_inliers = max(8, int(minimum_geometric_inliers))
+        local_winner_accepted = best_candidate_inliers >= required_inliers
+        excluded_anchor_can_succeed = (
+            maximum_unselected_support >= required_inliers
+        )
+        excluded_anchor_can_tie_or_beat = bool(
+            local_winner_accepted
+            and maximum_unselected_support >= best_candidate_inliers
+        )
+        if hierarchy_enabled and (
+            (not local_winner_accepted and excluded_anchor_can_succeed)
+            or excluded_anchor_can_tie_or_beat
+        ):
+            fallback_reason = (
+                "hierarchy_no_accepted_local_winner"
+                if not local_winner_accepted
+                else "hierarchy_excluded_anchor_can_tie_or_beat_winner"
+            )
+            exact_candidates = self._match_candidates(
+                query_keypoints=query_keypoints,
+                query_descriptors=query_descriptors,
+                anchors=valid_anchors,
+                minimum_geometric_inliers=minimum_geometric_inliers,
+                force_exact=True,
+            )
+            exact_diagnostic = dict(self.last_match_diagnostic)
+            exact_diagnostic.update(
+                {
+                    "matching_profile": self.matching_profile,
+                    "hierarchy_attempted": True,
+                    "hierarchy_fallback": True,
+                    "hierarchy_fallback_reason": fallback_reason,
+                    "hierarchy_selected_anchor_count": len(anchor_blocks),
+                    "hierarchy_unselected_anchor_count": len(
+                        unselected_anchor_ids
+                    ),
+                    "hierarchy_local_winner_inliers": best_candidate_inliers,
+                    "hierarchy_maximum_unselected_ratio_matches": (
+                        maximum_unselected_support
+                    ),
+                }
+            )
+            self.last_match_diagnostic = exact_diagnostic
+            return exact_candidates
+        final_relevance_floor = max(
+            homography_support_floor,
+            int(math.ceil(best_geometric_inliers * 0.50)),
+        )
+        self.last_match_diagnostic = {
+            "matching_profile": self.matching_profile,
+            "anchor_count": len(valid_anchors),
+            "ratio_supported_anchor_count": sum(
+                len(accepted_by_anchor[anchor_id]) >= homography_support_floor
+                for anchor_id in valid_anchors
+            ),
+            "homography_evaluated": homography_evaluated,
+            "upper_bound_pruned": upper_bound_pruned,
+            "maximum_pruned_ratio_matches": maximum_pruned_support,
+            "best_geometric_inliers": best_geometric_inliers,
+            "final_relevance_floor": final_relevance_floor,
+            "upper_bound_verified": bool(
+                maximum_pruned_support < final_relevance_floor
+            ),
+            "hierarchy_attempted": hierarchy_enabled,
+            "hierarchy_fallback": False,
+            "hierarchy_fallback_reason": "",
+            "hierarchy_selected_anchor_count": len(anchor_blocks),
+            "hierarchy_unselected_anchor_count": len(unselected_anchor_ids),
+            "hierarchy_local_winner_inliers": best_candidate_inliers,
+            "hierarchy_maximum_unselected_ratio_matches": (
+                maximum_unselected_support
+            ),
+            "hierarchy_winner_proven": bool(
+                not hierarchy_enabled
+                or (
+                    local_winner_accepted
+                    and maximum_unselected_support < best_candidate_inliers
+                )
+                or (
+                    not local_winner_accepted
+                    and maximum_unselected_support < required_inliers
+                )
+            ),
+        }
         return candidates
 
     def _update_endpoint_verification(
@@ -1015,7 +1364,7 @@ class PatrolVisualRouteRecovery:
         candidates: list[dict[str, Any]],
     ) -> dict[str, Any]:
         winner = (
-            max(candidates, key=lambda item: int(item.get("inliers") or 0))
+            max(candidates, key=geometric_candidate_rank)
             if candidates
             else None
         )
@@ -1176,55 +1525,37 @@ class PatrolVisualRouteRecovery:
         if query_descriptors is None or len(query_keypoints) < 120:
             return None, {"reason": "visual_heading_query_features_missing"}
 
-        candidates: list[dict[str, Any]] = []
-        for anchor_id in anchors:
-            rows = np.flatnonzero(self.anchor_ids == anchor_id)
-            pairs = self.matcher.knnMatch(self.descriptors[rows], query_descriptors, k=2)
-            matches = [
-                pair[0]
-                for pair in pairs
-                if len(pair) == 2 and pair[0].distance < 0.78 * pair[1].distance
-            ]
-            if len(matches) < 8:
-                continue
-            source_xy = np.float32([self.xy[rows[match.queryIdx]] for match in matches])
-            query_xy = np.float32([query_keypoints[match.trainIdx].pt for match in matches])
-            _, mask = cv2.findHomography(source_xy, query_xy, cv2.RANSAC, 4.0)
-            if mask is None:
-                continue
-            inlier_mask = mask.reshape(-1).astype(bool)
-            inliers = int(np.sum(inlier_mask))
-            if inliers < 8:
-                continue
-            horizontal_shift = float(
-                np.median(query_xy[inlier_mask, 0] - source_xy[inlier_mask, 0])
-            )
-            # A camera that is still left of the taught heading sees recorded
-            # features shifted right.  It therefore needs a positive/right
-            # correction in the DJI bridge convention.
-            correction_deg = math.degrees(math.atan2(horizontal_shift, focal))
-            candidates.append(
-                {
-                    "anchor_id": anchor_id,
-                    "anchor_name": self.anchor_names[anchor_id],
-                    "source_frame": int(self.source_frames[anchor_id]),
-                    "progress": float(self.anchor_progress[anchor_id]),
-                    "inliers": inliers,
-                    "ratio_matches": len(matches),
-                    "horizontal_shift_px": horizontal_shift,
-                    "correction_deg": correction_deg,
-                }
-            )
-
-        elapsed_ms = 1000.0 * (cv2.getTickCount() - started) / cv2.getTickFrequency()
-        if not candidates:
-            return None, {"reason": "visual_heading_no_candidates", "total_ms": elapsed_ms}
-        candidates.sort(key=lambda item: int(item["inliers"]), reverse=True)
-        winner = candidates[0]
         heading_minimum = max(
             16,
             int(self.minimum_inliers if minimum_inliers is None else minimum_inliers),
         )
+        candidates = self._match_candidates(
+            query_keypoints=query_keypoints,
+            query_descriptors=query_descriptors,
+            anchors=anchors,
+            minimum_geometric_inliers=heading_minimum,
+        )
+        for candidate in candidates:
+            horizontal_shift = candidate.get("horizontal_shift_px")
+            if horizontal_shift is None:
+                candidate["correction_deg"] = None
+                continue
+            # A camera that is still left of the taught heading sees recorded
+            # features shifted right.  It therefore needs a positive/right
+            # correction in the DJI bridge convention.
+            correction_deg = math.degrees(math.atan2(horizontal_shift, focal))
+            candidate["correction_deg"] = correction_deg
+        candidates = [
+            candidate
+            for candidate in candidates
+            if candidate.get("correction_deg") is not None
+        ]
+
+        elapsed_ms = 1000.0 * (cv2.getTickCount() - started) / cv2.getTickFrequency()
+        if not candidates:
+            return None, {"reason": "visual_heading_no_candidates", "total_ms": elapsed_ms}
+        candidates.sort(key=geometric_candidate_rank, reverse=True)
+        winner = candidates[0]
         if int(winner["inliers"]) < heading_minimum:
             return None, {
                 "reason": "visual_heading_inliers_below_threshold",
@@ -1406,12 +1737,20 @@ class PatrolVisualRouteRecovery:
             query_keypoints=query_keypoints,
             query_descriptors=query_descriptors,
             anchors=anchors,
+            # Every successful route path requires at least 60 geometric
+            # inliers (the recovery-hover endpoint floor). Candidates below
+            # that bound cannot influence publication or endpoint consensus.
+            minimum_geometric_inliers=60,
+            # Recovery hover may use multi-anchor weak endpoint consensus;
+            # retain its complete candidate set rather than the normal-flight
+            # winner-only hierarchy.
+            force_exact=bool(recovery_hover),
         )
         elapsed_ms = 1000.0 * (cv2.getTickCount() - started) / cv2.getTickFrequency()
         if not candidates:
             self._mark_unverified()
             return None, {"reason": "visual_route_no_candidates", "total_ms": elapsed_ms}
-        candidates.sort(key=lambda item: int(item["inliers"]), reverse=True)
+        candidates.sort(key=geometric_candidate_rank, reverse=True)
         winner = candidates[0]
         winner_source_replay_id = str(winner.get("source_replay_id") or "")
         # Once a frame chooses the strongest recorded run, compute progress
@@ -1427,7 +1766,7 @@ class PatrolVisualRouteRecovery:
         ]
         if source_candidates:
             candidates = source_candidates
-            winner = max(candidates, key=lambda item: int(item["inliers"]))
+            winner = max(candidates, key=geometric_candidate_rank)
         start = finite_vector(segment_start)
         end = finite_vector(segment_end)
         assert start is not None and end is not None
@@ -1594,7 +1933,7 @@ class PatrolVisualRouteRecovery:
                     candidates,
                     key=lambda item: (
                         -abs(float(item["progress"]) - float(proposed)),
-                        int(item.get("inliers") or 0),
+                        *geometric_candidate_rank(item),
                     ),
                 )
         if proposed is None:
@@ -1646,6 +1985,11 @@ class PatrolVisualRouteRecovery:
                 query_keypoints=query_keypoints,
                 query_descriptors=query_descriptors,
                 anchors=missing_anchors,
+                minimum_geometric_inliers=60,
+                # Whole-leg endpoint auditing needs negative evidence from
+                # both endpoint and non-endpoint sentinels, not only a proven
+                # local winner.
+                force_exact=True,
             )
             endpoint_metadata = self._update_endpoint_verification(full_candidates)
             dense_temporal_endpoint = bool(
@@ -1785,6 +2129,18 @@ class PatrolVisualRouteRecovery:
                     proposed = float(self.rewind_candidate_progress)
                     winner = rewind_candidate
                     winner_source_replay_id = rewind_source
+                    # A multi-run rewind may prove that the current camera is
+                    # following another validated recording.  Keep that
+                    # source and its frame clock after the correction.  The
+                    # 12:20:39 run found the correct 57% frame from the 15:47
+                    # baseline, but left the source locked to 11:57 at its
+                    # Point-4 endpoint.  The very next query therefore jumped
+                    # back to the false endpoint or returned no consensus.
+                    self.active_source_replay_id = rewind_source
+                    self.pending_source_replay_id = rewind_source
+                    self.last_matched_source_frame = int(
+                        rewind_candidate.get("source_frame") or 0
+                    )
                     weak_endpoint_recovery = False
                     temporal_recovery = False
                     effective_minimum_inliers = self.minimum_inliers
@@ -1819,7 +2175,9 @@ class PatrolVisualRouteRecovery:
             # Whole-leg endpoint consensus is independent, stronger evidence
             # than the local sequence prior. Let it become the target once it
             # is latched; the room-distance reconciliation and publication
-            # gates below still make the rendered correction gradual.
+            # gates below still make the rendered correction gradual. Invalid
+            # endpoint depth remains outside the arrival radius and triggers
+            # the persistent verified-rewind path above.
             endpoint_progress = endpoint_metadata.get("endpoint_candidate_progress")
             try:
                 endpoint_progress = float(endpoint_progress)

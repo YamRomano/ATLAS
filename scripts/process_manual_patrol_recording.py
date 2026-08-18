@@ -62,7 +62,12 @@ def main() -> None:
     parser.add_argument("--recording-dir", required=True, type=Path)
     parser.add_argument("--frames-dir", required=True, type=Path)
     parser.add_argument("--manifest", required=True, type=Path)
-    parser.add_argument("--focal-px", type=float, default=851.6865528775178)
+    parser.add_argument(
+        "--focal-px",
+        type=float,
+        default=882.4866783165957,
+        help="Horizontal focal length in pixels (default: live DJI/COLMAP 1200x675 calibration).",
+    )
     parser.add_argument("--frame-step", type=int, default=3)
     args = parser.parse_args()
 

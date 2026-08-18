@@ -372,6 +372,7 @@ def solve_case(
     fallback_action_weights: str,
     fork_seed: int,
     fork_on_miss: bool = True,
+    root_candidate_profile: str = "full",
 ) -> dict[str, Any]:
     solve_static_persistent = runtime_api["solve_static_persistent"]
     instance_meta = json.loads((instance_dir / "input.json").read_text(encoding="utf-8"))
@@ -398,8 +399,45 @@ def solve_case(
         max_roots=80,
         fork_on_miss=bool(fork_on_miss),
         direct_coeff_builder=direct_coeff_builder,
+        root_candidate_profile=root_candidate_profile,
         **pose_prior_kwargs,
     )
+    fast_result = result if root_candidate_profile == "live_fast" else None
+    fast_objective = fast_result.get("objective") if fast_result else None
+    fast_acceptable = bool(
+        fast_result
+        and fast_result.get("success")
+        and fast_objective is not None
+        and float(fast_objective) <= 26.0
+    )
+    if root_candidate_profile == "live_fast" and not fast_acceptable:
+        result = solve_static_persistent(
+            PnPSolver=runtime_api["PnPSolver"],
+            solver_dir=solver_dir,
+            branches=branches,
+            double_sos=double_sos,
+            branch_dir=branch_dir,
+            prime=prime,
+            degree=degree,
+            fork_seed=fork_seed,
+            root_refiner=root_refiner,
+            instance_dir=instance_dir,
+            action_weights=action_weights,
+            root_residual_tol=1e-8,
+            max_roots=80,
+            fork_on_miss=bool(fork_on_miss),
+            direct_coeff_builder=direct_coeff_builder,
+            root_candidate_profile="full",
+            **pose_prior_kwargs,
+        )
+        result["live_fast_fallback_used"] = True
+        result["live_fast_result"] = {
+            "success": bool(fast_result.get("success")),
+            "objective": fast_objective,
+            "total_ms": fast_result.get("total_ms"),
+        }
+    elif root_candidate_profile == "live_fast":
+        result["live_fast_fallback_used"] = False
     if not result.get("success") and fallback_action_weights:
         fallback = solve_static_persistent(
             PnPSolver=runtime_api["PnPSolver"],
@@ -417,6 +455,9 @@ def solve_case(
             max_roots=80,
             fork_on_miss=bool(fork_on_miss),
             direct_coeff_builder=direct_coeff_builder,
+            root_candidate_profile=(
+                "full" if root_candidate_profile == "live_fast" else root_candidate_profile
+            ),
             **pose_prior_kwargs,
         )
         fallback["fallback_used"] = True

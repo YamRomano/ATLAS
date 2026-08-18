@@ -13,6 +13,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 from patrol_visual_route_recovery import (  # noqa: E402
     PatrolVisualRouteRecovery,
     conservative_candidate_progress,
+    geometric_candidate_rank,
     horizontal_distance,
     independent_endpoint_candidate_progress,
     sequence_candidate_progress,
@@ -23,6 +24,141 @@ from patrol_visual_route_recovery import (  # noqa: E402
 
 
 class PatrolVisualRouteRecoveryTests(unittest.TestCase):
+    def test_geometric_rank_never_trades_inliers_for_secondary_quality(self):
+        stronger = {
+            "inliers": 121,
+            "inlier_ratio": 0.51,
+            "source_coverage": 0.10,
+            "query_coverage": 0.10,
+            "median_reprojection_error_px": 2.0,
+        }
+        cleaner_but_weaker = {
+            "inliers": 120,
+            "inlier_ratio": 0.95,
+            "source_coverage": 0.90,
+            "query_coverage": 0.90,
+            "median_reprojection_error_px": 0.1,
+        }
+        self.assertGreater(
+            geometric_candidate_rank(stronger),
+            geometric_candidate_rank(cleaner_but_weaker),
+        )
+
+    def test_geometric_rank_resolves_equal_inlier_alias_by_geometry(self):
+        concentrated_alias = {
+            "inliers": 120,
+            "inlier_ratio": 0.60,
+            "source_coverage": 0.06,
+            "query_coverage": 0.05,
+            "median_reprojection_error_px": 1.8,
+        }
+        supported_view = {
+            "inliers": 120,
+            "inlier_ratio": 0.60,
+            "source_coverage": 0.30,
+            "query_coverage": 0.25,
+            "median_reprojection_error_px": 0.9,
+        }
+        self.assertGreater(
+            geometric_candidate_rank(supported_view),
+            geometric_candidate_rank(concentrated_alias),
+        )
+
+    def test_hierarchical_route_match_equals_exact_recover_decision(self):
+        if not hasattr(cv2, "ORB_create"):
+            self.skipTest("OpenCV is stubbed by another combined-suite module")
+        public = ROOT / "viewer" / "public"
+        bank = (
+            public
+            / "maps"
+            / "map_copy_20260730_114851_cfefdc"
+            / "replays"
+            / "patrol_baseline_precision_20260813"
+            / "visual_route_recovery_multirun.npz"
+        )
+        frame = (
+            public
+            / "live_dji_sessions"
+            / "atlas_dji_live_20260809_154714_d26c33"
+            / "query_frames"
+            / "query_002939.jpg"
+        )
+        if not bank.exists() or not frame.exists():
+            self.skipTest("saved hierarchical ORB audit assets are unavailable")
+
+        gray = cv2.imread(str(frame), cv2.IMREAD_GRAYSCALE)
+        segment_start = [
+            -0.4886978074319452,
+            0.010052834697950513,
+            0.9560112230666532,
+        ]
+        segment_end = [
+            -3.0736291183109774,
+            0.010052834697950513,
+            1.1113942967930859,
+        ]
+        exact = PatrolVisualRouteRecovery(bank, matching_profile="exact")
+        hierarchical = PatrolVisualRouteRecovery(
+            bank, matching_profile="hierarchical"
+        )
+        exact_observation = hierarchical_observation = None
+        for sequence_index in range(2):
+            exact_observation, _ = exact.recover(
+                gray=gray,
+                segment_start=segment_start,
+                segment_end=segment_end,
+                segment_key=("hierarchy_audit",),
+                progress_hint=0.06,
+                progress_ceiling=0.18,
+                sequence_index=sequence_index,
+            )
+            hierarchical_observation, _ = hierarchical.recover(
+                gray=gray,
+                segment_start=segment_start,
+                segment_end=segment_end,
+                segment_key=("hierarchy_audit",),
+                progress_hint=0.06,
+                progress_ceiling=0.18,
+                sequence_index=sequence_index,
+            )
+
+        self.assertIsNotNone(exact_observation)
+        self.assertIsNotNone(hierarchical_observation)
+        for field in (
+            "progress",
+            "inliers",
+            "ratio_matches",
+            "anchor_name",
+            "source_frame",
+            "source_replay_id",
+            "center",
+            "heading",
+        ):
+            self.assertEqual(exact_observation[field], hierarchical_observation[field])
+        diagnostic = hierarchical.last_match_diagnostic
+        self.assertTrue(diagnostic["hierarchy_attempted"])
+        self.assertTrue(diagnostic["hierarchy_winner_proven"])
+        self.assertFalse(diagnostic["hierarchy_fallback"])
+        self.assertLess(
+            diagnostic["hierarchy_selected_anchor_count"],
+            diagnostic["anchor_count"],
+        )
+
+    def test_invalid_matching_profile_is_rejected(self):
+        public = ROOT / "viewer" / "public"
+        bank = (
+            public
+            / "maps"
+            / "map_copy_20260730_114851_cfefdc"
+            / "replays"
+            / "patrol_baseline_precision_20260813"
+            / "visual_route_recovery_multirun.npz"
+        )
+        if not bank.exists():
+            self.skipTest("saved hierarchical ORB audit bank is unavailable")
+        with self.assertRaises(ValueError):
+            PatrolVisualRouteRecovery(bank, matching_profile="approximate")
+
     def test_segment_progress_uses_room_xz_plane(self):
         self.assertAlmostEqual(
             segment_progress([1.0, 99.0, 0.0], [0.0, 0.0, 0.0], [2.0, -4.0, 0.0]),
@@ -157,6 +293,84 @@ class PatrolVisualRouteRecoveryTests(unittest.TestCase):
         self.assertGreater(rewinds[-1]["progress"], 0.50)
         self.assertLess(rewinds[-1]["progress"], 0.75)
         self.assertLess(rewinds[-1]["progress"], 0.90)
+
+    def test_122039_point_four_rewind_switches_source_and_stays_midleg(self):
+        """The 57% correction must not fall back to the old Point-4 window."""
+        if not hasattr(cv2, "ORB_create"):
+            self.skipTest("OpenCV is stubbed by another combined-suite module")
+        public = ROOT / "viewer" / "public"
+        bank = (
+            public
+            / "maps"
+            / "map_copy_20260730_114851_cfefdc"
+            / "replays"
+            / "patrol_baseline_precision_20260813"
+            / "visual_route_recovery_multirun.npz"
+        )
+        frame = (
+            public
+            / "live_dji_sessions"
+            / "atlas_dji_live_20260817_122039_40e9c0"
+            / "query_frames"
+            / "query_001748.jpg"
+        )
+        if not bank.exists() or not frame.exists():
+            self.skipTest("12:20 false Point-4 endpoint frame is unavailable")
+
+        recovery = PatrolVisualRouteRecovery(bank)
+        key = (1, 3)
+        recovery.active_key = key
+        recovery.last_progress = 0.90
+        recovery.last_matched_progress = 0.90
+        recovery.last_matched_source_frame = 2018
+        recovery.last_sequence_index = 1747
+        recovery.active_source_replay_id = (
+            "dji_live_20260811_115736_2b91ca"
+        )
+        recovery.needs_acquisition = False
+        gray = cv2.imread(str(frame), cv2.IMREAD_GRAYSCALE)
+        observations = []
+        diagnostics = []
+        for offset in range(7):
+            observation, diagnostic = recovery.recover(
+                gray=gray,
+                segment_start=[
+                    -0.4886978074319452,
+                    -0.0802621969998909,
+                    0.9560112230666532,
+                ],
+                segment_end=[
+                    -3.0736291183109774,
+                    -0.0802621969998909,
+                    1.1113942967930859,
+                ],
+                segment_key=key,
+                progress_hint=0.90,
+                progress_ceiling=1.0,
+                recovery_hover=True,
+                independent_progress=True,
+                sequence_index=1748 + offset,
+            )
+            diagnostics.append(diagnostic)
+            if observation is not None:
+                observations.append(observation)
+
+        rewinds = [
+            item for item in observations if item.get("verified_rewind") is True
+        ]
+        self.assertTrue(rewinds)
+        self.assertAlmostEqual(rewinds[-1]["matched_progress"], 0.5722543352601156)
+        self.assertEqual(
+            recovery.active_source_replay_id,
+            "patrol_baseline_precision_20260813",
+        )
+        self.assertGreaterEqual(recovery.last_matched_source_frame, 3500)
+        self.assertNotEqual(
+            diagnostics[-1].get("reason"),
+            "visual_route_progress_consensus_missing",
+        )
+        self.assertLess(observations[-1]["matched_progress"], 0.75)
+        self.assertNotIn("query_00201", observations[-1]["anchor_name"])
 
     def test_latest_point_two_to_three_frames_track_forward_without_alias_jump(self):
         if not hasattr(cv2, "ORB_create"):
@@ -846,13 +1060,13 @@ class PatrolVisualRouteRecoveryTests(unittest.TestCase):
             gray=cv2.imread(str(failed_frame), cv2.IMREAD_GRAYSCALE),
             segment_start=segment_start,
             segment_end=segment_end,
-            focal_px=851.6865528775178,
+            focal_px=882.4866783165957,
         )
         taught, _taught_stage = recovery.departure_heading_alignment(
             gray=cv2.imread(str(taught_frame), cv2.IMREAD_GRAYSCALE),
             segment_start=segment_start,
             segment_end=segment_end,
-            focal_px=851.6865528775178,
+            focal_px=882.4866783165957,
         )
 
         self.assertIsNotNone(failed)
@@ -893,14 +1107,14 @@ class PatrolVisualRouteRecoveryTests(unittest.TestCase):
             gray=cv2.imread(str(aligned_frame), cv2.IMREAD_GRAYSCALE),
             segment_start=segment_start,
             segment_end=segment_end,
-            focal_px=851.6865528775178,
+            focal_px=882.4866783165957,
             minimum_inliers=120,
         )
         overshot, _overshot_stage = recovery.departure_heading_alignment(
             gray=cv2.imread(str(overshot_frame), cv2.IMREAD_GRAYSCALE),
             segment_start=segment_start,
             segment_end=segment_end,
-            focal_px=851.6865528775178,
+            focal_px=882.4866783165957,
             minimum_inliers=120,
         )
 
@@ -1019,7 +1233,7 @@ class PatrolVisualRouteRecoveryTests(unittest.TestCase):
             gray=cv2.imread(str(wrong_frame), cv2.IMREAD_GRAYSCALE),
             segment_start=start,
             segment_end=end,
-            focal_px=851.6865528775178,
+            focal_px=882.4866783165957,
             minimum_inliers=30,
         )
         aligned = [
@@ -1027,7 +1241,7 @@ class PatrolVisualRouteRecoveryTests(unittest.TestCase):
                 gray=cv2.imread(str(path), cv2.IMREAD_GRAYSCALE),
                 segment_start=start,
                 segment_end=end,
-                focal_px=851.6865528775178,
+                focal_px=882.4866783165957,
                 minimum_inliers=30,
             )[0]
             for path in aligned_frames

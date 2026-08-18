@@ -1288,12 +1288,12 @@ class LivePatrolRouteGate:
             >= 120
         )
         departure_visual_lock = bool(
-            int(context.get("leg_index") or 0) in {3, 4}
+            int(context.get("leg_index") or 0) == 3
             and context.get("controller_translation_locked") is not True
             and key != self.departure_floor_reconciled_key
         )
         if departure_visual_lock:
-            # The weak repeated-wall legs can yield a stable but wrong TSolve
+            # The weak repeated-wall 3->4 leg can yield a stable but wrong TSolve
             # root immediately after yaw.  Do not render that root or let it
             # become the monotonic floor before two current images verify the
             # departure.  The flight bridge treats the held anchor as no
@@ -2026,29 +2026,26 @@ def weak_patrol_leg_visual_primary_mode(
     observation: dict[str, Any] | None,
     last_pose: dict[str, Any] | None,
 ) -> str | None:
-    """Select the fast current-image authority on the two audited weak legs.
+    """Keep live metric tracking primary on every patrol leg.
 
-    Legs 1 and 2 retain the established metric TSolve/optical-flow path.  On
-    legs 3 and 4, a verified visual-route observation is already a fresh match
-    against the locked patrol images, so running taught/global recovery before
-    publishing it only creates multi-second camera/model lag.  During a real
-    yaw-only command there is deliberately no route-position observation:
-    preserve the last trusted position and publish only consecutive-frame yaw.
+    Recorded route frames remain useful as current-image supervision and as a
+    bounded recovery source after a metric rejection.  They must not bypass
+    TSolve during 3->4: doing so clears the live 2D->3D pool during the Point-3
+    yaw and leaves no metric anchor for the subsequent translation or 4->1
+    turn.  Returning no primary mode deliberately keeps optical flow and
+    TSolve active while the rotation-position stabilizer independently locks
+    published translation during yaw.
     """
-    if not isinstance(route_context, dict) or not isinstance(last_pose, dict):
-        return None
-    if int(route_context.get("leg_index") or 0) not in {3, 4}:
-        return None
-    if not (last_pose.get("rcenter") or last_pose.get("center")):
-        return None
-    controller_locked = route_context.get("controller_translation_locked") is True
-    recovery_hover = route_context.get("recovery_hover") is True
-    visual_position_locked = route_context.get("translation_locked") is True
-    if (controller_locked or visual_position_locked) and not recovery_hover:
-        return "rotation"
-    if isinstance(observation, dict) and observation.get("verified") is True:
-        return "translation"
     return None
+
+
+def patrol_reference_frames_enabled(
+    route_context: dict[str, Any] | None,
+) -> bool:
+    """Recorded patrol frames are valid only through the Point-4 endpoint."""
+    if not isinstance(route_context, dict):
+        return False
+    return int(route_context.get("leg_index") or 0) in {1, 2, 3}
 
 
 def visual_recovery_supersedes_stalled_metric_pose(
@@ -2061,16 +2058,14 @@ def visual_recovery_supersedes_stalled_metric_pose(
     departure_floor_repair_available: bool = True,
     minimum_progress_gain: float = 0.00075,
 ) -> bool:
-    """Make verified full-loop vision authoritative for patrol progress.
+    """Use verified full-loop vision only to recover a stalled metric pose.
 
     The recorded patrol matcher is the only position source audited over the
-    complete weak legs, but its anchors are intentionally sparse. During
-    normal cruise, continuous TSolve motion remains primary while it agrees
-    with current-image route progress. Strong visual progress supersedes it
-    after a measurable disagreement in either direction, or immediately
-    during a neutral recovery hover / metric rejection. A metric pose that
-    runs ahead is held at the monotonic floor until the physical image
-    sequence catches it; it is never corrected with a backwards model jump.
+    complete weak legs, but its anchors are intentionally sparse. Continuous
+    TSolve motion is the position authority whenever a current metric pose is
+    accepted. Route vision may repair a rejected/missing metric result or a
+    neutral recovery hover; disagreement alone must not replace a valid
+    metric pose with prerecorded path progress.
 
     A real commanded yaw is different: physical translation is locked and the
     position must remain at the controller's turn anchor.  Visual route poses
@@ -2178,18 +2173,12 @@ def visual_recovery_supersedes_stalled_metric_pose(
         return visual_progress >= current_progress - 0.01
     if not math.isfinite(metric_progress):
         return visual_progress >= current_progress - 0.01
-    leg_length = math.hypot(end[0] - start[0], end[2] - start[2])
-    # Preserve smooth continuous TSolve motion while it agrees with the
-    # current-image route match. The weak legs now have a dense ordered visual
-    # anchor for every recorded frame, so a 2 mm discrepancy is enough to
-    # prefer image truth. Keeping the old sparse-bank 1.8 cm tolerance caused
-    # an accepted metric pose to run 16 mm ahead at frame 3191 and then freeze
-    # the model for eight physical-motion frames while the camera caught up.
-    required_gain_m = max(
-        0.002,
-        max(0.001, float(minimum_progress_gain)) * leg_length,
-    )
-    return abs(visual_progress - metric_progress) * leg_length >= required_gain_m
+    # A valid current-frame metric observation owns translation. The visual
+    # route remains attached as supervision metadata and can still recover on
+    # a later metric rejection; it cannot make the model arrive at Point 4
+    # before the physical drone merely because a prerecorded image matched a
+    # later route frame.
+    return False
 
 
 def visual_route_heading_minimum_inliers(
@@ -2225,7 +2214,7 @@ def visual_route_heading_metadata(
     """Publish absolute recorded-view heading during audited waypoint turns."""
     if not isinstance(context, dict):
         return {}
-    if int(context.get("leg_index") or 0) not in {1, 2, 3, 4}:
+    if not patrol_reference_frames_enabled(context):
         return {}
     if context.get("controller_translation_locked") is not True:
         return {}
@@ -2315,7 +2304,7 @@ def visual_route_supervision_metadata(
     if not isinstance(context, dict):
         return {}
     leg_index = int(context.get("leg_index") or 0)
-    if leg_index not in {1, 2, 3, 4}:
+    if not patrol_reference_frames_enabled(context):
         return {}
     diagnostic = diagnostic if isinstance(diagnostic, dict) else {}
     endpoint_source = observation if isinstance(observation, dict) else diagnostic
@@ -4534,6 +4523,12 @@ def main() -> None:
     ap.add_argument("--work-dir", required=True, type=Path)
     ap.add_argument("--max-image-size", type=int, default=1200)
     ap.add_argument("--query-camera-model", default="SIMPLE_RADIAL")
+    ap.add_argument(
+        "--tsolve-root-profile",
+        choices=("full", "live_fast"),
+        default="full",
+        help="TSolve root policy; live_fast scores the preferred separator first and retains full fallback.",
+    )
     ap.add_argument("--min-points", type=int, default=40)
     ap.add_argument("--max-points", type=int, default=40)
     ap.add_argument("--max-reference-images", type=int, default=48)
@@ -4949,7 +4944,10 @@ def main() -> None:
     rotation_heading: list[float] | None = None
     rotation_heading_tracks = 0
     rotation_heading_delta_deg: float | None = None
-    rotation_focal_px = 851.6865528775178
+    # Resolution-specific fallback from the live DJI/COLMAP calibration
+    # matrix (1200 x 675): K[0, 0] = K[1, 1] = 882.4866783165957 px.
+    # A registered frame's current K still replaces this fallback below.
+    rotation_focal_px = 882.4866783165957
     rotation_last_center: list[float] | None = None
     rotation_last_received_unix: float | None = None
     rotation_stabilizer_profile = str(args.rotation_position_stabilizer_profile or "off")
@@ -5008,7 +5006,6 @@ def main() -> None:
     proactive_relocalization_fallback_count = 0
     online_recovery_anchor_count = 0
     visual_route_recovery_count = 0
-    visual_primary_route_active = False
     visual_route_acquisition_hold_count = 0
     route_rejection_recovery_attempt_count = 0
     route_rejection_recovery_success_count = 0
@@ -5449,6 +5446,7 @@ def main() -> None:
             fallback_action_weights=args.fallback_action_weights,
             fork_seed=20260707 + frame_idx,
             fork_on_miss=not interactive_recovery,
+            root_candidate_profile=args.tsolve_root_profile,
         )
         solve_ms = (time.perf_counter() - solve_t0) * 1000.0
         stages = result.get("stages_ms") or {}
@@ -6297,26 +6295,28 @@ def main() -> None:
         visual_heading_stage: dict[str, Any] = {
             "reason": "visual_heading_unavailable"
         }
-        # Keep the established 1->2->3 metric path unchanged.  The two weak
-        # repeated-room legs (3->4 and 4->1) are continuously supervised by
-        # real current-frame matches against their locked baseline images.
+        # Keep the established 1->2->3 metric path unchanged.  The validated
+        # weak leg 3->4 is continuously supervised by current-frame matches
+        # against its locked baseline images.  Recorded patrol frames stop at
+        # Point 4: leg 4->1 uses only live COLMAP/TSolve and optical flow.
         # TSolve and optical flow still run on every frame; verified route
         # vision becomes position authority only when the metric pose stalls
         # or disagrees.  The matcher selects by image evidence, never by the
         # incoming frame number, so this remains valid for a new live flight.
+        reference_frames_enabled = patrol_reference_frames_enabled(route_context)
         visual_route_needed = bool(
-            route_context is not None
+            reference_frames_enabled
             and (
                 route_context.get("controller_translation_locked") is True
                 or route_context.get("recovery_hover") is True
                 or force_route_taught_recovery
-                or int(route_context.get("leg_index") or 0) in {3, 4}
+                or int(route_context.get("leg_index") or 0) == 3
             )
         )
         if (
             visual_route_recovery is not None
             and route_context is not None
-            and int(route_context.get("leg_index") or 0) in {1, 2, 3, 4}
+            and reference_frames_enabled
             and visual_route_needed
         ):
             route_key = LivePatrolRouteGate._key(route_context)
@@ -6337,7 +6337,7 @@ def main() -> None:
                 ),
                 recovery_hover=bool(route_context.get("recovery_hover")),
                 independent_progress=bool(
-                    int(route_context.get("leg_index") or 0) in {3, 4}
+                    int(route_context.get("leg_index") or 0) == 3
                 ),
                 sequence_index=frame_idx,
             )
@@ -6354,7 +6354,7 @@ def main() -> None:
             heading_leg_index = int(route_context.get("leg_index") or 0)
             if (
                 route_context.get("controller_translation_locked") is True
-                and heading_leg_index in {1, 2, 3, 4}
+                and heading_leg_index in {1, 2, 3}
             ):
                 heading_minimum_inliers = (
                     visual_route_heading_minimum_inliers(
@@ -6384,29 +6384,6 @@ def main() -> None:
             observation=visual_observation,
             last_pose=last_output_pose,
         )
-        if visual_primary_mode is not None:
-            visual_primary_route_active = True
-            # A map-wide rematch cannot improve an already verified current
-            # route image on these two legs.  Discard its eventual result and
-            # never let catch-up work pause the foreground frame/pose stream.
-            if pending_global is not None:
-                pending_global["ignored"] = True
-                pending_global["ignore_reason"] = (
-                    "verified_weak_leg_visual_route_is_current_frame_authority"
-                )
-        elif visual_primary_route_active:
-            # The visual route publishes room coordinates rather than a fake
-            # map-space R/t.  Do not carry the old Point-3 map pool into the
-            # next lap at Point 1; force a fresh global anchor while movement
-            # remains locked for the Point-1 turn.
-            current_pool = None
-            prev_gray = None
-            prev_case_id = None
-            stable_solve_point3d_ids = None
-            last_center = None
-            last_output_center = None
-            consecutive_local_failures = 0
-            visual_primary_route_active = False
         stable_solve_reset = False
         metric_checkpoint_wait = bool(
             args.wait_for_metric_checkpoint_recovery
@@ -6459,26 +6436,6 @@ def main() -> None:
         )
 
         must_global = current_pool is None or prev_gray is None
-        if visual_primary_mode is not None:
-            # The verified visual match (translation) or fresh optical yaw
-            # (rotation) is complete for this frame.  Skip stale LK pools,
-            # taught recovery, TSolve, and global COLMAP before publication.
-            must_global = False
-            current_pool = None
-            prev_gray = None
-            prev_case_id = None
-            stable_solve_point3d_ids = None
-            consecutive_local_failures = 0
-            method = (
-                "patrol_visual_route_primary"
-                if visual_primary_mode == "translation"
-                else "patrol_visual_route_rotation_primary"
-            )
-            stage["reason"] = (
-                "verified_visual_route_current_frame_authority"
-                if visual_primary_mode == "translation"
-                else "rotation_only_current_frame_authority"
-            )
         global_reason = "bootstrap" if must_global else ""
         if (
             visual_primary_mode is None
@@ -6505,7 +6462,12 @@ def main() -> None:
             checkpoint_stage: dict[str, Any] = {
                 "reason": "lap_checkpoint_taught_recovery_unavailable"
             }
-            for checkpoint_recovery in taught_recoveries:
+            checkpoint_recovery_banks = (
+                taught_recoveries
+                if reference_frames_enabled
+                else [online_recovery]
+            )
+            for checkpoint_recovery in checkpoint_recovery_banks:
                 pool, checkpoint_stage = checkpoint_recovery.recover(
                     gray=curr_gray,
                     K=lap_start_metric_K,
@@ -6578,6 +6540,7 @@ def main() -> None:
                 local_tracking_count += 1
                 route_recovery_due = bool(
                     force_route_taught_recovery
+                    and reference_frames_enabled
                     and route_context is not None
                     and route_context.get("controller_translation_locked") is not True
                     and frame_idx - last_route_rejection_recovery_attempt_frame
@@ -6781,7 +6744,12 @@ def main() -> None:
                         and route_context.get("controller_translation_locked") is True
                     ):
                         last_rotation_taught_recovery_attempt_frame = frame_idx
-                    for taught_recovery in taught_recoveries:
+                    recovery_banks = (
+                        taught_recoveries
+                        if reference_frames_enabled
+                        else [online_recovery]
+                    )
+                    for taught_recovery in recovery_banks:
                         recovered_pool, taught_stage = taught_recovery.recover(
                             gray=curr_gray,
                             K=np.asarray(current_pool["K"], dtype=float),
@@ -6946,6 +6914,7 @@ def main() -> None:
             if (
                 not visual_attempted
                 and visual_route_recovery is not None
+                and reference_frames_enabled
                 and route_context is not None
             ):
                 route_key = LivePatrolRouteGate._key(route_context)
@@ -6966,7 +6935,7 @@ def main() -> None:
                     ),
                     recovery_hover=bool(route_context.get("recovery_hover")),
                     independent_progress=bool(
-                        int(route_context.get("leg_index") or 0) in {3, 4}
+                        int(route_context.get("leg_index") or 0) == 3
                     ),
                     sequence_index=frame_idx,
                 )
@@ -7356,6 +7325,7 @@ def main() -> None:
             fallback_action_weights=args.fallback_action_weights,
             fork_seed=20260707 + frame_idx,
             fork_on_miss=not interactive_recovery,
+            root_candidate_profile=args.tsolve_root_profile,
         )
         solve_ms = (time.perf_counter() - solve_t0) * 1000.0
         stages = result.get("stages_ms") or {}
@@ -7752,9 +7722,9 @@ def main() -> None:
         pose_payload = apply_visual_route_heading_alignment(
             pose_payload, visual_supervision
         )
-        # TSolve is the fallback when the full-loop matcher has no verified
-        # observation. A strong baseline observation has already returned
-        # above as the single patrol position/progress authority.
+        # TSolve is the live position authority. Verified route observations
+        # remain supervision metadata, or a bounded fallback when the metric
+        # result was rejected/missing.
         partial_poses.append(pose_payload)
         if pose_payload.get("success") and (
             pose_payload.get("center") or pose_payload.get("rcenter")

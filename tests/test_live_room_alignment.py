@@ -33,7 +33,7 @@ class LiveRoomAlignmentTests(unittest.TestCase):
             self.assertAlmostEqual(pacer.wait_until(1.1), 100.0)
             sleep.assert_called_once_with(mock.ANY)
 
-    def test_weak_visual_route_is_primary_without_changing_legs_one_and_two(self):
+    def test_tsolve_remains_primary_through_weak_leg_translation_and_rotation(self):
         last_pose = {"rcenter": [0.0, 0.0, 0.0]}
         verified = {"verified": True}
 
@@ -44,7 +44,7 @@ class LiveRoomAlignmentTests(unittest.TestCase):
                 last_pose=last_pose,
             )
         )
-        self.assertEqual(
+        self.assertIsNone(
             localizer.weak_patrol_leg_visual_primary_mode(
                 route_context={
                     "leg_index": 3,
@@ -54,15 +54,13 @@ class LiveRoomAlignmentTests(unittest.TestCase):
                 observation=verified,
                 last_pose=last_pose,
             ),
-            "translation",
         )
-        self.assertEqual(
+        self.assertIsNone(
             localizer.weak_patrol_leg_visual_primary_mode(
                 route_context={"leg_index": 4, "controller_translation_locked": True},
                 observation=None,
                 last_pose=last_pose,
-            ),
-            "rotation",
+            )
         )
         self.assertIsNone(
             localizer.weak_patrol_leg_visual_primary_mode(
@@ -75,7 +73,7 @@ class LiveRoomAlignmentTests(unittest.TestCase):
                 last_pose=last_pose,
             )
         )
-        self.assertEqual(
+        self.assertIsNone(
             localizer.weak_patrol_leg_visual_primary_mode(
                 route_context={
                     "leg_index": 3,
@@ -85,7 +83,6 @@ class LiveRoomAlignmentTests(unittest.TestCase):
                 observation=verified,
                 last_pose=last_pose,
             ),
-            "rotation",
         )
 
     def test_verified_departure_image_repairs_only_a_small_new_leg_floor(self):
@@ -677,7 +674,7 @@ class LiveRoomAlignmentTests(unittest.TestCase):
         self.assertAlmostEqual(pose["route_visual_unbounded_progress"], 0.6448975443)
         self.assertAlmostEqual(recovery.progress, 0.0)
 
-    def test_verified_visual_progress_supersedes_frozen_point3_to4_metric_pose(self):
+    def test_verified_visual_progress_recovers_only_missing_or_rejected_metric_pose(self):
         start = [-0.4886978074319452, -0.0802621969998909, 0.9560112230666532]
         end = [-3.0736291183109774, -0.0802621969998909, 1.1113942967930859]
         last_pose = {
@@ -736,7 +733,7 @@ class LiveRoomAlignmentTests(unittest.TestCase):
                 metric_route_observation={"progress": 0.174},
             )
         )
-        self.assertTrue(
+        self.assertFalse(
             localizer.visual_recovery_supersedes_stalled_metric_pose(
                 last_pose=last_pose,
                 observation=observation,
@@ -745,7 +742,7 @@ class LiveRoomAlignmentTests(unittest.TestCase):
                 metric_route_observation={"progress": 0.10},
             )
         )
-        self.assertTrue(
+        self.assertFalse(
             localizer.visual_recovery_supersedes_stalled_metric_pose(
                 last_pose=last_pose,
                 observation=observation,
@@ -971,8 +968,8 @@ class LiveRoomAlignmentTests(unittest.TestCase):
         self.assertAlmostEqual(pose["rcenter"][0], -0.648)
         self.assertAlmostEqual(pose["rcenter"][2], -0.488)
 
-    def test_every_baseline_leg_supervision_reports_tsolve_disagreement(self):
-        for leg_index in (1, 2, 3, 4):
+    def test_reference_supervision_stops_after_point_four(self):
+        for leg_index in (1, 2, 3):
             with self.subTest(leg_index=leg_index):
                 metadata = localizer.visual_route_supervision_metadata(
                     context={
@@ -990,6 +987,22 @@ class LiveRoomAlignmentTests(unittest.TestCase):
                 self.assertTrue(metadata["route_visual_monitor_verified"])
                 self.assertEqual(metadata["route_visual_monitor_leg_index"], leg_index)
                 self.assertAlmostEqual(metadata["route_visual_monitor_disagreement_m"], 0.5)
+
+        self.assertEqual(
+            localizer.visual_route_supervision_metadata(
+                context={
+                    "leg_index": 4,
+                    "start": [0.0, 0.0, 0.0],
+                    "end": [2.0, 0.0, 0.0],
+                    "translation_locked": False,
+                },
+                observation={"verified": True, "progress": 0.62, "inliers": 180},
+                diagnostic={"reason": ""},
+                progress_hint=0.37,
+                minimum_inliers=120,
+            ),
+            {},
+        )
 
     def test_recorded_departure_alignment_corrects_rendered_heading_only(self):
         metadata = localizer.visual_route_heading_metadata(
@@ -1047,7 +1060,7 @@ class LiveRoomAlignmentTests(unittest.TestCase):
         self.assertTrue(point_three["route_visual_heading_required"])
         self.assertFalse(point_three["route_visual_heading_verified"])
 
-        for leg_index in (1, 2, 4):
+        for leg_index in (1, 2):
             with self.subTest(leg_index=leg_index):
                 minimum_inliers = 75 if leg_index == 1 else 120
                 metadata = localizer.visual_route_heading_metadata(
@@ -1069,6 +1082,16 @@ class LiveRoomAlignmentTests(unittest.TestCase):
                     metadata["route_visual_heading_minimum_inliers"],
                     minimum_inliers,
                 )
+
+        self.assertEqual(
+            localizer.visual_route_heading_metadata(
+                context={"leg_index": 4, "controller_translation_locked": True},
+                observation=None,
+                diagnostic={"reason": "visual_heading_no_candidates"},
+                minimum_inliers=120,
+            ),
+            {},
+        )
 
         for leg_index in (0,):
             with self.subTest(leg_index=leg_index):

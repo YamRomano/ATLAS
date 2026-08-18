@@ -1726,6 +1726,7 @@ def quaternions_from_numeric_action_matrices_with_fallback(
     min_quaternion_count: int | None = None,
     residual_health_tol: float | None = None,
     max_roots: int = 80,
+    candidate_profile: str = "full",
     **root_kwargs: Any,
 ) -> tuple[list[list[float]], dict[str, Any]]:
     """Extract candidates with a fast separator first, then full fallback.
@@ -1754,7 +1755,11 @@ def quaternions_from_numeric_action_matrices_with_fallback(
 
     qdim = int(np.asarray(mats["x"]).shape[0])
     need_roots = int(min_root_count or qdim)
-    need_quats = int(min_quaternion_count or max(24, min(48, need_roots // 2)))
+    profile = str(candidate_profile or "full").strip().lower()
+    if profile not in {"full", "live_fast"}:
+        raise ValueError(f"unknown root candidate profile: {candidate_profile}")
+    default_quats = 8 if profile == "live_fast" else max(24, min(48, need_roots // 2))
+    need_quats = int(min_quaternion_count or default_quats)
     full_candidate_target = max(need_roots, qdim * len(ordered))
     health_tol = float(residual_health_tol if residual_health_tol is not None else root_kwargs.get("residual_tol", 1e-8))
 
@@ -1774,9 +1779,10 @@ def quaternions_from_numeric_action_matrices_with_fallback(
             **quick_kwargs,
         )
         quick_max_res = quick_info.get("max_relative_residual")
+        quick_root_floor = need_quats if profile == "live_fast" else need_roots
         quick_healthy = bool(
             quick_info.get("ok")
-            and int(quick_info.get("root_count") or 0) >= need_roots
+            and int(quick_info.get("root_count") or 0) >= quick_root_floor
             and len(quick_quats) >= need_quats
             and (quick_max_res is None or float(quick_max_res) <= health_tol)
         )
@@ -1788,12 +1794,14 @@ def quaternions_from_numeric_action_matrices_with_fallback(
                     "attempt_count": 1,
                     "stopped_reason": "preferred separator produced a complete candidate set",
                     "required_root_count": need_roots,
+                    "required_preferred_root_count": quick_root_floor,
                     "required_quaternion_count": need_quats,
                     "full_candidate_target": need_roots,
                     "quaternion_count": len(quick_quats),
                     "batched_weight_count": 1,
                     "batched_weights": [ordered[0]],
                     "fallback_available_weights": ordered[1:],
+                    "candidate_profile": profile,
                 }
             )
             return quick_quats, quick_info
@@ -1834,6 +1842,7 @@ def quaternions_from_numeric_action_matrices_with_fallback(
                 "batched_weights": ordered,
                 "preferred_attempt": {k: v for k, v in quick_info.items() if k not in {"roots", "real_roots"}},
                 "preferred_quaternion_count": len(quick_quats),
+                "candidate_profile": profile,
             }
         )
         return quats, info

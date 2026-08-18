@@ -1252,21 +1252,34 @@ def verified_optical_endpoint_turn_departure_gate(
     endpoint_handoff_verified: bool,
     stable_heading_frames: int,
     required_stable_heading_frames: int = 3,
+    endpoint_handoff_source: str | None = None,
 ) -> dict[str, Any] | None:
-    """Authorize one bounded 3->4 pulse after a verified Point-3 turn.
+    """Authorize one bounded pulse after a verified Point-3/Point-4 turn.
 
-    Point 3 was already independently verified at the end of the preceding
-    2->3 leg.  The following command is yaw-only, so that position remains
-    physically valid even when the localizer publishes a rotation-locked
-    hold.  Three fresh, strong optical-heading observations may therefore
-    combine with that saved endpoint for exactly one ordinary low-stick
-    departure pulse.  The normal post-command progress gate still blocks a
-    second pulse until a new translation observation arrives.
+    The endpoint was independently verified at the end of the preceding leg.
+    The following command is yaw-only, so that position remains physically
+    valid even when the localizer publishes a rotation-locked hold. Three
+    fresh, strong optical-heading observations may therefore combine with the
+    saved endpoint for exactly one low-stick departure pulse. The normal
+    post-command progress gate still blocks a second pulse until a new
+    translation observation arrives.
 
     This deliberately does not authorize arbitrary optical-flow position or
-    change the Point-4 arrival checks.
+    weaken either endpoint's arrival checks. Point 4->1 is held to a tighter
+    heading error because no recorded departure image is authoritative there.
     """
-    if not endpoint_handoff_verified or expected_leg_index != 3:
+    if not endpoint_handoff_verified or expected_leg_index not in {3, 4}:
+        return None
+    handoff_source = str(
+        endpoint_handoff_source
+        or ("verified_visual_endpoint" if expected_leg_index == 3 else "")
+    )
+    allowed_handoff_sources = (
+        {"verified_visual_endpoint"}
+        if expected_leg_index == 3
+        else {"verified_visual_endpoint", "metric_tsolve"}
+    )
+    if handoff_source not in allowed_handoff_sources:
         return None
     anchor = vector3(position_anchor)
     observation = heading_observation if isinstance(heading_observation, dict) else {}
@@ -1281,10 +1294,16 @@ def verified_optical_endpoint_turn_departure_gate(
     except (TypeError, ValueError):
         return None
     current_heading = normalize_xz(vector3(observation.get("heading")))
+    maximum_heading_error = math.radians(
+        2.0 if expected_leg_index == 4 else 4.0
+    )
     if (
         stable < required
         or not math.isfinite(heading_error)
-        or abs(heading_error) > math.radians(10.0)
+        # Departure is body-forward only, with no lateral correction. Point 3
+        # uses the proven four-degree entry bound; Point 4 uses two degrees so
+        # the unreferenced 4->1 turn cannot stop several degrees early.
+        or abs(heading_error) > maximum_heading_error
         or tracks < 60
         or not math.isfinite(received_unix)
         or current_heading is None
@@ -1304,17 +1323,17 @@ def verified_optical_endpoint_turn_departure_gate(
             "rotation_position_anchor": anchor,
             "rotation_position_locked": False,
             "translation_allowed": True,
-            "rotation_position_source": "verified_point3_turn_handoff",
+            "rotation_position_source": (
+                f"verified_point{expected_leg_index}_turn_handoff"
+            ),
             "pose_source": "verified_optical_endpoint_turn_departure",
             "verified_endpoint_turn_departure": True,
-            "verified_endpoint_turn_leg_index": 3,
+            "verified_endpoint_turn_leg_index": expected_leg_index,
             "verified_endpoint_turn_heading_tracks": tracks,
             "verified_endpoint_turn_heading_error_deg": math.degrees(
                 heading_error
             ),
-            "verified_endpoint_turn_handoff_source": (
-                "verified_visual_endpoint"
-            ),
+            "verified_endpoint_turn_handoff_source": handoff_source,
         }
     )
     gate.update(
@@ -1776,30 +1795,79 @@ def is_point_four_to_one_leg(leg: dict[str, Any] | None) -> bool:
         return False
 
 
+def prior_verified_endpoint_arrival_record(
+    executed: list[dict[str, Any]] | None,
+    *,
+    segment_start: list[float] | None,
+    expected_leg_index: int,
+    maximum_anchor_error: float = 0.02,
+) -> dict[str, Any] | None:
+    """Return the immediately preceding cruise's durable endpoint proof.
+
+    A verified endpoint remains physically valid through subsequent neutral
+    hovers and an in-place yaw.  The live route context changes at the next
+    leg and may no longer publish the preceding leg's endpoint fields, so the
+    controller must retain its own accepted-arrival decision instead of
+    asking localization to prove the same position again before yaw.
+    """
+    anchor = vector3(segment_start)
+    if anchor is None or not isinstance(executed, list):
+        return None
+    verified_modes = {
+        "strict_radius_endpoint_verified",
+        "visual_checkpoint_endpoint_verified",
+        "visual_checkpoint_endpoint_verified_timeout",
+    }
+    for item in reversed(executed):
+        if not isinstance(item, dict) or item.get("type") != "cruise":
+            continue
+        # Only the immediately preceding physical cruise can establish the
+        # shared waypoint for this new leg.
+        if (
+            item.get("closed_loop") is not True
+            or item.get("reached") is not True
+            or item.get("arrival_mode") not in verified_modes
+        ):
+            return None
+        try:
+            arrival_leg_index = int(item.get("endpoint_leg_index"))
+        except (TypeError, ValueError):
+            return None
+        target = vector3(item.get("target"))
+        anchor_error = horizontal_xz_distance(target, anchor)
+        if (
+            arrival_leg_index != int(expected_leg_index)
+            or anchor_error is None
+            or anchor_error > max(0.001, float(maximum_anchor_error))
+        ):
+            return None
+        return dict(item)
+    return None
+
+
 def taught_turn_requires_recorded_departure_view(
     leg: dict[str, Any] | None,
 ) -> bool:
-    """Reserve the newer absolute image-heading gate for Point 4 -> Point 1.
+    """Return whether a turn may use an absolute recorded departure image.
 
-    Live ATLAS 11:57:36 reached Point 4 using the older optical/TSolve turn
-    path at Point 2 -> 3 and Point 3 -> 4.  Adding mandatory recorded-view
-    acquisition to those already-proven corners created long yaw sequences,
-    then a circular wait for a fresh metric position before 3 -> 4 could
-    depart.  Restore the successful pre-Point-4 behavior there.  Point 4 -> 1
-    remains guarded because that is the first unfinished part of the saved
-    run and still needs an absolute departure reference.
+    The validated recording is authoritative only through arrival at Point 4.
+    The recorded 4->1 tail does not match the live turn/translation and pinned
+    the published pose at Point 4 while the aircraft moved.  All turns now use
+    the live TSolve/optical heading path; this hook remains explicit so a later
+    audited departure recording can be enabled deliberately.
     """
-    return is_point_four_to_one_leg(leg)
+    return False
 
 
 def taught_leg_requires_precise_arrival(leg: dict[str, Any] | None) -> bool:
-    """Every recorded-loop endpoint must be reached before the next turn."""
+    """Use recorded endpoint evidence only on the validated 1->2->3->4 path."""
     if not isinstance(leg, dict):
         return False
     try:
         return (
             int(leg.get("from_point")) in {1, 2, 3, 4}
             and int(leg.get("to_point")) in {1, 2, 3, 4}
+            and not is_point_four_to_one_leg(leg)
         )
     except (TypeError, ValueError):
         return False
@@ -2690,6 +2758,57 @@ def yaw_response_is_reversed(
     ):
         return None
     return observed_delta * float(expected_heading_sign) < 0.0
+
+
+def yaw_target_error_response(
+    before_error_rad: float | None,
+    after_error_rad: float | None,
+    *,
+    improvement_deg: float = 0.75,
+    regression_deg: float = 1.5,
+) -> bool | None:
+    """Classify yaw using comparable target-heading errors.
+
+    ``True`` means the absolute target error clearly became worse, ``False``
+    means it clearly improved, and ``None`` means the fresh observation is too
+    small/noisy to vote.  Both errors must be computed in the same heading
+    frame; mixing route-camera error with body-heading delta caused the false
+    sign reversal seen at Point 3 in the 15:04 flight.
+    """
+    if before_error_rad is None or after_error_rad is None:
+        return None
+    before = abs(float(before_error_rad))
+    after = abs(float(after_error_rad))
+    if not math.isfinite(before) or not math.isfinite(after):
+        return None
+    change = after - before
+    if change >= math.radians(max(0.1, float(regression_deg))):
+        return True
+    if change <= -math.radians(max(0.1, float(improvement_deg))):
+        return False
+    return None
+
+
+def yaw_sign_recovery_action(
+    *,
+    yaw_sign_verified: bool,
+    wrong_yaw_pulses: int,
+    yaw_flip_count: int,
+    confirmation_pulses: int = GUIDED_YAW_SIGN_CONFIRMATION_PULSES,
+) -> str | None:
+    """Choose a bounded response to repeated yaw-error regressions.
+
+    The DJI yaw polarity is a hardware property.  Once proven during this
+    mission it must never be inverted because of delayed visual feedback.
+    """
+    required = max(1, int(confirmation_pulses)) if yaw_flip_count == 0 else 5
+    if int(wrong_yaw_pulses) < required:
+        return None
+    if yaw_sign_verified:
+        return "recover"
+    if yaw_flip_count == 0:
+        return "flip"
+    return "abort"
 
 
 def target_direction_xz(current: list[float] | None, target: list[float] | None) -> list[float] | None:
@@ -3929,6 +4048,7 @@ def execute_guarded_mission_packet(
         "pulse_trace": [],
             "adaptive_axis": {
             "yaw_sign": 1.0,
+            "yaw_sign_verified": False,
             "forward_sign": 1.0,
             "yaw_flips": 0,
             "forward_flips": 0,
@@ -3989,6 +4109,7 @@ def execute_guarded_mission_packet(
         rc_summary["adaptive_axis"]["mode"] = "operator_heading_seed_pending_yaw_verification"
         rc_summary["adaptive_axis"]["operator_heading_seed_deg"] = initial_body_heading_offset_deg
     yaw_sign = 1.0
+    yaw_sign_verified = False
     forward_sign = 1.0
     yaw_flip_count = 0
     forward_flip_count = 0
@@ -5342,6 +5463,8 @@ def execute_guarded_mission_packet(
                 stale_motion_reference_position: list[float] | None = None
                 visual_stationary_retry_reference_distance: float | None = None
                 wrong_yaw_pulses = 0
+                correct_yaw_pulses = 0
+                yaw_feedback_recovery_count = 0
                 last_navigation_mode = "unknown"
                 last_processed_count = None
                 last_pose_age = None
@@ -5460,14 +5583,17 @@ def execute_guarded_mission_packet(
                     # yaw-only command after independent endpoint consensus.
                     # Live ATLAS 14:41:16 supplied three verified Point-4
                     # endpoint frames and then waited 30 seconds only because
-                    # this handoff rejected route vision. The recorded
-                    # Point-4 departure gate below still verifies heading
+                    # this handoff rejected route vision. The three-frame
+                    # live optical departure gate below still verifies heading
                     # before the first 4->1 translation pulse.
                     point_four_metric_gate = gate
                     point_four_handoff_pose = (
                         point_four_metric_gate.get("pose")
-                        if isinstance(point_four_metric_gate, dict)
-                        else None
+                        if (
+                            isinstance(point_four_metric_gate, dict)
+                            and isinstance(point_four_metric_gate.get("pose"), dict)
+                        )
+                        else {}
                     )
                     point_four_metric_position = pose_gate_position(
                         point_four_metric_gate
@@ -5476,10 +5602,20 @@ def execute_guarded_mission_packet(
                         pose_gate_has_fresh_metric_position(point_four_metric_gate)
                         and point_four_metric_position is not None
                     )
+                    prior_point_four_arrival = (
+                        prior_verified_endpoint_arrival_record(
+                            executed,
+                            segment_start=segment_start,
+                            expected_leg_index=3,
+                        )
+                    )
+                    prior_point_four_visual_ready = bool(
+                        prior_point_four_arrival is not None
+                    )
                     point_four_visual_ready = taught_endpoint_arrival_verified(
                         point_four_handoff_pose,
                         expected_leg_index=3,
-                    )
+                    ) or prior_point_four_visual_ready
                     if not point_four_metric_ready and not point_four_visual_ready:
                         publish_progress(
                             {
@@ -5501,7 +5637,11 @@ def execute_guarded_mission_packet(
                             "point4_endpoint_handoff",
                             "waiting for Point-4 endpoint image consensus before the 4->1 turn",
                             timeout=8.0,
-                            require_translation_safe=True,
+                            # The next physical command is yaw-only. A verified
+                            # rotation-locked endpoint is therefore sufficient;
+                            # translation is released only after the new 4->1
+                            # heading is independently stable for three frames.
+                            require_translation_safe=False,
                             require_endpoint_verified=True,
                             endpoint_leg_index=3,
                         )
@@ -5522,7 +5662,7 @@ def execute_guarded_mission_packet(
                         point_four_visual_ready = taught_endpoint_arrival_verified(
                             point_four_handoff_pose,
                             expected_leg_index=3,
-                        )
+                        ) or prior_point_four_visual_ready
                     point_four_metric_error = (
                         horizontal_xz_distance(
                             point_four_metric_position,
@@ -5612,6 +5752,9 @@ def execute_guarded_mission_packet(
                             "require_metric_pose": False,
                             "position_anchor": point_four_handoff_position,
                             "point4_handoff_source": point_four_handoff_source,
+                            "prior_endpoint_arrival_preserved": (
+                                prior_point_four_visual_ready
+                            ),
                             "point4_position_error_map_units": point_four_metric_error,
                             "message": (
                                 "Point-4 endpoint verified with translation locked; "
@@ -5975,7 +6118,11 @@ def execute_guarded_mission_packet(
                             else None
                         )
                         alignment_angle = optical_angle
-                        alignment_tolerance = math.radians(10.0)
+                        alignment_tolerance = math.radians(
+                            2.0
+                            if point_four_handoff
+                            else (4.0 if point_three_handoff else 10.0)
+                        )
                         alignment_source = "optical_flow_yaw"
                         alignment_tracks = rotation_observation.get("tracks")
                         observation_instance_id = str(
@@ -6185,7 +6332,15 @@ def execute_guarded_mission_packet(
                                             ),
                                         )
                                     )
-                                elif point_three_handoff:
+                                elif point_three_handoff or point_four_handoff:
+                                    departure_leg_index = (
+                                        4 if point_four_handoff else 3
+                                    )
+                                    allowed_handoff_sources = (
+                                        {"verified_visual_endpoint", "metric_tsolve"}
+                                        if point_four_handoff
+                                        else {"verified_visual_endpoint"}
+                                    )
                                     endpoint_departure_gate = (
                                         verified_optical_endpoint_turn_departure_gate(
                                             verified_endpoint_turn_source_gate,
@@ -6196,20 +6351,21 @@ def execute_guarded_mission_packet(
                                                 rotation_observation
                                             ),
                                             heading_error_rad=alignment_angle,
-                                            expected_leg_index=(
-                                                endpoint_leg_index
-                                            ),
+                                            expected_leg_index=departure_leg_index,
                                             endpoint_handoff_verified=bool(
                                                 verified_endpoint_turn_anchor
                                                 is not None
                                                 and verified_endpoint_turn_source
-                                                == "verified_visual_endpoint"
+                                                in allowed_handoff_sources
                                             ),
                                             stable_heading_frames=(
                                                 rotation_heading_stable_frames
                                             ),
                                             required_stable_heading_frames=(
                                                 required_rotation_heading_stable_frames
+                                            ),
+                                            endpoint_handoff_source=(
+                                                verified_endpoint_turn_source
                                             ),
                                         )
                                     )
@@ -6821,7 +6977,11 @@ def execute_guarded_mission_packet(
                     angle = (
                         confirmed_rotation_angle
                         if (
-                            guarded_taught_rotation
+                            (
+                                guarded_taught_rotation
+                                or point_three_handoff
+                                or point_four_handoff
+                            )
                             and not travel_started
                             and confirmed_rotation_angle is not None
                         )
@@ -6930,6 +7090,24 @@ def execute_guarded_mission_packet(
                                 # every correction visible before the next
                                 # physical movement.
                                 bf_rc = min(bf_rc, max_forward_rc * 0.70)
+                            departure_pose = current_gate.get("pose")
+                            if (
+                                bf_rc > 0.0
+                                and current_gate.get(
+                                    "verified_endpoint_turn_departure"
+                                )
+                                and isinstance(departure_pose, dict)
+                                and departure_pose.get(
+                                    "verified_endpoint_turn_leg_index"
+                                )
+                                == 4
+                            ):
+                                # Point 4->1 has no recorded-frame authority.
+                                # Its verified endpoint plus live optical yaw may
+                                # authorize exactly one deliberately small probe;
+                                # another command still requires observed metric
+                                # progress through the standard one-pulse gate.
+                                bf_rc = min(bf_rc, max_forward_rc * 0.45)
                             # Mark travel started only after the final
                             # command-aware pose gate accepts this pulse.
 
@@ -7391,60 +7569,99 @@ def execute_guarded_mission_packet(
                             yaw_position_anchor = None
                     after_distance = horizontal_xz_distance(after_position, target)
                     if abs(yaw_rc) > 1e-6 and isinstance(after_gate, dict):
-                        after_heading = pose_gate_heading(
-                            after_gate,
-                            heading_trim_rad + float(calibrated_heading_offset_rad or 0.0),
-                        )
-                        after_direction = normalize_xz(target_direction_xz(after_position, target))
-                        after_angle = signed_angle_xz(after_heading, after_direction)
-                        if after_angle is not None:
-                            yaw_response_reversed = yaw_response_is_reversed(
-                                expected_yaw_heading_sign,
-                                heading,
+                        if route_follow_desired_heading is not None:
+                            # Compare camera-route error before and after the
+                            # pulse.  The old code compared a route-camera
+                            # error before the pulse with a body-heading error
+                            # afterwards, so an asynchronous valid turn could
+                            # be classified as reversed.
+                            after_heading = pose_gate_camera_heading(
+                                after_gate,
+                                optical_heading_bias_rad=route_optical_heading_bias_rad,
+                            )
+                            after_angle = signed_angle_xz(
                                 after_heading,
+                                route_follow_desired_heading,
+                            )
+                        else:
+                            after_heading = pose_gate_heading(
+                                after_gate,
+                                heading_trim_rad + float(calibrated_heading_offset_rad or 0.0),
+                            )
+                            after_direction = normalize_xz(
+                                target_direction_xz(after_position, target)
+                            )
+                            after_angle = signed_angle_xz(after_heading, after_direction)
+                        if after_angle is not None:
+                            yaw_response_reversed = yaw_target_error_response(
+                                angle,
+                                after_angle,
                             )
                             if yaw_response_reversed is not None:
                                 if yaw_response_reversed:
                                     wrong_yaw_pulses += 1
+                                    correct_yaw_pulses = 0
                                 else:
                                     wrong_yaw_pulses = 0
-                            elif turn_direction_override is None or travel_started:
-                                before_error = abs(angle)
-                                after_error = abs(after_angle)
-                                if after_error > before_error + math.radians(2.0):
-                                    wrong_yaw_pulses += 1
-                                elif after_error < before_error - math.radians(1.0):
-                                    wrong_yaw_pulses = 0
-                            required_wrong_yaw_pulses = (
-                                GUIDED_YAW_SIGN_CONFIRMATION_PULSES
-                                if yaw_flip_count == 0
-                                else 5
+                                    correct_yaw_pulses += 1
+                                    if correct_yaw_pulses >= 3 and not yaw_sign_verified:
+                                        yaw_sign_verified = True
+                                        rc_summary["adaptive_axis"]["yaw_sign_verified"] = True
+                            sign_action = yaw_sign_recovery_action(
+                                yaw_sign_verified=yaw_sign_verified,
+                                wrong_yaw_pulses=wrong_yaw_pulses,
+                                yaw_flip_count=yaw_flip_count,
                             )
-                            if wrong_yaw_pulses >= required_wrong_yaw_pulses:
-                                if yaw_flip_count == 0:
-                                    yaw_sign *= -1.0
-                                    yaw_flip_count += 1
-                                    wrong_yaw_pulses = 0
-                                    rc_summary["adaptive_axis"]["yaw_sign"] = yaw_sign
-                                    rc_summary["adaptive_axis"]["yaw_flips"] = yaw_flip_count
-                                    publish_progress(
-                                        {
-                                            "phase": "yaw_sign_correction",
-                                            "step_index": idx,
-                                            "step_title": title,
-                                            "message": (
-                                                "Three consecutive fresh yaw observations moved opposite "
-                                                "the requested map direction; reversing DJI yaw before "
-                                                "forward motion."
-                                            ),
-                                        }
-                                    )
-                                else:
-                                    abort_reason = (
-                                        "yaw alignment did not converge after automatic sign correction; "
-                                        "hovering without forward movement"
-                                    )
-                                    break
+                            if sign_action == "flip":
+                                yaw_sign *= -1.0
+                                yaw_flip_count += 1
+                                wrong_yaw_pulses = 0
+                                correct_yaw_pulses = 0
+                                rc_summary["adaptive_axis"]["yaw_sign"] = yaw_sign
+                                rc_summary["adaptive_axis"]["yaw_flips"] = yaw_flip_count
+                                publish_progress(
+                                    {
+                                        "phase": "yaw_sign_correction",
+                                        "step_index": idx,
+                                        "step_title": title,
+                                        "message": (
+                                            "Initial yaw-polarity verification observed three "
+                                            "comparable target-error regressions; reversing DJI "
+                                            "yaw once before horizontal motion."
+                                        ),
+                                    }
+                                )
+                            elif sign_action == "recover":
+                                # Delayed localization must not change a
+                                # polarity already proved earlier in flight.
+                                # Hold zero stick and let the normal loop
+                                # reacquire a comparable fresh heading.
+                                wrong_yaw_pulses = 0
+                                correct_yaw_pulses = 0
+                                yaw_feedback_recovery_count += 1
+                                neutral_hover(drone, 0.45)
+                                publish_progress(
+                                    {
+                                        "phase": "yaw_feedback_recovery",
+                                        "step_index": idx,
+                                        "step_title": title,
+                                        "translation_locked": True,
+                                        "position_anchor": yaw_position_anchor,
+                                        "yaw_sign_preserved": yaw_sign,
+                                        "recovery_count": yaw_feedback_recovery_count,
+                                        "message": (
+                                            "Yaw polarity was already verified; preserving it and "
+                                            "hovering for fresh heading feedback instead of reversing."
+                                        ),
+                                    }
+                                )
+                                continue
+                            elif sign_action == "abort":
+                                abort_reason = (
+                                    "yaw alignment did not converge after initial polarity verification; "
+                                    "hovering without forward movement"
+                                )
+                                break
                     horizontal_pulse = abs(bf_rc) > 1e-6 or abs(lr_rc) > 1e-6
                     got_new_pose = (
                         isinstance(after_gate, dict)
@@ -7697,6 +7914,12 @@ def execute_guarded_mission_packet(
                         }
                     )
                     break
+                if reached and yaw_pulse_count > 0 and not yaw_sign_verified:
+                    # Completing a closed-loop segment after yaw control is
+                    # sufficient proof of the fixed DJI yaw polarity.  Never
+                    # let a later delayed frame reverse it mid-mission.
+                    yaw_sign_verified = True
+                    rc_summary["adaptive_axis"]["yaw_sign_verified"] = True
                 executed.append(
                     {
                         "index": idx,
@@ -7708,6 +7931,7 @@ def execute_guarded_mission_packet(
                         "planned_duration_s": planned_duration,
                         "arrival_radius": cruise_arrival_radius,
                         "soft_arrival_radius": cruise_soft_arrival_radius,
+                        "endpoint_leg_index": endpoint_leg_index,
                         "patrol_stage": cruise_stage,
                         "arrival_mode": arrival_mode,
                         "initial_distance": initial_distance,

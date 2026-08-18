@@ -397,6 +397,7 @@ def solve_static_persistent(
     pose_prior_center: Any = None,
     pose_prior_rotation: Any = None,
     pose_prior_max_step: float = 0.85,
+    root_candidate_profile: str = "full",
 ) -> dict[str, Any]:
     stages: dict[str, float] = {}
     t_total = time.perf_counter()
@@ -572,6 +573,7 @@ def solve_static_persistent(
             residual_tol=root_residual_tol,
             root_refine_backend="c" if root_refiner else "python",
             root_refine_lib=root_refiner,
+            candidate_profile=root_candidate_profile,
         )
         stages["ysolve_static_root_total_ms"] = 1000.0 * (time.perf_counter() - root_t0)
         stages["ysolve_static_root_eig_ms"] = 1000.0 * float(roots_info.get("eig_sec") or 0.0)
