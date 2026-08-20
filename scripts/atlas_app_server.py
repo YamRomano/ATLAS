@@ -574,9 +574,11 @@ def save_library(lib: dict) -> None:
     atomic_write_json(MAP_MANIFEST, lib)
 
 
-def resolved_live_patrol_lock(lib: dict) -> dict | None:
-    """Resolve the optional map/patrol pair reserved for live patrol flights."""
-    raw = lib.get("live_patrol_lock") if isinstance(lib, dict) else None
+def _resolved_live_patrol_lock_from_raw(
+    lib: dict,
+    raw: object,
+) -> dict | None:
+    """Validate and resolve one configured live-patrol profile."""
     if not isinstance(raw, dict) or raw.get("enabled") is not True:
         return None
     map_id = str(raw.get("map_id") or "").strip()
@@ -666,6 +668,50 @@ def resolved_live_patrol_lock(lib: dict) -> dict | None:
         "visual_recovery_path": visual_recovery_path,
         "patrol_laps": max(0, min(20, patrol_laps)),
     }
+
+
+def resolved_live_patrol_locks(lib: dict) -> list[dict]:
+    """Resolve every enabled patrol profile without merging their data."""
+    if not isinstance(lib, dict):
+        return []
+    raw_profiles = [lib.get("live_patrol_lock")]
+    if isinstance(lib.get("live_patrol_profiles"), list):
+        raw_profiles.extend(lib["live_patrol_profiles"])
+    locks: list[dict] = []
+    seen: set[tuple[str, str]] = set()
+    for raw in raw_profiles:
+        lock = _resolved_live_patrol_lock_from_raw(lib, raw)
+        if lock is None:
+            continue
+        identity = (lock["map_id"], lock["patrol_id"])
+        if identity in seen:
+            continue
+        seen.add(identity)
+        locks.append(lock)
+    return locks
+
+
+def resolved_live_patrol_lock(
+    lib: dict,
+    *,
+    map_id: str | None = None,
+    patrol_id: str | None = None,
+) -> dict | None:
+    """Resolve the primary lock, or the exact requested patrol profile."""
+    locks = resolved_live_patrol_locks(lib)
+    if map_id is None and patrol_id is None:
+        return locks[0] if locks else None
+    requested_map = str(map_id or "").strip()
+    requested_patrol = str(patrol_id or "").strip()
+    return next(
+        (
+            lock
+            for lock in locks
+            if (not requested_map or lock["map_id"] == requested_map)
+            and (not requested_patrol or lock["patrol_id"] == requested_patrol)
+        ),
+        None,
+    )
 
 
 def default_enemy_library() -> dict:
@@ -1972,11 +2018,23 @@ def map_asset_dir(entry: dict) -> Path:
     raise RuntimeError(f"Map assets not found for {entry.get('title') or entry.get('id')}.")
 
 
-def active_taught_recovery_banks(base_asset_dir: Path) -> list[Path]:
-    """Return active patrol recovery banks, excluding timestamped backups."""
+def active_taught_recovery_banks(
+    base_asset_dir: Path,
+    patrol_id: str | None = None,
+) -> list[Path]:
+    """Return only the selected patrol's active non-backup recovery banks."""
     taught_root = Path(base_asset_dir) / "taught_patrols"
-    banks = list(taught_root.glob("*/recovery_bank.npz"))
-    banks.extend(taught_root.glob("*/recovery_bank_full_loop_*.npz"))
+    requested_patrol = str(patrol_id or "").strip()
+    if requested_patrol:
+        patrol_root = (taught_root / requested_patrol).resolve()
+        taught_root_resolved = taught_root.resolve()
+        if not patrol_root.is_relative_to(taught_root_resolved):
+            raise RuntimeError("Invalid patrol id for taught recovery banks.")
+        banks = list(patrol_root.glob("recovery_bank.npz"))
+        banks.extend(patrol_root.glob("recovery_bank_full_loop_*.npz"))
+    else:
+        banks = list(taught_root.glob("*/recovery_bank.npz"))
+        banks.extend(taught_root.glob("*/recovery_bank_full_loop_*.npz"))
     return sorted({path.resolve() for path in banks if path.is_file()})
 
 
@@ -3681,19 +3739,23 @@ def validated_guarded_patrol_mission(mission: dict) -> dict:
     map_id = str(mission.get("map_id") or "").strip()
     patrol_id = str(mission.get("patrol_id") or "").strip()
     library = load_library()
-    live_patrol_lock = resolved_live_patrol_lock(library)
+    configured_live_patrol_locks = resolved_live_patrol_locks(library)
+    live_patrol_lock = resolved_live_patrol_lock(
+        library,
+        map_id=map_id,
+        patrol_id=patrol_id,
+    )
+    if configured_live_patrol_locks and live_patrol_lock is None:
+        primary_live_patrol_lock = configured_live_patrol_locks[0]
+        raise RuntimeError(
+            "Live patrol is pinned to "
+            f"{primary_live_patrol_lock['map_title']} / "
+            f"{primary_live_patrol_lock['patrol_title']}; the selected patrol "
+            "has no enabled isolated live-localization profile."
+        )
     if live_patrol_lock is not None and not live_patrol_lock["flight_enabled"]:
         reason = live_patrol_lock["suspension_reason"] or "offline safety validation is required"
         raise RuntimeError(f"Live Patrol is suspended: {reason}")
-    if live_patrol_lock is not None and (
-        map_id != live_patrol_lock["map_id"]
-        or patrol_id != live_patrol_lock["patrol_id"]
-    ):
-        raise RuntimeError(
-            "Live patrol is pinned to "
-            f"{live_patrol_lock['map_title']} / {live_patrol_lock['patrol_title']}. "
-            "Reload ATLAS and use the pinned patrol."
-        )
     map_entry = next((item for item in library.get("maps", []) if item.get("id") == map_id), None)
     if not isinstance(map_entry, dict):
         raise RuntimeError("Patrol requires the selected saved map.")
@@ -5166,6 +5228,7 @@ def enhance_map_from_replay_job(map_id: str, replay_id: str) -> None:
 def dji_live_atlas_job(
     *,
     map_id: str | None = None,
+    patrol_id: str | None = None,
     phone_ip: str = "",
     fps: float = 10.0,
     max_size: int = 1200,
@@ -5185,7 +5248,15 @@ def dji_live_atlas_job(
         py = Path(cfg["python"])
         scripts = ROOT / "scripts"
         library = load_library()
-        live_patrol_lock = resolved_live_patrol_lock(library)
+        live_patrol_lock = resolved_live_patrol_lock(
+            library,
+            map_id=map_id,
+            patrol_id=patrol_id,
+        )
+        if (map_id or patrol_id) and live_patrol_lock is None:
+            raise RuntimeError(
+                "The selected patrol has no enabled isolated live-localization profile."
+            )
         view_only = bool(
             view_only
             or (live_patrol_lock is not None and not live_patrol_lock["flight_enabled"])
@@ -5218,6 +5289,17 @@ def dji_live_atlas_job(
             {
                 "mode": "dji_live_tsolve_partial",
                 "replay_id": replay_id,
+                "map_id": selected["id"],
+                "patrol_id": (
+                    live_patrol_lock["patrol_id"]
+                    if live_patrol_lock is not None
+                    else str(patrol_id or "")
+                ),
+                "baseline_replay_id": (
+                    live_patrol_lock["baseline_replay_id"]
+                    if live_patrol_lock is not None
+                    else ""
+                ),
                 "frame_source": str(query_frames),
                 "query_frame_base_url": public_rel(query_frames),
                 "expected_count": 0,
@@ -5231,6 +5313,16 @@ def dji_live_atlas_job(
             {
                 "live_atlas": True,
                 "map_id": selected["id"],
+                "patrol_id": (
+                    live_patrol_lock["patrol_id"]
+                    if live_patrol_lock is not None
+                    else str(patrol_id or "")
+                ),
+                "baseline_replay_id": (
+                    live_patrol_lock["baseline_replay_id"]
+                    if live_patrol_lock is not None
+                    else ""
+                ),
                 "replay_id": replay_id,
                 "title": replay_title,
                 "asset_base": public_rel(out_asset_dir),
@@ -5477,7 +5569,10 @@ def dji_live_atlas_job(
                         live_patrol_lock["visual_recovery_path"],
                     ]
                 )
-        for recovery_bank in active_taught_recovery_banks(base_asset_dir):
+        for recovery_bank in active_taught_recovery_banks(
+            base_asset_dir,
+            live_patrol_lock["patrol_id"] if live_patrol_lock is not None else None,
+        ):
             live_stream_cmd.extend(["--taught-patrol-recovery-bank", recovery_bank])
         if cfg.get("live_blocking_global_recovery", True):
             live_stream_cmd.append("--blocking-global-recovery")
@@ -6555,7 +6650,10 @@ def localized_recorded_patrol_job(
         # Match the real Patrol 1 self-localization inputs.  These are compact
         # 2D->3D map correspondences learned from the taught full loop; they
         # feed a fresh TSolve case and do not copy any prerecorded pose.
-        for recovery_bank in active_taught_recovery_banks(base_asset_dir):
+        for recovery_bank in active_taught_recovery_banks(
+            base_asset_dir,
+            lock["patrol_id"],
+        ):
             cmd.extend(["--taught-patrol-recovery-bank", recovery_bank])
         if lock.get("visual_recovery_path"):
             cmd.extend(["--patrol-visual-recovery-bank", lock["visual_recovery_path"]])
@@ -7065,7 +7163,10 @@ def fleet_live_atlas_job(drone_id: str) -> None:
                         live_patrol_lock["visual_recovery_path"],
                     ]
                 )
-        for recovery_bank in active_taught_recovery_banks(base_asset_dir):
+        for recovery_bank in active_taught_recovery_banks(
+            base_asset_dir,
+            patrol_id,
+        ):
             live_cmd.extend(["--taught-patrol-recovery-bank", recovery_bank])
         if cfg.get("live_blocking_global_recovery", True):
             live_cmd.append("--blocking-global-recovery")
@@ -8872,6 +8973,7 @@ class AtlasHandler(SimpleHTTPRequestHandler):
             except json.JSONDecodeError:
                 payload = {}
             map_id = str(payload.get("map_id", "")).strip() or None
+            patrol_id = str(payload.get("patrol_id", "")).strip() or None
             phone_ip = str(payload.get("phone_ip", "")).strip()
             fps = max(0.5, min(10.0, float(payload.get("fps", 10.0))))
             max_size = int(payload.get("max_size", 1200))
@@ -8886,6 +8988,7 @@ class AtlasHandler(SimpleHTTPRequestHandler):
                 start_thread(
                     lambda: dji_live_atlas_job(
                         map_id=map_id,
+                        patrol_id=patrol_id,
                         phone_ip=phone_ip,
                         fps=fps,
                         max_size=max_size,

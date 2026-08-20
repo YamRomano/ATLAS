@@ -4046,10 +4046,11 @@
   ],
   "safety_note": "Frame-backed visual baseline only. Positions during false-localization coverage are route constraints, not solved R,t measurements. Live translation still requires a fresh accepted localizer pose and route-progress validation.",
   "enabled_for_visual_route_recovery": true,
-  "visual_route_recovery_bank": "visual_route_recovery_multirun.npz",
-  "visual_route_recovery_audit": "visual_route_recovery_multirun_audit.json",
+  "visual_route_recovery_bank": "visual_route_recovery_manual_tail_point1_20260820.npz",
+  "visual_route_recovery_audit": "visual_route_recovery_manual_tail_point1_20260820_audit.json",
   "visual_route_recovery_source_replays": [
     "patrol_baseline_precision_20260813",
-    "dji_live_20260811_115736_2b91ca"
+    "dji_live_20260811_115736_2b91ca",
+    "dji_live_20260819_164415_524a50"
   ]
 }

@@ -5,6 +5,7 @@ import unittest
 from pathlib import Path
 
 import cv2
+import numpy as np
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -24,6 +25,357 @@ from patrol_visual_route_recovery import (  # noqa: E402
 
 
 class PatrolVisualRouteRecoveryTests(unittest.TestCase):
+    def test_restored_point1_extension_is_active_and_valid(self):
+        if not hasattr(cv2, "ORB_create"):
+            self.skipTest("OpenCV is stubbed by another combined-suite module")
+        public = ROOT / "viewer" / "public"
+        replay = (
+            public
+            / "maps"
+            / "map_copy_20260730_114851_cfefdc"
+            / "replays"
+            / "patrol_baseline_precision_20260813"
+        )
+        bank = replay / "visual_route_recovery_manual_tail_point1_20260820.npz"
+        audit_path = (
+            replay / "visual_route_recovery_manual_tail_point1_20260820_audit.json"
+        )
+        manual_frames = (
+            public
+            / "live_dji_sessions"
+            / "atlas_dji_live_20260819_164415_524a50"
+            / "query_frames"
+        )
+        point1_frames = (
+            public
+            / "live_dji_sessions"
+            / "atlas_dji_live_20260820_121156_b6ef3c"
+            / "query_frames"
+        )
+        point4_before_path = manual_frames / "query_002740.jpg"
+        point4_aligned_path = manual_frames / "query_002886.jpg"
+        point1_heading_path = manual_frames / "query_003037.jpg"
+        point1_endpoint_paths = [
+            point1_frames / f"query_{index:06d}.jpg"
+            for index in (1652, 1657, 1662)
+        ]
+        required = [
+            bank,
+            audit_path,
+            point4_before_path,
+            point4_aligned_path,
+            point1_heading_path,
+            *point1_endpoint_paths,
+        ]
+        if not all(path.exists() for path in required):
+            self.skipTest("latest Point-1 endpoint audit assets are unavailable")
+
+        reference = json.loads(
+            (replay / "reference_candidate.json").read_text(encoding="utf-8")
+        )
+        audit = json.loads(audit_path.read_text(encoding="utf-8"))
+        self.assertTrue(audit["passed"])
+        self.assertTrue(audit["preservation"]["base_prefix_preserved"])
+        self.assertFalse(audit["preservation"]["route_anchors_replaced"])
+        self.assertEqual(audit["preservation"]["added_endpoint_anchor_count"], 11)
+        self.assertFalse(audit["negative_endpoint_verified"])
+        self.assertEqual(
+            reference["visual_route_recovery_bank"],
+            "visual_route_recovery_manual_tail_point1_20260820.npz",
+        )
+
+        with np.load(bank, allow_pickle=False) as contents:
+            starts = np.asarray(contents["anchor_from"], dtype=float)
+            ends = np.asarray(contents["anchor_to"], dtype=float)
+            sources = [
+                str(value)
+                for value in contents["anchor_source_replay_ids"].tolist()
+            ]
+            priorities = np.asarray(
+                contents["anchor_heading_priority"], dtype=int
+            )
+            source_frames = np.asarray(contents["source_frames"], dtype=int)
+        leg4 = reference["legs"][3]
+        leg4_mask = np.asarray(
+            [
+                horizontal_distance(start, leg4["from"]) <= 0.08
+                and horizontal_distance(end, leg4["to"]) <= 0.08
+                for start, end in zip(starts, ends)
+            ]
+        )
+        self.assertEqual(
+            {source for source, selected in zip(sources, leg4_mask) if selected},
+            {
+                "dji_live_20260819_164415_524a50",
+                "dji_live_20260820_121156_b6ef3c",
+            },
+        )
+        priority_frames = sorted(
+            int(frame)
+            for frame, source, priority in zip(
+                source_frames, sources, priorities
+            )
+            if source == "dji_live_20260819_164415_524a50"
+            and priority == 100
+        )
+        self.assertEqual(
+            priority_frames,
+            [2878, 2880, 2882, 2884, 2886, 2888, 2890, 3035, 3036, 3037, 3038, 3039],
+        )
+
+        recovery = PatrolVisualRouteRecovery(bank)
+        point4_before, _ = recovery.departure_heading_alignment(
+            gray=cv2.imread(str(point4_before_path), cv2.IMREAD_GRAYSCALE),
+            segment_start=leg4["from"],
+            segment_end=leg4["to"],
+            focal_px=882.4866783165957,
+            minimum_inliers=50,
+        )
+        point4_aligned, _ = recovery.departure_heading_alignment(
+            gray=cv2.imread(str(point4_aligned_path), cv2.IMREAD_GRAYSCALE),
+            segment_start=leg4["from"],
+            segment_end=leg4["to"],
+            focal_px=882.4866783165957,
+            minimum_inliers=50,
+        )
+        point1_leg = reference["legs"][0]
+        point1_aligned, _ = recovery.departure_heading_alignment(
+            gray=cv2.imread(str(point1_heading_path), cv2.IMREAD_GRAYSCALE),
+            segment_start=point1_leg["from"],
+            segment_end=point1_leg["to"],
+            focal_px=882.4866783165957,
+            minimum_inliers=72,
+        )
+        self.assertIsNotNone(point4_before)
+        self.assertLess(point4_before["correction_deg"], -15.0)
+        self.assertIsNotNone(point4_aligned)
+        self.assertLess(abs(point4_aligned["correction_deg"]), 1.0)
+        self.assertIsNotNone(point1_aligned)
+        self.assertLess(abs(point1_aligned["correction_deg"]), 1.0)
+
+        endpoint_recovery = PatrolVisualRouteRecovery(bank)
+        endpoint_observation = None
+        for sequence_index, image_path in enumerate(point1_endpoint_paths, start=1):
+            endpoint_observation, diagnostic = endpoint_recovery.recover(
+                gray=cv2.imread(str(image_path), cv2.IMREAD_GRAYSCALE),
+                segment_start=leg4["from"],
+                segment_end=leg4["to"],
+                segment_key=("stale-live-point1", 1, 4),
+                translation_locked=False,
+                progress_hint=0.080452,
+                progress_ceiling=0.619611,
+                recovery_hover=True,
+                recovery_minimum_inliers=50,
+                independent_progress=True,
+                allow_endpoint_only_recovery=True,
+                sequence_index=sequence_index,
+            )
+            if sequence_index < 3:
+                self.assertIsNone(endpoint_observation)
+                self.assertEqual(
+                    diagnostic.get("reason"),
+                    "visual_route_endpoint_only_acquiring",
+                )
+        self.assertIsNotNone(endpoint_observation)
+        self.assertTrue(endpoint_observation["endpoint_verified"])
+        self.assertTrue(endpoint_observation["command_progress_guarded"])
+        self.assertAlmostEqual(endpoint_observation["progress"], 0.080452)
+        self.assertGreaterEqual(endpoint_observation["endpoint_best_inliers"], 90)
+
+    def test_complete_121156_single_run_remains_an_audited_candidate(self):
+        public = ROOT / "viewer" / "public"
+        replay = (
+            public
+            / "maps"
+            / "map_copy_20260730_114851_cfefdc"
+            / "replays"
+            / "patrol_baseline_precision_20260813"
+        )
+        bank = replay / "visual_route_recovery_single_run_121156_20260820.npz"
+        audit_path = (
+            replay
+            / "visual_route_recovery_single_run_121156_20260820_audit.json"
+        )
+        reference_path = replay / "reference_candidate.json"
+        if not all(path.exists() for path in (bank, audit_path, reference_path)):
+            self.skipTest("single-run patrol-bank assets are unavailable")
+
+        reference = json.loads(reference_path.read_text(encoding="utf-8"))
+        audit = json.loads(audit_path.read_text(encoding="utf-8"))
+        self.assertNotEqual(reference["visual_route_recovery_bank"], bank.name)
+        self.assertNotEqual(reference["visual_route_recovery_audit"], audit_path.name)
+        self.assertTrue(audit["passed"])
+        self.assertTrue(audit["source_is_single"])
+        self.assertTrue(all(lap["passed"] for lap in audit["laps"]))
+        self.assertTrue(
+            all(
+                leg["passed"]
+                for lap in audit["laps"]
+                for leg in lap["legs"]
+            )
+        )
+
+        with np.load(bank, allow_pickle=False) as contents:
+            sources = {
+                str(value)
+                for value in contents["anchor_source_replay_ids"].tolist()
+            }
+            advertised_sources = [
+                str(value) for value in contents["source_replay_ids"].tolist()
+            ]
+            progress = np.asarray(contents["anchor_progress"], dtype=float)
+        self.assertEqual(sources, {"dji_live_20260820_121156_b6ef3c"})
+        self.assertEqual(advertised_sources, ["dji_live_20260820_121156_b6ef3c"])
+        self.assertTrue(np.all((0.0 <= progress) & (progress <= 1.0)))
+
+    def test_completed_095043_tail_tracks_point_four_to_one_and_next_heading(self):
+        """Keep the newly completed live/manual tail as a real-frame regression."""
+        if not hasattr(cv2, "ORB_create"):
+            self.skipTest("OpenCV is stubbed by another combined-suite module")
+        public = ROOT / "viewer" / "public"
+        replay = (
+            public
+            / "maps"
+            / "map_copy_20260730_114851_cfefdc"
+            / "replays"
+            / "patrol_baseline_precision_20260813"
+        )
+        bank = replay / "visual_route_recovery_manual_tail.npz"
+        frames = (
+            public
+            / "live_dji_sessions"
+            / "atlas_dji_live_20260820_095043_85a3b7"
+            / "query_frames"
+        )
+        indices = list(range(2910, 3046, 5))
+        required = [bank, replay / "reference_candidate.json"] + [
+            frames / f"query_{index:06d}.jpg"
+            for index in [*indices, 3090, 3100]
+        ]
+        if not all(path.exists() for path in required):
+            self.skipTest("09:50 completed patrol-tail frames are unavailable")
+
+        legs = json.loads(required[1].read_text(encoding="utf-8"))["legs"]
+        recovery = PatrolVisualRouteRecovery(bank)
+        published = 0.0
+        accepted = []
+        for frame_index in indices:
+            observation, diagnostic = recovery.recover(
+                gray=cv2.imread(
+                    str(frames / f"query_{frame_index:06d}.jpg"),
+                    cv2.IMREAD_GRAYSCALE,
+                ),
+                segment_start=legs[3]["from"],
+                segment_end=legs[3]["to"],
+                segment_key=("completed-095043-tail", 4),
+                translation_locked=False,
+                progress_hint=published,
+                independent_progress=True,
+                sequence_index=frame_index,
+            )
+            if observation is None:
+                self.assertEqual(diagnostic.get("reason"), "visual_route_acquiring")
+                continue
+            progress = float(observation["progress"])
+            self.assertGreaterEqual(progress + 1.0e-9, published)
+            published = progress
+            recovery.commit_published_progress(progress)
+            accepted.append(observation)
+
+        self.assertGreaterEqual(len(accepted), len(indices) - 2)
+        self.assertGreaterEqual(published, 0.99)
+        self.assertTrue(accepted[-1].get("endpoint_verified"))
+        self.assertGreaterEqual(min(int(item["inliers"]) for item in accepted), 120)
+
+        aligned, _ = recovery.departure_heading_alignment(
+            gray=cv2.imread(str(frames / "query_003090.jpg"), cv2.IMREAD_GRAYSCALE),
+            segment_start=legs[0]["from"],
+            segment_end=legs[0]["to"],
+            focal_px=882.4866783165957,
+            minimum_inliers=72,
+        )
+        overshot, _ = recovery.departure_heading_alignment(
+            gray=cv2.imread(str(frames / "query_003100.jpg"), cv2.IMREAD_GRAYSCALE),
+            segment_start=legs[0]["from"],
+            segment_end=legs[0]["to"],
+            focal_px=882.4866783165957,
+            minimum_inliers=72,
+        )
+        self.assertIsNotNone(aligned)
+        self.assertLess(abs(float(aligned["correction_deg"])), 1.0)
+        self.assertIsNotNone(overshot)
+        self.assertGreater(abs(float(overshot["correction_deg"])), 4.0)
+
+    def test_point_two_recovery_releases_heading_only_source_lock(self):
+        """A Point-1 yaw clip must not deadlock Point-2 ORB verification."""
+        if not hasattr(cv2, "ORB_create"):
+            self.skipTest("OpenCV is stubbed by another combined-suite module")
+        public = ROOT / "viewer" / "public"
+        replay = (
+            public
+            / "maps"
+            / "map_copy_20260730_114851_cfefdc"
+            / "replays"
+            / "patrol_baseline_precision_20260813"
+        )
+        bank = replay / "visual_route_recovery_manual_tail.npz"
+        endpoint_frame = (
+            public
+            / "live_dji_sessions"
+            / "atlas_dji_live_20260811_115736_2b91ca"
+            / "query_frames"
+            / "query_000920.jpg"
+        )
+        reference_path = replay / "reference_candidate.json"
+        if not all(path.exists() for path in (bank, endpoint_frame, reference_path)):
+            self.skipTest("Point-2 source-lock regression assets are unavailable")
+
+        leg = json.loads(reference_path.read_text(encoding="utf-8"))["legs"][0]
+        key = (1, 1, "point1_to_point2")
+        recovery = PatrolVisualRouteRecovery(bank)
+        recovery.active_key = key
+        recovery.active_source_replay_id = "dji_live_20260819_164415_524a50"
+        recovery.needs_acquisition = False
+        recovery.last_progress = 0.9591210210207715
+        recovery.last_matched_progress = 0.0
+        recovery.last_matched_source_frame = 3039
+        recovery.last_sequence_index = 2233
+        gray = cv2.imread(str(endpoint_frame), cv2.IMREAD_GRAYSCALE)
+
+        observations = []
+        diagnostics = []
+        for sequence_index in range(2234, 2238):
+            observation, diagnostic = recovery.recover(
+                gray=gray,
+                segment_start=leg["from"],
+                segment_end=leg["to"],
+                segment_key=key,
+                progress_hint=0.9591210210207715,
+                progress_ceiling=0.9970323371525861,
+                recovery_hover=True,
+                sequence_index=sequence_index,
+            )
+            diagnostics.append(diagnostic)
+            if observation is not None:
+                observations.append(observation)
+
+        self.assertEqual(
+            diagnostics[0].get("released_source_replay_id"),
+            "dji_live_20260819_164415_524a50",
+        )
+        self.assertNotIn(
+            "visual_route_no_anchor_in_progress_window",
+            [diagnostic.get("reason") for diagnostic in diagnostics],
+        )
+        self.assertTrue(observations)
+        self.assertTrue(observations[-1]["endpoint_verified"])
+        self.assertGreaterEqual(observations[-1]["endpoint_hits"], 3)
+        self.assertGreaterEqual(observations[-1]["inliers"], 120)
+        self.assertEqual(
+            recovery.active_source_replay_id,
+            "dji_live_20260811_115736_2b91ca",
+        )
+
     def test_geometric_rank_never_trades_inliers_for_secondary_quality(self):
         stronger = {
             "inliers": 121,
@@ -1455,6 +1807,74 @@ class PatrolVisualRouteRecoveryTests(unittest.TestCase):
         self.assertEqual(len(accepted), len(indices) - 1)
         self.assertGreaterEqual(published, 0.95)
         self.assertEqual(recovery.active_source_replay_id, "dji_live_20260811_115736_2b91ca")
+
+    def test_live_152645_point_four_recovery_uses_five_frame_50_inlier_gate(self):
+        """The saved Point-4 view is valid but weaker than the generic gate."""
+        if not hasattr(cv2, "ORB_create"):
+            self.skipTest("OpenCV is stubbed by another combined-suite module")
+        public = ROOT / "viewer" / "public"
+        replay = (
+            public
+            / "maps"
+            / "map_copy_20260730_114851_cfefdc"
+            / "replays"
+            / "patrol_baseline_precision_20260813"
+        )
+        bank = replay / "visual_route_recovery_multirun.npz"
+        frames = (
+            public
+            / "live_dji_sessions"
+            / "atlas_dji_live_20260819_152645_3344db"
+            / "query_frames"
+        )
+        indices = [3322, 3323, 3324, 3325, 3326]
+        required = [bank, replay / "reference_candidate.json"] + [
+            frames / f"query_{frame_index:06d}.jpg"
+            for frame_index in indices
+        ]
+        if not all(path.exists() for path in required):
+            self.skipTest("15:26 Point-4 recovery assets are unavailable")
+
+        leg = json.loads(required[1].read_text(encoding="utf-8"))["legs"][3]
+        strict_recovery = PatrolVisualRouteRecovery(bank)
+        strict_observation = None
+        for frame_index, image_path in zip(indices, required[2:]):
+            strict_observation, _stage = strict_recovery.recover(
+                gray=cv2.imread(str(image_path), cv2.IMREAD_GRAYSCALE),
+                segment_start=leg["from"],
+                segment_end=leg["to"],
+                segment_key=("strict_point4_to_point1",),
+                progress_hint=0.0,
+                progress_ceiling=0.123922,
+                recovery_hover=True,
+                independent_progress=True,
+                sequence_index=frame_index,
+            )
+        self.assertIsNone(strict_observation)
+
+        audited_recovery = PatrolVisualRouteRecovery(bank)
+        observations = []
+        for frame_index, image_path in zip(indices, required[2:]):
+            observation, _stage = audited_recovery.recover(
+                gray=cv2.imread(str(image_path), cv2.IMREAD_GRAYSCALE),
+                segment_start=leg["from"],
+                segment_end=leg["to"],
+                segment_key=("audited_point4_to_point1",),
+                progress_hint=0.0,
+                progress_ceiling=0.123922,
+                recovery_hover=True,
+                recovery_minimum_inliers=50,
+                independent_progress=True,
+                sequence_index=frame_index,
+            )
+            observations.append(observation)
+
+        self.assertEqual(observations[:4], [None, None, None, None])
+        self.assertIsNotNone(observations[4])
+        self.assertTrue(observations[4]["temporal_recovery"])
+        self.assertGreaterEqual(observations[4]["inliers"], 50)
+        self.assertGreaterEqual(observations[4]["acquisition_hits"], 5)
+        self.assertLessEqual(observations[4]["progress"], 0.123922)
 
 if __name__ == "__main__":
     unittest.main()

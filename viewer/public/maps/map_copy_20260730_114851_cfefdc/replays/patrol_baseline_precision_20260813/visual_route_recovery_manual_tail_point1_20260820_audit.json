@@ -1,0 +1,211 @@
+{
+  "passed": true,
+  "kind": "atlas_point1_endpoint_extension_audit",
+  "baseline": "/Users/yamromano/Documents/PythonF4/PythonF4/drone_phase1_replay_demo_20260706/viewer/public/maps/map_copy_20260730_114851_cfefdc/replays/patrol_baseline_precision_20260813/reference_candidate.json",
+  "base_bank": "/Users/yamromano/Documents/PythonF4/PythonF4/drone_phase1_replay_demo_20260706/viewer/public/maps/map_copy_20260730_114851_cfefdc/replays/patrol_baseline_precision_20260813/visual_route_recovery_manual_tail.npz",
+  "bank": "/Users/yamromano/Documents/PythonF4/PythonF4/drone_phase1_replay_demo_20260706/viewer/public/maps/map_copy_20260730_114851_cfefdc/replays/patrol_baseline_precision_20260813/visual_route_recovery_manual_tail_point1_20260820.npz",
+  "source_replay_id": "dji_live_20260820_121156_b6ef3c",
+  "endpoint_frames": [
+    1650,
+    1700
+  ],
+  "bank_endpoint_frames": [
+    1650,
+    1655,
+    1660,
+    1665,
+    1670,
+    1675,
+    1680,
+    1685,
+    1690,
+    1695,
+    1700
+  ],
+  "selected_endpoint_frames": [
+    1652,
+    1657,
+    1662,
+    1667,
+    1672,
+    1677,
+    1682,
+    1687,
+    1692,
+    1697
+  ],
+  "negative_frame": 1500,
+  "preservation": {
+    "base_anchor_count": 1645,
+    "total_anchor_count": 1656,
+    "base_prefix_preserved": true,
+    "route_anchors_replaced": false,
+    "added_endpoint_anchor_count": 11
+  },
+  "stale_progress_recovery": {
+    "initial_progress": 0.080452,
+    "command_progress_ceiling": 0.619611,
+    "observations": [
+      {
+        "frame": 1662,
+        "published_progress": 0.080452,
+        "inliers": 819,
+        "source_replay_id": "dji_live_20260820_121156_b6ef3c",
+        "endpoint_verified": true,
+        "endpoint_hits": 3,
+        "endpoint_best_progress": 1.0,
+        "endpoint_best_inliers": 819,
+        "endpoint_best_anchor": "dji_live_20260820_121156_b6ef3c/query_001660.jpg",
+        "command_progress_guarded": true
+      },
+      {
+        "frame": 1667,
+        "published_progress": 0.080452,
+        "inliers": 840,
+        "source_replay_id": "dji_live_20260820_121156_b6ef3c",
+        "endpoint_verified": true,
+        "endpoint_hits": 3,
+        "endpoint_best_progress": 1.0,
+        "endpoint_best_inliers": 840,
+        "endpoint_best_anchor": "dji_live_20260820_121156_b6ef3c/query_001670.jpg",
+        "command_progress_guarded": true
+      },
+      {
+        "frame": 1672,
+        "published_progress": 0.080452,
+        "inliers": 815,
+        "source_replay_id": "dji_live_20260820_121156_b6ef3c",
+        "endpoint_verified": true,
+        "endpoint_hits": 3,
+        "endpoint_best_progress": 1.0,
+        "endpoint_best_inliers": 815,
+        "endpoint_best_anchor": "dji_live_20260820_121156_b6ef3c/query_001670.jpg",
+        "command_progress_guarded": true
+      },
+      {
+        "frame": 1677,
+        "published_progress": 0.080452,
+        "inliers": 779,
+        "source_replay_id": "dji_live_20260820_121156_b6ef3c",
+        "endpoint_verified": true,
+        "endpoint_hits": 3,
+        "endpoint_best_progress": 1.0,
+        "endpoint_best_inliers": 779,
+        "endpoint_best_anchor": "dji_live_20260820_121156_b6ef3c/query_001680.jpg",
+        "command_progress_guarded": true
+      },
+      {
+        "frame": 1682,
+        "published_progress": 0.080452,
+        "inliers": 737,
+        "source_replay_id": "dji_live_20260820_121156_b6ef3c",
+        "endpoint_verified": true,
+        "endpoint_hits": 3,
+        "endpoint_best_progress": 1.0,
+        "endpoint_best_inliers": 737,
+        "endpoint_best_anchor": "dji_live_20260820_121156_b6ef3c/query_001680.jpg",
+        "command_progress_guarded": true
+      },
+      {
+        "frame": 1687,
+        "published_progress": 0.080452,
+        "inliers": 837,
+        "source_replay_id": "dji_live_20260820_121156_b6ef3c",
+        "endpoint_verified": true,
+        "endpoint_hits": 3,
+        "endpoint_best_progress": 1.0,
+        "endpoint_best_inliers": 837,
+        "endpoint_best_anchor": "dji_live_20260820_121156_b6ef3c/query_001690.jpg",
+        "command_progress_guarded": true
+      },
+      {
+        "frame": 1692,
+        "published_progress": 0.080452,
+        "inliers": 801,
+        "source_replay_id": "dji_live_20260820_121156_b6ef3c",
+        "endpoint_verified": true,
+        "endpoint_hits": 3,
+        "endpoint_best_progress": 1.0,
+        "endpoint_best_inliers": 801,
+        "endpoint_best_anchor": "dji_live_20260820_121156_b6ef3c/query_001690.jpg",
+        "command_progress_guarded": true
+      },
+      {
+        "frame": 1697,
+        "published_progress": 0.080452,
+        "inliers": 797,
+        "source_replay_id": "dji_live_20260820_121156_b6ef3c",
+        "endpoint_verified": true,
+        "endpoint_hits": 3,
+        "endpoint_best_progress": 1.0,
+        "endpoint_best_inliers": 797,
+        "endpoint_best_anchor": "dji_live_20260820_121156_b6ef3c/query_001700.jpg",
+        "command_progress_guarded": true
+      }
+    ],
+    "rejections": [
+      {
+        "frame": 1652,
+        "reason": "visual_route_endpoint_only_acquiring",
+        "best_inliers": 0,
+        "endpoint_only_hits": 1,
+        "endpoint_only_verified": false,
+        "endpoint_only_best_progress": 1.0,
+        "endpoint_only_best_inliers": 895,
+        "endpoint_only_best_anchor": "dji_live_20260820_121156_b6ef3c/query_001650.jpg"
+      },
+      {
+        "frame": 1657,
+        "reason": "visual_route_endpoint_only_acquiring",
+        "best_inliers": 0,
+        "endpoint_only_hits": 2,
+        "endpoint_only_verified": false,
+        "endpoint_only_best_progress": 1.0,
+        "endpoint_only_best_inliers": 854,
+        "endpoint_only_best_anchor": "dji_live_20260820_121156_b6ef3c/query_001660.jpg"
+      }
+    ],
+    "p95_runtime_ms": 90.92392689999996,
+    "max_runtime_ms": 102.16445799999995
+  },
+  "negative_endpoint_verified": false,
+  "negative_reason": "visual_route_temporal_recovery_acquiring",
+  "preserved_two_lap_tail": {
+    "source_replay_id": "dji_live_20260819_164415_524a50",
+    "frame_range": [
+      2891,
+      2965
+    ],
+    "laps": [
+      {
+        "lap": 1,
+        "accepted": 74,
+        "rejections": [
+          {
+            "frame": 2891,
+            "reason": "visual_route_acquiring"
+          }
+        ],
+        "final_progress": 1.0,
+        "endpoint_verified": true,
+        "all_matches_use_preserved_source": true
+      },
+      {
+        "lap": 2,
+        "accepted": 74,
+        "rejections": [
+          {
+            "frame": 2891,
+            "reason": "visual_route_acquiring"
+          }
+        ],
+        "final_progress": 1.0,
+        "endpoint_verified": true,
+        "all_matches_use_preserved_source": true
+      }
+    ],
+    "p95_runtime_ms": 101.40369650000027,
+    "max_runtime_ms": 111.87695799999986,
+    "passed": true
+  }
+}

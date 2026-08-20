@@ -3,8 +3,11 @@
 > **Current partner handoff:** branch `David` contains the live ATLAS patrol
 > application, the TSolve/FARES localization sources, route-recovery logic,
 > safety controller, UI, and tests. Start with
-> [`docs/DAVID_HANDOFF.md`](docs/DAVID_HANDOFF.md). The older replay notes below
-> are retained as historical pipeline documentation.
+> [`docs/DAVID_HANDOFF.md`](docs/DAVID_HANDOFF.md), then use
+> [`docs/ALGORITHM_ROADMAP.md`](docs/ALGORITHM_ROADMAP.md) for the system data
+> flow, main algorithmic files, invariants, validation strategy, and GitHub
+> engineering roadmap. The older replay notes below are retained as historical
+> pipeline documentation.
 
 This folder builds the first real replay demo:
 

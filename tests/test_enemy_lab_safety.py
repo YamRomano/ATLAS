@@ -30,6 +30,85 @@ BRIDGE_SPEC.loader.exec_module(bridge)
 
 
 class EnemyLabSafetyTests(unittest.TestCase):
+    def test_patrol_one_and_two_resolve_to_independent_live_profiles(self):
+        library = server.load_library()
+        locks = server.resolved_live_patrol_locks(library)
+        by_patrol = {lock["patrol_id"]: lock for lock in locks}
+
+        patrol_one_id = "patrol_ms4br5xr_4xclts"
+        patrol_two_id = "patrol_mszqwnot_awshxl"
+        self.assertEqual(server.resolved_live_patrol_lock(library)["patrol_id"], patrol_one_id)
+        self.assertEqual(
+            by_patrol[patrol_one_id]["baseline_replay_id"],
+            "patrol_baseline_precision_20260813",
+        )
+        self.assertEqual(
+            by_patrol[patrol_two_id]["baseline_replay_id"],
+            "patrol2_hybrid_baseline_20260819",
+        )
+        self.assertNotEqual(
+            by_patrol[patrol_one_id]["baseline_reference_path"],
+            by_patrol[patrol_two_id]["baseline_reference_path"],
+        )
+
+    def test_patrol_one_geometry_is_preserved_and_patrol_two_matches_its_frame_bank(self):
+        library = server.load_library()
+        map_entry = next(
+            item for item in library["maps"]
+            if item["id"] == "map_copy_20260730_114851_cfefdc"
+        )
+        patrols = {item["id"]: item for item in map_entry["patrols"]}
+        patrol_one = patrols["patrol_ms4br5xr_4xclts"]
+        patrol_two = patrols["patrol_mszqwnot_awshxl"]
+        self.assertEqual(
+            [point["rxyz"] for point in patrol_one["points"]],
+            [
+                [-3.2329557447702215, -0.17877615459930907, -0.33236579860361815],
+                [-0.6480244338911889, -0.48003389609676617, -0.48774887233005093],
+                [-0.4886978074319452, 1.7599605504441844, 0.9560112230666532],
+                [-3.0736291183109774, -0.20678855225328296, 1.1113942967930859],
+            ],
+        )
+        patrol_two_reference = json.loads(
+            (
+                ROOT
+                / "viewer/public/maps/map_copy_20260730_114851_cfefdc/replays"
+                / "patrol2_hybrid_baseline_20260819/reference_candidate.json"
+            ).read_text(encoding="utf-8")
+        )
+        frame_bank_points = [leg["from"] for leg in patrol_two_reference["legs"]]
+        self.assertEqual(
+            [[point["rxyz"][0], point["rxyz"][2]] for point in patrol_two["points"]],
+            [[point[0], point[2]] for point in frame_bank_points],
+        )
+        self.assertEqual(patrol_two["points"][1], patrol_one["points"][1])
+        self.assertEqual(patrol_two["points"][2], patrol_one["points"][2])
+
+    def test_taught_recovery_banks_never_cross_patrol_directories(self):
+        library = server.load_library()
+        map_entry = next(
+            item for item in library["maps"]
+            if item["id"] == "map_copy_20260730_114851_cfefdc"
+        )
+        base = server.map_asset_dir(map_entry)
+        patrol_one_banks = server.active_taught_recovery_banks(
+            base, "patrol_ms4br5xr_4xclts"
+        )
+        patrol_two_banks = server.active_taught_recovery_banks(
+            base, "patrol_mszqwnot_awshxl"
+        )
+        self.assertTrue(patrol_one_banks)
+        self.assertTrue(all(path.parent.name == "patrol_ms4br5xr_4xclts" for path in patrol_one_banks))
+        self.assertTrue(all(path.parent.name == "patrol_mszqwnot_awshxl" for path in patrol_two_banks))
+
+    def test_live_ui_selects_and_binds_one_patrol_before_localization(self):
+        source = APP_PATH.read_text(encoding="utf-8")
+        html = INDEX_PATH.read_text(encoding="utf-8")
+        self.assertIn('id="live-atlas-patrol"', html)
+        self.assertIn("configuredLivePatrolProfiles", source)
+        self.assertIn("patrol_id: patrolId || null", source)
+        self.assertIn("This localization session is isolated to another patrol", source)
+
     def test_live_check_mode_blocks_every_flight_command(self):
         status = {
             "status": "streaming",
@@ -458,7 +537,7 @@ class EnemyLabSafetyTests(unittest.TestCase):
                     "safety_barriers": [{"id": "w1"}, {"id": "w2"}, {"id": "w3"}],
                 }],
             }
-            server.resolved_live_patrol_lock = lambda _library: {
+            server.resolved_live_patrol_lock = lambda _library, **_selection: {
                 "map_id": "map_pinned",
                 "map_title": "Video Map 20:07:46 Copy",
                 "patrol_id": "patrol_1",

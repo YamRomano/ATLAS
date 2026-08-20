@@ -117,6 +117,7 @@ const phoneIpOptions = document.getElementById("phone-ip-options");
 const phoneIpSelect = document.getElementById("phone-ip-select");
 const savePhoneIpButton = document.getElementById("save-phone-ip");
 const liveAtlasFps = document.getElementById("live-atlas-fps");
+const liveAtlasPatrolSelect = document.getElementById("live-atlas-patrol");
 const droneHeadingTrimSelect = document.getElementById("drone-heading-trim");
 const droneHeadingTrimValue = document.getElementById("drone-heading-trim-value");
 const useModelHeadingForFlightInput = document.getElementById("use-model-heading-for-flight");
@@ -272,6 +273,7 @@ let liveReplayCompletionPending = false;
 let liveRotationPositionAnchor = null;
 let liveFrameMode = false;
 let liveAtlasPreviewActive = false;
+let pendingLivePatrolId = "";
 let lastDjiControlStatusId = "";
 let lastDjiControlStatusKey = "";
 let latestDjiLiveStatus = null;
@@ -2025,8 +2027,10 @@ async function startDroneReplayUpload(file, mapId) {
 
 async function startSimulatedBaselineLive() {
   const active = activeReplay(currentMapEntry);
-  const lockedBaselineId = mapLibraryData?.live_patrol_lock?.baseline_replay_id;
+  const patrolProfile = selectedLivePatrolProfile();
+  const lockedBaselineId = patrolProfile?.baseline_replay_id;
   const replay = active?.kind === "route_constrained_taught_baseline"
+    && (!lockedBaselineId || active.id === lockedBaselineId)
     ? active
     : replayList(currentMapEntry).find(item => (
       item?.kind === "route_constrained_taught_baseline"
@@ -2054,6 +2058,7 @@ async function startSimulatedBaselineLive() {
   showDemo({ resetVideo: false });
   await postJson("/api/drone/simulate-patrol-baseline", {
     map_id: currentMapEntry.id,
+    patrol_id: patrolProfile?.patrol_id || null,
     baseline_replay_id: replay.id,
     fps: selectedLiveAtlasFps(),
     recorded_timing: true,
@@ -2068,9 +2073,89 @@ function selectedLiveAtlasFps() {
   return Math.min(10, Math.max(0.5, raw));
 }
 
+function configuredLivePatrolProfiles(mapId = currentMapEntry?.id) {
+  const rawProfiles = [];
+  if (mapLibraryData?.live_patrol_lock?.enabled === true) {
+    rawProfiles.push(mapLibraryData.live_patrol_lock);
+  }
+  const extras = Array.isArray(mapLibraryData?.live_patrol_profiles)
+    ? mapLibraryData.live_patrol_profiles
+    : (Array.isArray(mapLibraryData?.live_patrol_profiles?.profiles)
+      ? mapLibraryData.live_patrol_profiles.profiles
+      : []);
+  rawProfiles.push(...extras.filter(profile => profile?.enabled === true));
+  const seen = new Set();
+  return rawProfiles.filter(profile => {
+    const key = `${profile?.map_id || ""}:${profile?.patrol_id || ""}`;
+    if (!profile?.map_id || !profile?.patrol_id || seen.has(key)) return false;
+    seen.add(key);
+    return !mapId || profile.map_id === mapId;
+  });
+}
+
+function livePatrolProfile(patrolId, mapId = currentMapEntry?.id) {
+  const requested = String(patrolId || "").trim();
+  return configuredLivePatrolProfiles(mapId).find(profile => profile.patrol_id === requested) || null;
+}
+
+function selectedLivePatrolProfile() {
+  const profiles = configuredLivePatrolProfiles();
+  if (!profiles.length) return null;
+  const selectedId = String(liveAtlasPatrolSelect?.value || "").trim();
+  return livePatrolProfile(selectedId)
+    || livePatrolProfile(activePatrolId)
+    || profiles[0];
+}
+
+function boundLivePatrolId() {
+  return String(
+    poseStreamMeta?.stream?.patrol_id
+    || (liveLocalizationStarted() ? pendingLivePatrolId : "")
+    || ""
+  ).trim();
+}
+
+function renderLivePatrolSelector(preferredPatrolId = "") {
+  if (!liveAtlasPatrolSelect) return;
+  const profiles = configuredLivePatrolProfiles();
+  const patrols = patrolList(currentMapEntry);
+  // Once localization is active, the backend-bound patrol is authoritative.
+  // Keeping a different value visible in the disabled selector makes it look
+  // as though another patrol can be started with the current pose stream.
+  const boundPatrol = liveLocalizationStarted() ? boundLivePatrolId() : "";
+  const prior = String(boundPatrol || preferredPatrolId || liveAtlasPatrolSelect.value || "").trim();
+  const fallback = profiles.some(profile => profile.patrol_id === prior)
+    ? prior
+    : (profiles.some(profile => profile.patrol_id === activePatrolId)
+      ? activePatrolId
+      : (profiles[0]?.patrol_id || ""));
+  liveAtlasPatrolSelect.innerHTML = profiles.length
+    ? profiles.map(profile => {
+      const patrol = patrols.find(item => item.id === profile.patrol_id);
+      const label = patrol ? patrolTitle(patrol) : profile.patrol_id;
+      return `<option value="${escapeHtml(profile.patrol_id)}">${escapeHtml(label)} · isolated profile</option>`;
+    }).join("")
+    : '<option value="">Map localization only</option>';
+  liveAtlasPatrolSelect.value = fallback;
+  liveAtlasPatrolSelect.disabled = liveLocalizationStarted();
+  const profile = selectedLivePatrolProfile();
+  if (startLiveAtlasButton) {
+    const label = profile
+      ? patrolTitle(patrols.find(item => item.id === profile.patrol_id) || { title: profile.patrol_id })
+      : "";
+    startLiveAtlasButton.textContent = liveLocalizationStarted()
+      ? `${label || "Live"} Localization Active`
+      : (profile ? `Start ${label} Localization` : "Start Localization");
+  }
+}
+
 function updateLiveControlSummary() {
   const fps = selectedLiveAtlasFps();
-  if (liveControlSummary) liveControlSummary.textContent = `${fps} FPS`;
+  const profile = selectedLivePatrolProfile();
+  const patrol = patrolList(currentMapEntry).find(item => item.id === profile?.patrol_id);
+  if (liveControlSummary) {
+    liveControlSummary.textContent = `${fps} FPS${patrol ? ` · ${patrolTitle(patrol)}` : ""}`;
+  }
 }
 
 function takeoffHeightM() {
@@ -3021,10 +3106,27 @@ function updateFlightControlState() {
   if (validatePatrolButton) validatePatrolButton.disabled = patrolPoints.length < 2;
   if (startPatrolButton) startPatrolButton.disabled = patrolPoints.length < 2;
   if (stopPatrolButton) stopPatrolButton.disabled = !liveStarted;
+  if (liveAtlasPatrolSelect) liveAtlasPatrolSelect.disabled = liveStarted;
+  if (startLiveAtlasButton) {
+    startLiveAtlasButton.disabled = liveStarted;
+    startLiveAtlasButton.title = liveStarted
+      ? "A live localization profile is already active. Stop Live before selecting or starting another patrol profile."
+      : "Start the selected patrol's isolated localization profile.";
+  }
   const movementLock = liveMovementLockReason();
+  const boundPatrol = boundLivePatrolId();
   for (const button of document.querySelectorAll('.saved-patrol-actions [data-action="play"]')) {
-    button.disabled = Boolean(movementLock);
-    button.title = movementLock || "Execute this saved patrol through the live DJI bridge.";
+    const wrongProfile = Boolean(boundPatrol && button.dataset.patrolId !== boundPatrol);
+    const reason = wrongProfile
+      ? "This localization session is isolated to another patrol. Stop Live, select this patrol, then start localization again."
+      : movementLock;
+    button.disabled = Boolean(reason);
+    button.title = reason || "Execute this saved patrol through the live DJI bridge.";
+    const hint = button.closest(".saved-patrol-item")?.querySelector(".saved-patrol-profile-status");
+    if (hint) {
+      hint.textContent = reason || "Ready with the matching localization profile.";
+      hint.dataset.tone = reason ? "error" : "ok";
+    }
   }
   updateEnemyResponseControls();
 }
@@ -4171,14 +4273,17 @@ function planMissionPreview() {
 
 async function startLiveAtlas() {
   const mapId = currentMapEntry?.id || mapLibraryData?.selected_map_id || "default_demo";
+  const patrolProfile = selectedLivePatrolProfile();
+  const patrolId = String(patrolProfile?.patrol_id || "").trim();
   const phoneIp = (liveAtlasPhoneIp?.value || "").trim();
   const fps = selectedLiveAtlasFps();
-  const liveCheckOnly = mapLibraryData?.live_patrol_lock?.flight_enabled === false;
+  const liveCheckOnly = patrolProfile?.flight_enabled === false;
   if (!phoneIp) {
     uploadStatus.textContent = "Enter the Android phone IP before starting Live ATLAS.";
     return;
   }
   rememberPhoneIp(phoneIp);
+  pendingLivePatrolId = patrolId;
   resetLocalizationGate({ preserveMission: true });
   await selectMap(mapId, false);
   pendingLiveReplayOpen = true;
@@ -4205,7 +4310,8 @@ async function startLiveAtlas() {
     "ok",
   );
   updateFlightControlState();
-  uploadStatus.textContent = `Starting Live ATLAS on ${currentMapEntry?.title || mapId}`;
+  const patrol = patrolList(currentMapEntry).find(item => item.id === patrolId);
+  uploadStatus.textContent = `Starting Live ATLAS on ${currentMapEntry?.title || mapId}${patrol ? ` for ${patrolTitle(patrol)}` : ""}`;
   await loadViewerData(false, currentMapEntry);
   liveReplayWaitingViewPrepared = true;
   showDemo({ resetVideo: false });
@@ -4213,6 +4319,7 @@ async function startLiveAtlas() {
   try {
     await postJson("/api/drone/live-atlas", {
       map_id: mapId,
+      patrol_id: patrolId || null,
       phone_ip: phoneIp,
       fps,
       max_size: 1200,
@@ -4223,6 +4330,7 @@ async function startLiveAtlas() {
     liveAtlasPreviewActive = false;
     pendingLiveReplayOpen = false;
     pendingLiveReplayMapId = null;
+    pendingLivePatrolId = "";
     setDjiCommandStatus("Live localization failed to start. Takeoff remains locked.", "error");
     updateFlightControlState();
     throw error;
@@ -4236,6 +4344,7 @@ async function stopLiveAtlas() {
   renderReplayTabs();
   await postJson("/api/drone/stop", {});
   liveAtlasPreviewActive = false;
+  pendingLivePatrolId = "";
   firstLocalizationConfirmed = false;
   plannedMission = null;
   renderMissionCommands([]);
@@ -5244,6 +5353,7 @@ function loadPatrolIntoEditor(patrol, options = {}) {
   editPatrolButton?.classList.toggle("active", patrolSelecting);
   patrolControlPanel?.classList.toggle("is-selecting", patrolSelecting);
   invalidateStaticLayer();
+  if (!liveLocalizationStarted()) renderLivePatrolSelector(patrol.id);
   renderSavedPatrols();
   updatePatrolStatus(
     options.selecting
@@ -5289,17 +5399,26 @@ async function persistPatrols(nextPatrols, statusMessage = "Saved patrols.") {
 async function savePatrolDraft() {
   if (patrolPoints.length < 2) {
     updatePatrolStatus("Add at least two patrol points before saving.", "error");
-    return;
+    return null;
   }
   const preview = validatePatrolPreview(false);
-  if (!preview) return;
+  if (!preview) return null;
   const payload = currentPatrolDraftPayload();
   const patrols = patrolList(currentMapEntry).filter(patrol => patrol.id !== payload.id);
   patrols.push(payload);
+  updatePatrolStatus(`Saving "${payload.title}"...`, "busy");
+  try {
+    await persistPatrols(patrols, `Saved patrol: ${payload.title}`);
+  } catch (error) {
+    const reason = error?.message || String(error || "Unknown save error");
+    updatePatrolStatus(`Patrol was not saved. ${reason}`, "error");
+    if (uploadStatus) uploadStatus.textContent = `Patrol save failed: ${reason}`;
+    return null;
+  }
   editingPatrolId = payload.id;
   activePatrolId = payload.id;
-  await persistPatrols(patrols, `Saved patrol: ${payload.title}`);
   updatePatrolStatus(`Saved "${payload.title}". At flight time, ATLAS will replan from the live drone pose to patrol point 1.`, "busy");
+  return payload;
 }
 
 async function deleteSavedPatrol(patrolId) {
@@ -5322,6 +5441,8 @@ async function deleteSavedPatrol(patrolId) {
 
 function renderSavedPatrols() {
   if (!savedPatrolList) return;
+  renderLivePatrolSelector();
+  updateLiveControlSummary();
   const patrols = patrolList(currentMapEntry);
   if (!patrols.length) {
     savedPatrolList.innerHTML = `<div class="saved-patrol-empty">No saved patrols yet. Press New Patrol, mark points on the clean map, then save.</div>`;
@@ -5338,7 +5459,7 @@ function renderSavedPatrols() {
         <span>${escapeHtml(savedPatrolDescription(patrol))}</span>
       </button>
       <div class="saved-patrol-actions">
-        <button type="button" data-action="play" data-patrol-id="${patrol.id}">Start Full Patrol · 2 Circles</button>
+        <button type="button" data-action="play" data-patrol-id="${patrol.id}">Start ${escapeHtml(patrolTitle(patrol))} · 2 Circles</button>
         ${recordingThisPatrol
           ? `<button type="button" data-action="record" data-patrol-id="${patrol.id}">Finish Teach</button>`
           : `<button type="button" data-action="record" data-patrol-id="${patrol.id}">Teach Full Loop</button>
@@ -5346,6 +5467,7 @@ function renderSavedPatrols() {
         <button type="button" data-action="adjust" data-patrol-id="${patrol.id}">Adjust</button>
         <button type="button" class="danger-action" data-action="delete" data-patrol-id="${patrol.id}">Delete</button>
       </div>
+      <small class="saved-patrol-profile-status" aria-live="polite"></small>
     `;
     item.querySelector(".saved-patrol-main")?.addEventListener("click", () => {
       loadPatrolIntoEditor(patrol, { selecting: false });
@@ -5439,6 +5561,14 @@ async function executeSavedPatrol(patrolId, patrolStage = "combined") {
   const patrol = patrolList(currentMapEntry).find(item => item.id === patrolId);
   if (!patrol) return;
   loadPatrolIntoEditor(patrol, { selecting: false });
+  const boundPatrol = boundLivePatrolId();
+  if (boundPatrol && boundPatrol !== patrolId) {
+    const reason = `Live Localization is currently bound to another patrol. Stop Live, select ${patrolTitle(patrol)}, and start its localization profile before flight.`;
+    updatePatrolStatus(reason, "error");
+    setDjiCommandStatus(reason, "error");
+    updateFlightControlState();
+    return;
+  }
   const lockReason = liveMovementLockReason();
   if (lockReason) {
     updatePatrolStatus(lockReason, "error");
@@ -12378,6 +12508,12 @@ phoneIpSelect?.addEventListener("change", () => {
   rememberPhoneIp(phoneIpSelect.value);
 });
 liveAtlasFps?.addEventListener("change", updateLiveControlSummary);
+liveAtlasPatrolSelect?.addEventListener("change", () => {
+  const patrolId = String(liveAtlasPatrolSelect.value || "").trim();
+  const patrol = patrolList(currentMapEntry).find(item => item.id === patrolId);
+  if (patrol && !liveLocalizationStarted()) loadPatrolIntoEditor(patrol, { selecting: false });
+  updateLiveControlSummary();
+});
 enemyDetectionEnabledInput?.addEventListener("change", () => {
   if (!enemyDetectionEnabledInput.checked && enemyPursuitInFlight) {
     enemyDetectionEnabledInput.checked = true;

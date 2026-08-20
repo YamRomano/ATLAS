@@ -391,6 +391,70 @@ def room_heading_separation_degrees(first: Any, second: Any) -> float | None:
     return abs(math.degrees(math.atan2(cross, dot)))
 
 
+def rotation_frame_gap_status(
+    previous_time: float | None,
+    current_time: float | None,
+    *,
+    max_gap_seconds: float = 0.30,
+) -> tuple[bool, float | None]:
+    """Return whether two camera frames are close enough for optical yaw.
+
+    The live consumer deliberately drops queued frames when localization falls
+    behind.  Lucas-Kanade flow across that discontinuity is not an adjacent-
+    frame measurement and can substantially under-count a real turn.  Treat
+    the first frame after a gap as a new seed; the following contiguous frame
+    can resume optical yaw normally.
+    """
+    try:
+        previous = float(previous_time) if previous_time is not None else None
+        current = float(current_time) if current_time is not None else None
+        maximum = float(max_gap_seconds)
+    except (TypeError, ValueError):
+        return False, None
+    if (
+        previous is None
+        or current is None
+        or not math.isfinite(previous)
+        or not math.isfinite(current)
+        or not math.isfinite(maximum)
+        or maximum <= 0.0
+    ):
+        return False, None
+    gap = current - previous
+    return bool(0.0 < gap <= maximum), gap
+
+
+def rotation_heading_timing_policy(
+    previous_time: float | None,
+    current_time: float | None,
+    *,
+    route_leg_index: int,
+    max_gap_seconds: float = 0.30,
+) -> tuple[bool, float | None, str]:
+    """Choose whether a frame pair may update live optical yaw.
+
+    Live ATLAS 09:30:17 established the reliable Point-1 -> Point-2 ->
+    Point-3 behavior by integrating every forward-in-time optical pair.  A
+    later global discontinuity guard fixed under-counted yaw on the weak
+    Point-3/Point-4 tail, but applying it to the established first two legs
+    discarded real turn motion whenever localization briefly exceeded 300 ms.
+
+    Keep the exact early-route behavior for legs 1 and 2.  The stricter
+    adjacent-frame requirement remains active for legs 3 and 4, where a
+    skipped burst previously produced the dangerous delayed-heading failure.
+    """
+    contiguous, gap = rotation_frame_gap_status(
+        previous_time,
+        current_time,
+        max_gap_seconds=max_gap_seconds,
+    )
+    if contiguous:
+        return True, gap, "adjacent_frame_pair"
+    if int(route_leg_index) in {1, 2} and gap is not None and gap > 0.0:
+        return True, gap, "legacy_093017_early_leg_continuity"
+    return False, gap, "strict_tail_gap_reseed"
+
+
 def optical_flow_yaw_delta(
     previous: np.ndarray | None,
     current: np.ndarray,
@@ -1032,6 +1096,23 @@ class LivePatrolRouteGate:
                     0.0,
                     min(1.0, command_progress_ceiling),
                 )
+        try:
+            route_pose_epoch = int(progress.get("route_pose_epoch") or 0)
+            route_pose_epoch_unix = float(progress.get("route_pose_epoch_unix"))
+        except (TypeError, ValueError):
+            route_pose_epoch = 0
+            route_pose_epoch_unix = float("nan")
+        route_pose_epoch_reason = str(
+            progress.get("route_pose_epoch_reason") or ""
+        )
+        if (
+            route_pose_epoch <= 0
+            or not math.isfinite(route_pose_epoch_unix)
+            or route_pose_epoch_reason != "verified_point4_handoff"
+        ):
+            route_pose_epoch = 0
+            route_pose_epoch_unix = None
+            route_pose_epoch_reason = ""
         return {
             "start": start,
             "end": end,
@@ -1069,6 +1150,9 @@ class LivePatrolRouteGate:
             "route_progress_command_budget_m": progress.get(
                 "route_progress_command_budget_m"
             ),
+            "route_pose_epoch": route_pose_epoch,
+            "route_pose_epoch_unix": route_pose_epoch_unix,
+            "route_pose_epoch_reason": route_pose_epoch_reason,
             "endpoint_overshoot_correction": endpoint_overshoot_correction,
             "recovery_hover": recovery_hover,
             "metric_position_recovery": metric_position_recovery,
@@ -1092,7 +1176,7 @@ class LivePatrolRouteGate:
         # it here reset visual progress every time the controller entered or
         # left recovery on the same physical leg.  Keep one monotonic key for
         # the complete leg and change it only for a new lap/leg.
-        return (
+        key = (
             context.get("lap"),
             context.get("leg_index"),
             round(start[0], 4),
@@ -1100,6 +1184,36 @@ class LivePatrolRouteGate:
             round(end[0], 4),
             round(end[2], 4),
         )
+        # The controller can verify Point 4 after leg 4 already became active.
+        # Add a second ownership boundary only when that explicit endpoint
+        # epoch exists. Ordinary legs and pre-handoff behavior keep their
+        # exact historical key and therefore their established tracking path.
+        try:
+            epoch = int(context.get("route_pose_epoch") or 0)
+        except (TypeError, ValueError):
+            epoch = 0
+        if epoch > 0:
+            return (*key, "route_pose_epoch", epoch)
+        return key
+
+    @staticmethod
+    def frame_predates_route_pose_epoch(
+        context: dict[str, Any] | None,
+        received_unix: Any,
+    ) -> bool:
+        if not isinstance(context, dict):
+            return False
+        try:
+            epoch = int(context.get("route_pose_epoch") or 0)
+            cutoff = float(context.get("route_pose_epoch_unix"))
+            received = float(received_unix)
+        except (TypeError, ValueError):
+            return bool(context.get("route_pose_epoch"))
+        if epoch <= 0:
+            return False
+        if not math.isfinite(cutoff) or not math.isfinite(received):
+            return True
+        return received < cutoff
 
     @staticmethod
     def _anchor_progress(context: dict[str, Any]) -> float | None:
@@ -1658,6 +1772,52 @@ def held_pose_from_last(
     return pose
 
 
+def latest_published_pose(
+    poses: object,
+    fallback: dict[str, Any] | None = None,
+) -> dict[str, Any] | None:
+    """Return the newest captured-frame pose, not the last completed worker.
+
+    A background COLMAP worker can complete late and append its older frame
+    after hundreds of newer live poses.  That recovery result may seed future
+    tracking, but it must never become the display/control position inherited
+    by a held pose for the current camera frame.
+    """
+    candidates = [
+        pose for pose in poses
+        if isinstance(pose, dict)
+    ] if isinstance(poses, list) else []
+    if not candidates:
+        return fallback
+
+    def order_key(pose: dict[str, Any]) -> tuple:
+        image_name = str(pose.get("image_name") or "")
+        try:
+            frame_index = int(Path(image_name).stem.rsplit("_", 1)[-1])
+        except (TypeError, ValueError):
+            frame_index = -1
+
+        def finite_number(value: object) -> tuple[int, float]:
+            try:
+                number = float(value)
+            except (TypeError, ValueError):
+                return (0, float("-inf"))
+            return (1, number) if math.isfinite(number) else (0, float("-inf"))
+
+        received_valid, received_unix = finite_number(pose.get("received_unix"))
+        time_valid, time_sec = finite_number(pose.get("time_sec"))
+        return (
+            1 if frame_index >= 0 else 0,
+            frame_index,
+            received_valid,
+            received_unix,
+            time_valid,
+            time_sec,
+        )
+
+    return max(candidates, key=order_key)
+
+
 def visual_route_pose_from_last(
     *,
     last_pose: dict[str, Any] | None,
@@ -2042,10 +2202,27 @@ def weak_patrol_leg_visual_primary_mode(
 def patrol_reference_frames_enabled(
     route_context: dict[str, Any] | None,
 ) -> bool:
-    """Recorded patrol frames are valid only through the Point-4 endpoint."""
+    """Return whether the complete recorded loop covers the active route leg."""
     if not isinstance(route_context, dict):
         return False
-    return int(route_context.get("leg_index") or 0) in {1, 2, 3}
+    return int(route_context.get("leg_index") or 0) in {1, 2, 3, 4}
+
+
+def visual_route_temporal_recovery_minimum_inliers(
+    configured_minimum_inliers: int,
+    *,
+    leg_index: int,
+) -> int:
+    """Return the audited neutral-hover recovery floor for one patrol leg.
+
+    The current Point-4 departure view in the 15:26 live flight produces a
+    stable 50-61 ORB/homography inliers against the existing bank. Keep the
+    established 90-inlier recovery floor everywhere else. This lower value is
+    never a normal-flight gate: recovery still requires five consecutive
+    frames and remains capped by the accumulated physical command distance.
+    """
+    configured = max(16, int(configured_minimum_inliers))
+    return max(50, configured) if int(leg_index) == 4 else max(90, configured)
 
 
 def visual_recovery_supersedes_stalled_metric_pose(
@@ -2099,7 +2276,10 @@ def visual_recovery_supersedes_stalled_metric_pose(
         return False
     if translation_safe:
         required_inliers = (
-            max(90, minimum_inliers)
+            visual_route_temporal_recovery_minimum_inliers(
+                minimum_inliers,
+                leg_index=int(route_context.get("leg_index") or 0),
+            )
             if temporal_recovery
             else max(120, minimum_inliers)
         )
@@ -2200,7 +2380,7 @@ def visual_route_heading_minimum_inliers(
     if int(leg_index) == 1:
         return max(72, int(round(base * 0.625)))
     if int(leg_index) == 4:
-        return max(30, int(round(base * 0.25)))
+        return max(50, int(round(base * 0.25)))
     return base
 
 
@@ -2341,7 +2521,10 @@ def visual_route_supervision_metadata(
             else (diagnostic.get("best_inliers") or 0)
         ),
         "route_visual_monitor_minimum_inliers": (
-            max(90, observation_minimum_inliers)
+            visual_route_temporal_recovery_minimum_inliers(
+                observation_minimum_inliers,
+                leg_index=leg_index,
+            )
             if temporal_recovery
             else max(120, int(minimum_inliers))
         ),
@@ -2801,9 +2984,16 @@ def route_guarded_output_rejection(
             isinstance(context, dict)
             and context.get("post_translation_progress_recovery") is True
         )
+        command_bounded_translation = bool(
+            isinstance(context, dict)
+            and (
+                post_translation_progress_recovery
+                or context.get("physical_translation_active") is True
+            )
+        )
         commanded_recovery_cap = 0.0
         commanded_recovery_progress_ok = True
-        if post_translation_progress_recovery and floor is not None:
+        if command_bounded_translation and floor is not None:
             try:
                 command_ceiling = float(
                     context.get("route_progress_command_ceiling")
@@ -2845,6 +3035,7 @@ def route_guarded_output_rejection(
             and (
                 controller_position_locked
                 or tracked_points >= 120
+                or command_bounded_translation
                 or (
                     post_yaw_controller_reanchor
                     and candidate_step <= float(post_yaw_reanchor_cap)
@@ -2863,8 +3054,12 @@ def route_guarded_output_rejection(
                 "post_yaw_controller_reanchor"
                 if post_yaw_controller_reanchor
                 else (
-                    "command_bounded_post_translation_recovery"
-                    if post_translation_progress_recovery
+                    (
+                        "command_bounded_post_translation_recovery"
+                        if post_translation_progress_recovery
+                        else "command_bounded_active_translation"
+                    )
+                    if command_bounded_translation
                     else "strong_route_tracking"
                 )
             )
@@ -4944,6 +5139,12 @@ def main() -> None:
     rotation_heading: list[float] | None = None
     rotation_heading_tracks = 0
     rotation_heading_delta_deg: float | None = None
+    rotation_prev_frame_time: float | None = None
+    rotation_heading_frame_gap_seconds: float | None = None
+    rotation_heading_timing_valid = False
+    rotation_heading_timing_policy_name = "uninitialized"
+    rotation_heading_max_frame_gap_seconds = 0.30
+    active_route_pose_epoch_key: tuple[int, float] | None = None
     # Resolution-specific fallback from the live DJI/COLMAP calibration
     # matrix (1200 x 675): K[0, 0] = K[1, 1] = 882.4866783165957 px.
     # A registered frame's current K still replaces this fallback below.
@@ -5077,6 +5278,11 @@ def main() -> None:
         }
         prev_gray = load_gray(resume_image)
         rotation_prev_gray = prev_gray.copy()
+        rotation_prev_frame_time = (
+            float(trusted_pose["time_sec"])
+            if trusted_pose.get("time_sec") is not None
+            else None
+        )
         stable_solve_point3d_ids = resume_ids.copy()
         last_output_pose = trusted_pose
         last_center = np.asarray(trusted_pose["center"], dtype=np.float64)
@@ -5122,8 +5328,40 @@ def main() -> None:
         """Attach independent optical yaw; it never changes pose validity."""
         if pose is None:
             return pose
+        # Held poses are copies of the previous publication.  Explicitly clear
+        # its yaw fields so a discontinuous current frame cannot inherit an old
+        # optical observation and masquerade as fresh feedback.
+        for stale_key in (
+            "rotation_heading",
+            "rotation_heading_source",
+            "rotation_heading_tracks",
+            "rotation_heading_delta_deg",
+        ):
+            pose.pop(stale_key, None)
+        pose.update(
+            {
+                "rotation_heading_timing_valid": bool(
+                    rotation_heading_timing_valid
+                ),
+                "rotation_heading_frame_gap_seconds": (
+                    float(rotation_heading_frame_gap_seconds)
+                    if rotation_heading_frame_gap_seconds is not None
+                    else None
+                ),
+                "rotation_heading_max_frame_gap_seconds": float(
+                    rotation_heading_max_frame_gap_seconds
+                ),
+                "rotation_heading_timing_policy": str(
+                    rotation_heading_timing_policy_name
+                ),
+            }
+        )
         heading = normalize_room_heading(rotation_heading)
-        if heading is not None and rotation_heading_tracks >= 16:
+        if (
+            rotation_heading_timing_valid
+            and heading is not None
+            and rotation_heading_tracks >= 16
+        ):
             pose.update(
                 {
                     "rotation_heading": heading,
@@ -5645,7 +5883,7 @@ def main() -> None:
                 # jump back to Point 4 for one frame at the lap seam.  Hold
                 # the latest published pose here while retaining
                 # ``last_output_pose`` for tracking/recovery continuity.
-                last_pose=(partial_poses[-1] if partial_poses else last_output_pose),
+                last_pose=latest_published_pose(partial_poses, last_output_pose),
                 current_frame=current_frame_meta,
                 reason=output_rejection_reason,
                 rotation_heading=rotation_heading,
@@ -6240,12 +6478,80 @@ def main() -> None:
                     rotation_focal_px = focal_candidate
             except (TypeError, ValueError, IndexError):
                 pass
-        rotation_delta, rotation_tracks = optical_flow_yaw_delta(
-            rotation_prev_gray,
-            curr_gray,
-            rotation_focal_px,
+        # Resolve the active patrol leg before optical yaw.  The validated
+        # 09:30:17 route used continuous integration on legs 1 and 2, while
+        # the later weak tail needs the stricter non-adjacent-frame reseed.
+        route_context = patrol_route_gate.active_context()
+        route_leg_index = (
+            int(route_context.get("leg_index") or 0)
+            if isinstance(route_context, dict)
+            else 0
         )
-        rotation_prev_gray = curr_gray
+        route_pose_epoch_key = None
+        if isinstance(route_context, dict):
+            try:
+                candidate_epoch = int(route_context.get("route_pose_epoch") or 0)
+                candidate_epoch_unix = float(
+                    route_context.get("route_pose_epoch_unix")
+                )
+            except (TypeError, ValueError):
+                candidate_epoch = 0
+                candidate_epoch_unix = float("nan")
+            if candidate_epoch > 0 and math.isfinite(candidate_epoch_unix):
+                route_pose_epoch_key = (
+                    candidate_epoch,
+                    candidate_epoch_unix,
+                )
+        route_pose_epoch_transition = bool(
+            route_pose_epoch_key is not None
+            and route_pose_epoch_key != active_route_pose_epoch_key
+        )
+        route_frame_predates_epoch = (
+            LivePatrolRouteGate.frame_predates_route_pose_epoch(
+                route_context,
+                current_frame_meta.get("received_unix"),
+            )
+        )
+        if route_pose_epoch_transition:
+            active_route_pose_epoch_key = route_pose_epoch_key
+            # Do not integrate a yaw delta across the exact Point-4 ownership
+            # boundary. The route/stabilizer key below independently resets
+            # visual progress and position bias to the controller's anchor.
+            rotation_prev_gray = None
+            rotation_prev_frame_time = None
+        (
+            rotation_heading_timing_valid,
+            rotation_heading_frame_gap_seconds,
+            rotation_heading_timing_policy_name,
+        ) = rotation_heading_timing_policy(
+            rotation_prev_frame_time,
+            current_frame_time,
+            route_leg_index=route_leg_index,
+            max_gap_seconds=rotation_heading_max_frame_gap_seconds,
+        )
+        rotation_heading_timing_valid = bool(
+            rotation_heading_timing_valid
+            and not route_frame_predates_epoch
+        )
+        if rotation_heading_timing_valid:
+            rotation_delta, rotation_tracks = optical_flow_yaw_delta(
+                rotation_prev_gray,
+                curr_gray,
+                rotation_focal_px,
+            )
+        else:
+            # Re-seed on the newest image without integrating a non-adjacent
+            # frame pair.  This is the exact lag mode that made the displayed
+            # Point-3 turn trail the physical DJI turn.
+            rotation_delta, rotation_tracks = None, 0
+        if route_frame_predates_epoch:
+            # Buffered frames captured before the verified endpoint must not
+            # seed optical yaw or recorded-route consensus for the new phase.
+            rotation_prev_gray = None
+            rotation_prev_frame_time = None
+        else:
+            rotation_prev_gray = curr_gray
+            rotation_prev_frame_time = current_frame_time
         rotation_heading_tracks = rotation_tracks
         rotation_heading_delta_deg = math.degrees(rotation_delta) if rotation_delta is not None else None
         if rotation_delta is not None and rotation_heading is not None:
@@ -6259,7 +6565,6 @@ def main() -> None:
         # The route gate is a metric safety input even when prerecorded visual
         # recovery is disabled.  Keeping it conditional on the visual matcher
         # previously removed leg/anchor ownership from TSolve-only patrols.
-        route_context = patrol_route_gate.active_context()
         route_key = (
             patrol_route_gate._key(route_context)
             if route_context is not None
@@ -6296,21 +6601,43 @@ def main() -> None:
             "reason": "visual_heading_unavailable"
         }
         # Keep the established 1->2->3 metric path unchanged.  The validated
-        # weak leg 3->4 is continuously supervised by current-frame matches
-        # against its locked baseline images.  Recorded patrol frames stop at
-        # Point 4: leg 4->1 uses only live COLMAP/TSolve and optical flow.
-        # TSolve and optical flow still run on every frame; verified route
-        # vision becomes position authority only when the metric pose stalls
-        # or disagrees.  The matcher selects by image evidence, never by the
-        # incoming frame number, so this remains valid for a new live flight.
-        reference_frames_enabled = patrol_reference_frames_enabled(route_context)
+        # weak leg 3->4 is continuously supervised by current-frame matches.
+        # The complete-loop bank also contains the real Point-4 departure and
+        # 4->1 frames.  On that leg route vision is a guarded fallback only:
+        # it supplies absolute heading during the locked turn, and position
+        # only during neutral recovery or after a rejected metric pose. TSolve
+        # and optical flow continue to run on every frame.
+        reference_frames_enabled = bool(
+            patrol_reference_frames_enabled(route_context)
+            and not route_frame_predates_epoch
+        )
+        controller_translation_locked = bool(
+            isinstance(route_context, dict)
+            and route_context.get("controller_translation_locked") is True
+        )
+        recovery_hover = bool(
+            isinstance(route_context, dict)
+            and route_context.get("recovery_hover") is True
+        )
         visual_route_needed = bool(
             reference_frames_enabled
             and (
-                route_context.get("controller_translation_locked") is True
-                or route_context.get("recovery_hover") is True
-                or force_route_taught_recovery
-                or int(route_context.get("leg_index") or 0) == 3
+                controller_translation_locked
+                or (
+                    route_leg_index == 4
+                    and (
+                        recovery_hover
+                        or force_route_taught_recovery
+                    )
+                )
+                or (
+                    route_leg_index != 4
+                    and (
+                        recovery_hover
+                        or force_route_taught_recovery
+                        or route_leg_index == 3
+                    )
+                )
             )
         )
         if (
@@ -6336,9 +6663,19 @@ def main() -> None:
                     "route_progress_command_ceiling"
                 ),
                 recovery_hover=bool(route_context.get("recovery_hover")),
-                independent_progress=bool(
-                    int(route_context.get("leg_index") or 0) == 3
+                recovery_minimum_inliers=(
+                    visual_route_temporal_recovery_minimum_inliers(
+                        50 if route_leg_index == 4 else 90,
+                        leg_index=route_leg_index,
+                    )
                 ),
+                independent_progress=bool(
+                    int(route_context.get("leg_index") or 0) in {3, 4}
+                ),
+                # Only Point 4->1 may use a progress-independent endpoint
+                # proof when TSolve remains stale behind the physical drone.
+                # Other legs retain their established route-window behavior.
+                allow_endpoint_only_recovery=bool(route_leg_index == 4),
                 sequence_index=frame_idx,
             )
             visual_attempted = True
@@ -6354,7 +6691,7 @@ def main() -> None:
             heading_leg_index = int(route_context.get("leg_index") or 0)
             if (
                 route_context.get("controller_translation_locked") is True
-                and heading_leg_index in {1, 2, 3}
+                and heading_leg_index in {1, 2, 3, 4}
             ):
                 heading_minimum_inliers = (
                     visual_route_heading_minimum_inliers(
@@ -6934,8 +7271,18 @@ def main() -> None:
                         "route_progress_command_ceiling"
                     ),
                     recovery_hover=bool(route_context.get("recovery_hover")),
+                    recovery_minimum_inliers=(
+                        visual_route_temporal_recovery_minimum_inliers(
+                            50
+                            if int(route_context.get("leg_index") or 0) == 4
+                            else 90,
+                            leg_index=int(
+                                route_context.get("leg_index") or 0
+                            ),
+                        )
+                    ),
                     independent_progress=bool(
-                        int(route_context.get("leg_index") or 0) == 3
+                        int(route_context.get("leg_index") or 0) in {3, 4}
                     ),
                     sequence_index=frame_idx,
                 )
@@ -7043,7 +7390,7 @@ def main() -> None:
             )
             print("FRAME SKIPPED:", json.dumps(rejected_row), flush=True)
             held = held_pose_from_last(
-                last_pose=(partial_poses[-1] if partial_poses else last_output_pose),
+                last_pose=latest_published_pose(partial_poses, last_output_pose),
                 current_frame=current_frame_meta,
                 reason=str(rejected_row["reason"]),
                 rotation_heading=rotation_heading,
@@ -7246,7 +7593,7 @@ def main() -> None:
             )
             print("FRAME SKIPPED:", json.dumps(rejected_row), flush=True)
             held = held_pose_from_last(
-                last_pose=(partial_poses[-1] if partial_poses else last_output_pose),
+                last_pose=latest_published_pose(partial_poses, last_output_pose),
                 current_frame=current_frame_meta,
                 reason=str(rejected_row["reason"]),
                 rotation_heading=rotation_heading,
@@ -7689,7 +8036,7 @@ def main() -> None:
 
         if output_rejection_reason is not None and last_output_pose is not None:
             pose_payload = held_pose_from_last(
-                last_pose=(partial_poses[-1] if partial_poses else last_output_pose),
+                last_pose=latest_published_pose(partial_poses, last_output_pose),
                 current_frame=current_frame_meta,
                 reason=output_rejection_reason,
                 rotation_heading=rotation_heading,

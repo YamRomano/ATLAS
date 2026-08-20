@@ -43,6 +43,7 @@ def main() -> None:
     parser.add_argument("--viewer-root", required=True, type=Path)
     parser.add_argument("--out", required=True, type=Path)
     parser.add_argument("--stride", type=int, default=2)
+    parser.add_argument("--max-features", type=int, default=1200)
     args = parser.parse_args()
 
     plan = json.loads(args.composite_plan.read_text(encoding="utf-8"))
@@ -93,6 +94,7 @@ def main() -> None:
         reference_path=args.baseline,
         segments=segments,
         anchor_stride=args.stride,
+        max_features=args.max_features,
     )
     result["segments"] = [
         {

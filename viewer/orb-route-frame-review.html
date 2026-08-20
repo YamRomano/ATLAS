@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ATLAS · ORB Route Validation Frames</title>
+    <link rel="stylesheet" href="orb-route-frame-review.css" />
+  </head>
+  <body>
+    <header class="hero">
+      <a class="back" href="/">← ATLAS</a>
+      <div>
+        <p class="eyebrow">LIVE PATROL EVIDENCE</p>
+        <h1>Exact ORB route-validation frames</h1>
+        <p class="summary" id="summary">Loading the active patrol bank…</p>
+      </div>
+      <div class="status"><span></span> IMMUTABLE BANK VIEW</div>
+    </header>
+
+    <main>
+      <section class="explanation">
+        <strong>What you are seeing</strong>
+        <span>Every card is an exact image anchor stored in the active ORB bank. Current live validation enables the 1→2, 2→3, and 3→4 anchors. The 4→1 anchors remain visible for audit but are intentionally not live reference authority. Matching uses Hamming distance and geometric checks against the commanded leg. This is not the COLMAP/SIFT map and it is not ORB-SLAM.</span>
+      </section>
+
+      <section class="metrics" id="metrics"></section>
+
+      <section class="controls">
+        <label>Source recording<select id="sourceFilter"><option value="all">All sources</option></select></label>
+        <label>Patrol leg<select id="legFilter"><option value="all">All legs</option><option value="1">1 → 2</option><option value="2">2 → 3</option><option value="3">3 → 4</option><option value="4">4 → 1</option></select></label>
+        <label>Find frame<input id="frameFilter" type="search" placeholder="e.g. 2014" /></label>
+        <label>Cards per page<select id="pageSize"><option>48</option><option selected>96</option><option>192</option></select></label>
+      </section>
+
+      <section class="result-bar">
+        <div id="resultCount"></div>
+        <div class="pagination">
+          <button id="previousPage">← Previous</button>
+          <span id="pageLabel"></span>
+          <button id="nextPage">Next →</button>
+        </div>
+      </section>
+
+      <section class="gallery" id="gallery"></section>
+
+      <section class="result-bar footer-pagination">
+        <div class="pagination">
+          <button id="previousPageBottom">← Previous</button>
+          <span id="pageLabelBottom"></span>
+          <button id="nextPageBottom">Next →</button>
+        </div>
+      </section>
+    </main>
+
+    <template id="cardTemplate">
+      <article class="frame-card">
+        <a class="image-link" target="_blank" rel="noreferrer"><img loading="lazy" alt="ORB anchor frame" /></a>
+        <div class="card-body">
+          <div class="card-title"><strong></strong><span class="leg-chip"></span></div>
+          <div class="progress-track"><i></i></div>
+          <dl>
+            <div><dt>Progress</dt><dd class="progress-value"></dd></div>
+            <div><dt>ORB descriptors</dt><dd class="descriptor-value"></dd></div>
+            <div><dt>Source</dt><dd class="source-value"></dd></div>
+            <div><dt>Bank index</dt><dd class="index-value"></dd></div>
+          </dl>
+        </div>
+      </article>
+    </template>
+
+    <script src="orb-route-frame-review.js"></script>
+  </body>
+</html>

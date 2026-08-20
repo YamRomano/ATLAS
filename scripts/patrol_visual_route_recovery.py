@@ -604,6 +604,7 @@ def extend_bank_with_recorded_segments(
     reference_path: Path,
     segments: list[dict[str, Any]],
     anchor_stride: int = 2,
+    replace_leg_indices: set[int] | None = None,
 ) -> dict[str, Any]:
     """Add route views from independent flights to an existing safe bank.
 
@@ -634,6 +635,58 @@ def extend_bank_with_recorded_segments(
     if missing:
         raise RuntimeError(f"Visual recovery bank is missing: {', '.join(missing)}")
 
+    removed_anchor_count = 0
+    replacement_legs = {
+        int(value) for value in (replace_leg_indices or set())
+    }
+    if replacement_legs:
+        invalid = sorted(value for value in replacement_legs if not 0 <= value < len(legs))
+        if invalid:
+            raise RuntimeError(f"Invalid replacement leg indices: {invalid}")
+        anchor_count = int(len(arrays["anchor_names"]))
+        keep_anchor = np.ones(anchor_count, dtype=bool)
+        for anchor_index in range(anchor_count):
+            for leg_index in replacement_legs:
+                leg_start = finite_vector(legs[leg_index].get("from"))
+                leg_end = finite_vector(legs[leg_index].get("to"))
+                if (
+                    leg_start is not None
+                    and leg_end is not None
+                    and horizontal_distance(
+                        arrays["anchor_from"][anchor_index], leg_start
+                    ) <= 0.08
+                    and horizontal_distance(
+                        arrays["anchor_to"][anchor_index], leg_end
+                    ) <= 0.08
+                ):
+                    keep_anchor[anchor_index] = False
+                    break
+        removed_anchor_count = int(np.count_nonzero(~keep_anchor))
+        old_to_new = np.full(anchor_count, -1, dtype=np.int32)
+        old_to_new[keep_anchor] = np.arange(
+            int(np.count_nonzero(keep_anchor)), dtype=np.int32
+        )
+        descriptor_anchor_ids = np.asarray(arrays["anchor_ids"], dtype=np.int32)
+        keep_descriptor = keep_anchor[descriptor_anchor_ids]
+        arrays["descriptors"] = arrays["descriptors"][keep_descriptor]
+        arrays["xy"] = arrays["xy"][keep_descriptor]
+        arrays["anchor_ids"] = old_to_new[
+            descriptor_anchor_ids[keep_descriptor]
+        ]
+        for key in (
+            "anchor_names",
+            "anchor_progress",
+            "anchor_centers",
+            "anchor_headings",
+            "anchor_from",
+            "anchor_to",
+            "source_frames",
+            "anchor_source_replay_ids",
+            "anchor_heading_priority",
+        ):
+            if key in arrays:
+                arrays[key] = arrays[key][keep_anchor]
+
     detector = cv2.ORB_create(nfeatures=1200, fastThreshold=10)
     descriptor_rows: list[np.ndarray] = []
     xy_rows: list[np.ndarray] = []
@@ -646,8 +699,8 @@ def extend_bank_with_recorded_segments(
     to_rows: list[np.ndarray] = []
     source_frames: list[int] = []
     source_ids: list[str] = []
+    heading_priorities: list[int] = []
     next_anchor_id = int(len(arrays["anchor_names"]))
-    stride = max(1, int(anchor_stride))
 
     for segment in segments:
         leg_index = int(segment.get("leg_index", -1))
@@ -669,7 +722,37 @@ def extend_bank_with_recorded_segments(
         if heading_norm <= 1.0e-9:
             raise RuntimeError(f"Patrol leg {leg_index + 1} has zero length")
         heading /= heading_norm
-        progress_by_frame = _forward_motion_profile(frame_dir, first, last)
+        progress_mode = str(segment.get("progress_mode") or "motion").strip().lower()
+        if progress_mode == "motion":
+            progress_by_frame = _forward_motion_profile(frame_dir, first, last)
+        elif progress_mode == "linear":
+            # A verified forward-only recording already supplies temporal
+            # ordering.  Linear frame progress is deliberately boring and
+            # monotonic; unlike image-expansion weighting it cannot collapse
+            # a low-texture leg and then jump at the final close-up.
+            denominator = max(1, last - first)
+            progress_by_frame = {
+                frame_index: float(frame_index - first) / float(denominator)
+                for frame_index in range(first, last + 1)
+            }
+        elif progress_mode == "start":
+            progress_by_frame = {
+                frame_index: 0.0 for frame_index in range(first, last + 1)
+            }
+        elif progress_mode == "end":
+            # A successful live flight may reach the physical waypoint while
+            # the metric pose remains frozen earlier on the leg.  Such frames
+            # are valuable endpoint evidence, but they are not a trustworthy
+            # source for reconstructing the intervening metric trajectory.
+            # Store them only at the commanded leg endpoint so adding a new
+            # viewpoint cannot perturb any already-working route progress.
+            progress_by_frame = {
+                frame_index: 1.0 for frame_index in range(first, last + 1)
+            }
+        else:
+            raise RuntimeError(f"Unsupported recorded-segment progress mode: {progress_mode}")
+        stride = max(1, int(segment.get("stride") or anchor_stride))
+        heading_priority = max(0, int(segment.get("heading_priority") or 0))
         selected_frames = list(range(first, last + 1, stride))
         if selected_frames[-1] != last:
             selected_frames.append(last)
@@ -694,15 +777,34 @@ def extend_bank_with_recorded_segments(
             to_rows.append(end.copy())
             source_frames.append(frame_index)
             source_ids.append(source_replay_id)
+            heading_priorities.append(heading_priority)
             next_anchor_id += 1
 
     if not names:
         raise RuntimeError("No usable anchors were added from the independent runs")
     base_anchor_count = int(len(arrays["anchor_names"]))
     base_replay_id = str(np.asarray(arrays["baseline_replay_id"]).tolist()[0])
-    base_source_ids = np.asarray(
-        [base_replay_id] * base_anchor_count,
-        dtype=f"<U{max(1, len(base_replay_id))}",
+    base_source_ids = (
+        np.asarray(arrays["anchor_source_replay_ids"])
+        if "anchor_source_replay_ids" in arrays
+        else np.asarray(
+            [base_replay_id] * base_anchor_count,
+            dtype=f"<U{max(1, len(base_replay_id))}",
+        )
+    )
+    base_heading_priorities = (
+        np.asarray(arrays["anchor_heading_priority"], dtype=np.int16)
+        if "anchor_heading_priority" in arrays
+        else np.zeros(base_anchor_count, dtype=np.int16)
+    )
+    # Recompute this metadata from the anchors that survived replacement.
+    # Keeping the old bank-level list here leaves removed flights advertised as
+    # active sources, which hides accidental mixed-route banks from audits.
+    existing_source_ids = list(
+        dict.fromkeys(str(value) for value in base_source_ids.tolist())
+    )
+    combined_source_ids = list(
+        dict.fromkeys([*existing_source_ids, *source_ids])
     )
     arrays.update(
         {
@@ -737,8 +839,14 @@ def extend_bank_with_recorded_segments(
             "anchor_source_replay_ids": np.concatenate(
                 [base_source_ids, np.asarray(source_ids)]
             ),
+            "anchor_heading_priority": np.concatenate(
+                [
+                    base_heading_priorities,
+                    np.asarray(heading_priorities, dtype=np.int16),
+                ]
+            ),
             "source_replay_ids": np.asarray(
-                list(dict.fromkeys([base_replay_id, *source_ids]))
+                combined_source_ids
             ),
         }
     )
@@ -747,9 +855,10 @@ def extend_bank_with_recorded_segments(
         "out": str(Path(out_path).resolve()),
         "base_bank": str(Path(base_bank_path).resolve()),
         "base_anchors": base_anchor_count,
+        "removed_anchors": removed_anchor_count,
         "added_anchors": len(names),
         "total_anchors": int(len(arrays["anchor_names"])),
-        "source_replay_ids": list(dict.fromkeys([base_replay_id, *source_ids])),
+        "source_replay_ids": combined_source_ids,
     }
 
 
@@ -770,6 +879,12 @@ class PatrolVisualRouteRecovery:
         endpoint_required_hits: int = 3,
         matching_profile: str = "hierarchical",
     ) -> None:
+        normalized_matching_profile = str(matching_profile).strip().lower()
+        if normalized_matching_profile not in {"exact", "hierarchical"}:
+            raise ValueError(
+                "matching_profile must be 'exact' or 'hierarchical'"
+            )
+        self.matching_profile = normalized_matching_profile
         self.bank_path = Path(bank_path)
         with np.load(self.bank_path, allow_pickle=False) as bank:
             self.descriptors = np.asarray(bank["descriptors"], dtype=np.uint8)
@@ -782,6 +897,11 @@ class PatrolVisualRouteRecovery:
             self.anchor_from = np.asarray(bank["anchor_from"], dtype=np.float64)
             self.anchor_to = np.asarray(bank["anchor_to"], dtype=np.float64)
             self.source_frames = np.asarray(bank["source_frames"], dtype=np.int32)
+            self.anchor_heading_priority = (
+                np.asarray(bank["anchor_heading_priority"], dtype=np.int16)
+                if "anchor_heading_priority" in bank.files
+                else np.zeros(len(self.anchor_names), dtype=np.int16)
+            )
             self.map_id = str(bank["map_id"].tolist()[0])
             self.patrol_id = str(bank["patrol_id"].tolist()[0])
             self.baseline_replay_id = str(bank["baseline_replay_id"].tolist()[0])
@@ -796,12 +916,6 @@ class PatrolVisualRouteRecovery:
                 ] * len(self.anchor_names)
         self.detector = cv2.ORB_create(nfeatures=1200, fastThreshold=10)
         self.matcher = cv2.BFMatcher(cv2.NORM_HAMMING)
-        normalized_matching_profile = str(matching_profile).strip().lower()
-        if normalized_matching_profile not in {"exact", "hierarchical"}:
-            raise ValueError(
-                "matching_profile must be 'exact' or 'hierarchical'"
-            )
-        self.matching_profile = normalized_matching_profile
         self.last_match_diagnostic: dict[str, Any] = {}
         # The bank is immutable for the lifetime of this matcher.  Building
         # descriptor row lists inside every frame/anchor loop used
@@ -916,6 +1030,46 @@ class PatrolVisualRouteRecovery:
             positions = np.linspace(0, len(endpoint) - 1, 32)
             endpoint = sorted({endpoint[int(round(value))] for value in positions})
         return nonendpoint + endpoint
+
+    def _endpoint_only_recovery_anchors(
+        self,
+        segment_anchors: list[int],
+    ) -> list[int]:
+        """Return source-balanced endpoint evidence within the live budget.
+
+        Tail recovery runs in addition to the ordinary local route matcher.
+        Repeating the full 32-endpoint/24-sentinel audit made one frame take
+        about 240 ms. Six endpoint views per recorded flight preserve the
+        different viewpoints, while six whole-leg sentinels retain negative
+        evidence against a repeated mid-room image.
+        """
+
+        def evenly_spaced(values: list[int], limit: int) -> list[int]:
+            if len(values) <= limit:
+                return list(values)
+            positions = np.linspace(0, len(values) - 1, limit)
+            return sorted({values[int(round(value))] for value in positions})
+
+        endpoint_by_source: dict[str, list[int]] = {}
+        nonendpoint = sorted(
+            (
+                int(index)
+                for index in segment_anchors
+                if float(self.anchor_progress[index]) < 0.90
+            ),
+            key=lambda index: float(self.anchor_progress[index]),
+        )
+        for raw_index in segment_anchors:
+            index = int(raw_index)
+            if float(self.anchor_progress[index]) < 0.90:
+                continue
+            endpoint_by_source.setdefault(
+                self.anchor_source_replay_ids[index], []
+            ).append(index)
+        endpoints: list[int] = []
+        for source_indices in endpoint_by_source.values():
+            endpoints.extend(evenly_spaced(source_indices, 6))
+        return sorted(set(evenly_spaced(nonendpoint, 6) + endpoints))
 
     def _reset_for_key(self, key: tuple[Any, ...]) -> None:
         if key == self.active_key:
@@ -1513,10 +1667,23 @@ class PatrolVisualRouteRecovery:
         ]
         if not anchors:
             return None, {"reason": "visual_heading_departure_anchors_missing"}
-        # Five adjacent recorded views are enough to absorb a small waypoint
-        # position difference without adding a full route-matching pass to
-        # every 10-FPS turn frame.
-        anchors = anchors[:5]
+        # A later audited live tail may supersede an older departure view
+        # without replacing the proven route on other legs. When such views
+        # are present, use only the highest-priority heading set. They remain
+        # heading-only evidence and cannot publish position or progress.
+        highest_heading_priority = max(
+            int(self.anchor_heading_priority[index]) for index in anchors
+        )
+        if highest_heading_priority > 0:
+            anchors = [
+                index
+                for index in anchors
+                if int(self.anchor_heading_priority[index])
+                == highest_heading_priority
+            ]
+        # Keep the turn matcher bounded at 10 FPS. Eight adjacent audited
+        # views absorb hover drift while still fitting in the frame budget.
+        anchors = anchors[:8]
 
         started = cv2.getTickCount()
         query_keypoints, query_descriptors = self.detector.detectAndCompute(
@@ -1596,7 +1763,9 @@ class PatrolVisualRouteRecovery:
         progress_hint: float | None = None,
         progress_ceiling: float | None = None,
         recovery_hover: bool = False,
+        recovery_minimum_inliers: int | None = None,
         independent_progress: bool = False,
+        allow_endpoint_only_recovery: bool = False,
         sequence_index: int | None = None,
     ) -> tuple[dict[str, Any] | None, dict[str, Any]]:
         if translation_locked:
@@ -1615,13 +1784,40 @@ class PatrolVisualRouteRecovery:
                     0.0,
                     min(1.0, command_progress_ceiling),
                 )
+        effective_recovery_minimum_inliers = self.recovery_minimum_inliers
+        if recovery_minimum_inliers is not None:
+            # A caller may lower only the neutral-hover recovery floor for a
+            # separately audited weak view sector. Normal route acquisition
+            # remains at ``self.minimum_inliers`` and every accepted recovery
+            # still needs the existing five-frame temporal consensus plus the
+            # controller's hard physical progress ceiling.
+            effective_recovery_minimum_inliers = max(
+                32,
+                min(self.minimum_inliers, int(recovery_minimum_inliers)),
+            )
         segment_anchors = self._matching_anchors(segment_start, segment_end)
+        # ``anchor_heading_priority > 0`` marks an audited departure-heading
+        # view. Those images are valid yaw evidence, but they do not describe
+        # progress along the leg. Letting one win route acquisition locked the
+        # 20-Aug Point-1 -> Point-2 run to five manual-tail departure frames
+        # (all progress 0.0). At Point 2 that source had no endpoint anchors,
+        # so the progress window became empty before ORB was even executed.
+        # Keep heading-only evidence in ``departure_heading_alignment`` and
+        # exclude it from this position matcher.
+        segment_anchors = [
+            index
+            for index in segment_anchors
+            if int(self.anchor_heading_priority[index]) <= 0
+        ]
         # Keep an immutable whole-leg set for endpoint alias auditing and
         # recovery rewind.  The live search below is intentionally narrowed by
         # source/progress/time, but reusing that narrowed list for the alleged
         # "whole-leg" endpoint check hid the real mid-leg view in the 10:38
         # run and compared only six endpoint frames against one another.
         complete_segment_anchors = list(segment_anchors)
+        if not complete_segment_anchors:
+            self._mark_unverified()
+            return None, {"reason": "visual_route_progress_anchors_missing"}
         selected_source_replay_id = (
             self.active_source_replay_id
             or (
@@ -1630,13 +1826,52 @@ class PatrolVisualRouteRecovery:
                 else None
             )
         )
+        released_source_replay_id: str | None = None
+
+        def release_incomplete_source_lock() -> None:
+            """Reacquire this leg without carrying a partial source clock."""
+            nonlocal released_source_replay_id, selected_source_replay_id
+            released_source_replay_id = selected_source_replay_id
+            selected_source_replay_id = None
+            self.active_source_replay_id = None
+            self.pending_source_replay_id = None
+            self.pending_progress = None
+            self.pending_hits = 0
+            self.needs_acquisition = True
+            self.last_matched_source_frame = None
+            self.last_sequence_index = None
+            self.weak_endpoint_progress = None
+            self.weak_endpoint_hits = 0
+            self.temporal_recovery_progress = None
+            self.temporal_recovery_source_replay_id = None
+            self.temporal_recovery_hits = 0
+            # Endpoint consensus cannot be combined across a source whose
+            # route coverage just proved incomplete.
+            self.endpoint_candidate_progress = None
+            self.endpoint_hits = 0
+            self.endpoint_verified = False
+            self.endpoint_view_geometry_verified = False
+            self.endpoint_view_scale_min = None
+            self.endpoint_view_scale_max = None
+
         if selected_source_replay_id is not None:
-            segment_anchors = [
+            source_segment_anchors = [
                 index
                 for index in segment_anchors
                 if self.anchor_source_replay_ids[index]
                 == selected_source_replay_id
             ]
+            if source_segment_anchors:
+                segment_anchors = source_segment_anchors
+            elif recovery_hover:
+                # A source may intentionally contain only a departure-heading
+                # clip. During a neutral recovery hover, release that source
+                # and reacquire from complete route recordings instead of
+                # waiting forever on an empty list.
+                release_incomplete_source_lock()
+                segment_anchors = list(complete_segment_anchors)
+            else:
+                segment_anchors = []
         if not segment_anchors:
             self._mark_unverified()
             return None, {"reason": "visual_route_segment_not_in_locked_baseline"}
@@ -1683,12 +1918,16 @@ class PatrolVisualRouteRecovery:
                     <= temporal_ceiling
                 ]
             if not segment_anchors:
-                self._mark_unverified()
-                return None, {
-                    "reason": "visual_route_temporal_anchor_window_empty",
-                    "temporal_floor": temporal_floor,
-                    "temporal_ceiling": temporal_ceiling,
-                }
+                if recovery_hover and selected_source_replay_id is not None:
+                    release_incomplete_source_lock()
+                    segment_anchors = list(complete_segment_anchors)
+                else:
+                    self._mark_unverified()
+                    return None, {
+                        "reason": "visual_route_temporal_anchor_window_empty",
+                        "temporal_floor": temporal_floor,
+                        "temporal_ceiling": temporal_ceiling,
+                    }
         committed_candidates = [0.0]
         if self.last_progress is not None:
             committed_candidates.append(float(self.last_progress))
@@ -1722,9 +1961,31 @@ class PatrolVisualRouteRecovery:
             for index in segment_anchors
             if floor <= self.anchor_progress[index] <= ceiling
         ]
+        if (
+            not anchors
+            and recovery_hover
+            and selected_source_replay_id is not None
+        ):
+            # The locked recording covers this leg but not the part currently
+            # reported by the metric route clock. Reacquire across complete
+            # route sources. This changes only which saved images ORB checks;
+            # the command-progress ceiling and multi-frame endpoint gate below
+            # remain unchanged.
+            release_incomplete_source_lock()
+            segment_anchors = list(complete_segment_anchors)
+            anchors = [
+                index
+                for index in segment_anchors
+                if floor <= self.anchor_progress[index] <= ceiling
+            ]
         if not anchors:
             self._mark_unverified()
-            return None, {"reason": "visual_route_no_anchor_in_progress_window"}
+            return None, {
+                "reason": "visual_route_no_anchor_in_progress_window",
+                "progress_floor": floor,
+                "progress_ceiling": ceiling,
+                "released_source_replay_id": released_source_replay_id,
+            }
 
         started = cv2.getTickCount()
         query_keypoints, query_descriptors = self.detector.detectAndCompute(
@@ -1733,14 +1994,163 @@ class PatrolVisualRouteRecovery:
         if query_descriptors is None or len(query_keypoints) < 120:
             self._mark_unverified()
             return None, {"reason": "visual_route_query_features_missing"}
+
+        # Tail-only endpoint recovery is deliberately independent from the
+        # local route-progress window.  The real aircraft may have consumed
+        # several already-authorized forward pulses while TSolve and the
+        # published model remain near the beginning of 4->1.  In that state a
+        # genuine Point-1 image lies beyond the command-progress search window,
+        # so the ordinary matcher cannot reach the endpoint audit below.
+        #
+        # This path is opt-in from the live controller only for leg 4, runs
+        # only during neutral recovery hover, requires the existing three-frame
+        # whole-leg endpoint/geometry proof, and never publishes position past
+        # the physical command ceiling.  Its sole authority is to stop motion
+        # and latch the shared waypoint in the controller.
+        endpoint_only_metadata: dict[str, Any] | None = None
+        endpoint_only_candidates: list[dict[str, Any]] = []
+        if (
+            allow_endpoint_only_recovery
+            and recovery_hover
+            and independent_progress
+            and command_progress_ceiling is not None
+            and command_progress_ceiling >= 0.45
+        ):
+            endpoint_only_candidates = self._match_candidates(
+                query_keypoints=query_keypoints,
+                query_descriptors=query_descriptors,
+                anchors=self._endpoint_only_recovery_anchors(
+                    complete_segment_anchors
+                ),
+                minimum_geometric_inliers=60,
+                force_exact=True,
+            )
+            endpoint_only_metadata = self._update_endpoint_verification(
+                endpoint_only_candidates
+            )
+            if endpoint_only_metadata.get("endpoint_verified") is True:
+                endpoint_minimum = max(
+                    72,
+                    int(endpoint_only_metadata.get("endpoint_minimum_inliers") or 0),
+                )
+                endpoint_winners = [
+                    item
+                    for item in endpoint_only_candidates
+                    if float(item.get("progress") or 0.0) >= 0.90
+                    and int(item.get("inliers") or 0) >= endpoint_minimum
+                    and item.get("endpoint_view_geometry_verified") is not False
+                ]
+                if endpoint_winners:
+                    endpoint_winner = max(
+                        endpoint_winners,
+                        key=geometric_candidate_rank,
+                    )
+                    start = finite_vector(segment_start)
+                    end = finite_vector(segment_end)
+                    assert start is not None and end is not None
+                    # Keep the displayed/controller progress at the last
+                    # published value.  The bridge consumes the independent
+                    # endpoint proof, stops the leg, and then publishes the
+                    # exact Point-1 anchor; recognition alone never invents
+                    # intermediate translation.
+                    endpoint_progress = min(
+                        command_progress_ceiling,
+                        max(0.0, min(1.0, float(base_progress))),
+                    )
+                    center = start + (end - start) * endpoint_progress
+                    endpoint_anchor_id = int(endpoint_winner["anchor_id"])
+                    return {
+                        "verified": True,
+                        "center": center.astype(float).tolist(),
+                        "heading": self.anchor_headings[endpoint_anchor_id]
+                        .astype(float)
+                        .tolist(),
+                        "progress": endpoint_progress,
+                        "matched_progress": float(
+                            self.anchor_progress[endpoint_anchor_id]
+                        ),
+                        "inliers": int(endpoint_winner["inliers"]),
+                        "ratio_matches": int(endpoint_winner["ratio_matches"]),
+                        "anchor_name": str(endpoint_winner["anchor_name"]),
+                        "source_frame": int(endpoint_winner["source_frame"]),
+                        "source_replay_id": str(
+                            endpoint_winner.get("source_replay_id") or ""
+                        ),
+                        "acquisition_hits": int(
+                            endpoint_only_metadata.get("endpoint_hits") or 0
+                        ),
+                        "minimum_inliers": endpoint_minimum,
+                        "map_id": self.map_id,
+                        "patrol_id": self.patrol_id,
+                        "baseline_replay_id": self.baseline_replay_id,
+                        "translation_safe": True,
+                        "command_progress_ceiling": command_progress_ceiling,
+                        "command_progress_guarded": True,
+                        "unbounded_progress": 1.0,
+                        "weak_endpoint_recovery": False,
+                        "temporal_recovery": False,
+                        "temporal_recovery_hits": 0,
+                        "temporal_recovery_required_hits": int(
+                            self.recovery_acquisition_hits
+                        ),
+                        "endpoint_guarded": False,
+                        "endpoint_guard_progress": self.endpoint_guard_progress,
+                        "endpoint_safe_prearrival_progress": endpoint_progress,
+                        "released_source_replay_id": released_source_replay_id,
+                        "endpoint_only_recovery": True,
+                        **endpoint_only_metadata,
+                    }, {
+                        "reason": "",
+                        "endpoint_only_recovery": True,
+                        "candidate_count": len(endpoint_only_candidates),
+                        "best_inliers": int(endpoint_winner["inliers"]),
+                        "progress": endpoint_progress,
+                        "command_progress_ceiling": command_progress_ceiling,
+                        "total_ms": 1000.0
+                        * (cv2.getTickCount() - started)
+                        / cv2.getTickFrequency(),
+                    }
+            if int(endpoint_only_metadata.get("endpoint_hits") or 0) > 0:
+                # The current image already passed the whole-leg endpoint
+                # candidate test. Stay neutral and collect the remaining
+                # distinct frames without also running the ordinary local
+                # progress matcher; doing both doubled recovery latency while
+                # providing no additional movement authority.
+                return None, {
+                    "reason": "visual_route_endpoint_only_acquiring",
+                    "endpoint_only_hits": int(
+                        endpoint_only_metadata.get("endpoint_hits") or 0
+                    ),
+                    "endpoint_only_required_hits": int(
+                        endpoint_only_metadata.get("endpoint_required_hits") or 0
+                    ),
+                    "endpoint_only_verified": False,
+                    "endpoint_only_best_progress": endpoint_only_metadata.get(
+                        "endpoint_best_progress"
+                    ),
+                    "endpoint_only_best_inliers": int(
+                        endpoint_only_metadata.get("endpoint_best_inliers") or 0
+                    ),
+                    "endpoint_only_best_anchor": endpoint_only_metadata.get(
+                        "endpoint_best_anchor"
+                    ),
+                    "total_ms": 1000.0
+                    * (cv2.getTickCount() - started)
+                    / cv2.getTickFrequency(),
+                }
         candidates = self._match_candidates(
             query_keypoints=query_keypoints,
             query_descriptors=query_descriptors,
             anchors=anchors,
-            # Every successful route path requires at least 60 geometric
-            # inliers (the recovery-hover endpoint floor). Candidates below
-            # that bound cannot influence publication or endpoint consensus.
-            minimum_geometric_inliers=60,
+            # Normal route and endpoint decisions retain their 60+ geometric
+            # floor. A separately audited weak departure sector may lower the
+            # neutral-hover temporal-recovery floor; that result is still
+            # command-bounded and requires five consecutive frames.
+            minimum_geometric_inliers=(
+                min(60, effective_recovery_minimum_inliers)
+                if recovery_hover
+                else 60
+            ),
             # Recovery hover may use multi-anchor weak endpoint consensus;
             # retain its complete candidate set rather than the normal-flight
             # winner-only hierarchy.
@@ -1749,7 +2159,11 @@ class PatrolVisualRouteRecovery:
         elapsed_ms = 1000.0 * (cv2.getTickCount() - started) / cv2.getTickFrequency()
         if not candidates:
             self._mark_unverified()
-            return None, {"reason": "visual_route_no_candidates", "total_ms": elapsed_ms}
+            return None, {
+                "reason": "visual_route_no_candidates",
+                "released_source_replay_id": released_source_replay_id,
+                "total_ms": elapsed_ms,
+            }
         candidates.sort(key=geometric_candidate_rank, reverse=True)
         winner = candidates[0]
         winner_source_replay_id = str(winner.get("source_replay_id") or "")
@@ -1782,13 +2196,30 @@ class PatrolVisualRouteRecovery:
             )
             if weak_endpoint is None and (
                 not recovery_hover
-                or int(winner["inliers"]) < self.recovery_minimum_inliers
+                or int(winner["inliers"])
+                < effective_recovery_minimum_inliers
             ):
                 self._mark_unverified()
                 return None, {
                     "reason": "visual_route_inliers_below_threshold",
                     "best_inliers": int(winner["inliers"]),
-                    "minimum_inliers": self.minimum_inliers,
+                    "minimum_inliers": effective_recovery_minimum_inliers,
+                    "endpoint_only_hits": int(
+                        (endpoint_only_metadata or {}).get("endpoint_hits") or 0
+                    ),
+                    "endpoint_only_verified": bool(
+                        (endpoint_only_metadata or {}).get("endpoint_verified")
+                    ),
+                    "endpoint_only_best_progress": (
+                        (endpoint_only_metadata or {}).get("endpoint_best_progress")
+                    ),
+                    "endpoint_only_best_inliers": int(
+                        (endpoint_only_metadata or {}).get("endpoint_best_inliers")
+                        or 0
+                    ),
+                    "endpoint_only_best_anchor": (
+                        (endpoint_only_metadata or {}).get("endpoint_best_anchor")
+                    ),
                     "total_ms": elapsed_ms,
                 }
             if weak_endpoint is not None:
@@ -1844,7 +2275,7 @@ class PatrolVisualRouteRecovery:
                 proposed = sequence_candidate_progress(
                     candidates,
                     previous=matched_base_progress,
-                    minimum_inliers=self.recovery_minimum_inliers,
+                    minimum_inliers=effective_recovery_minimum_inliers,
                     forward_window=sequence_forward_window,
                 )
                 if proposed is None:
@@ -1852,7 +2283,7 @@ class PatrolVisualRouteRecovery:
                     return None, {
                         "reason": "visual_route_temporal_recovery_consensus_missing",
                         "best_inliers": int(winner["inliers"]),
-                        "minimum_inliers": self.recovery_minimum_inliers,
+                        "minimum_inliers": effective_recovery_minimum_inliers,
                         "total_ms": elapsed_ms,
                     }
                 if (
@@ -1881,7 +2312,7 @@ class PatrolVisualRouteRecovery:
                         "acquisition_hits": self.temporal_recovery_hits,
                         "required_hits": self.recovery_acquisition_hits,
                         "best_inliers": int(winner["inliers"]),
-                        "minimum_inliers": self.recovery_minimum_inliers,
+                        "minimum_inliers": effective_recovery_minimum_inliers,
                         "total_ms": elapsed_ms,
                     }
                 proposed = max(
@@ -1889,7 +2320,9 @@ class PatrolVisualRouteRecovery:
                     float(self.temporal_recovery_progress),
                 )
                 temporal_recovery = True
-                effective_minimum_inliers = self.recovery_minimum_inliers
+                effective_minimum_inliers = (
+                    effective_recovery_minimum_inliers
+                )
                 self.needs_acquisition = False
                 self.pending_progress = float(proposed)
                 self.pending_source_replay_id = winner_source_replay_id
@@ -2253,6 +2686,7 @@ class PatrolVisualRouteRecovery:
             if self.pending_hits < self.acquisition_hits:
                 return None, {
                     "reason": "visual_route_acquiring",
+                    "released_source_replay_id": released_source_replay_id,
                     "acquisition_hits": self.pending_hits,
                     "required_hits": self.acquisition_hits,
                     "best_inliers": int(winner["inliers"]),
@@ -2362,9 +2796,11 @@ class PatrolVisualRouteRecovery:
             "endpoint_guarded": endpoint_guarded,
             "endpoint_guard_progress": self.endpoint_guard_progress,
             "endpoint_safe_prearrival_progress": safe_prearrival_progress,
+            "released_source_replay_id": released_source_replay_id,
             **endpoint_metadata,
         }, {
             "reason": "",
+            "released_source_replay_id": released_source_replay_id,
             "candidate_count": len(candidates),
             "best_inliers": int(winner["inliers"]),
             "progress": proposed_progress,

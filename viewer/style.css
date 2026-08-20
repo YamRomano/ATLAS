@@ -1695,6 +1695,21 @@ body[data-map-mesh-placement="editing"] #lock-map-mesh {
   border-color: rgba(255, 91, 130, 0.42);
 }
 
+.saved-patrol-profile-status {
+  display: block;
+  color: #9eddec;
+  font-size: 10px;
+  line-height: 1.3;
+}
+
+.saved-patrol-profile-status[data-tone="error"] {
+  color: #ffb2c3;
+}
+
+.saved-patrol-profile-status[data-tone="ok"] {
+  color: #8fffcf;
+}
+
 .drone-control-panel.is-locked {
   opacity: 0.62;
 }
