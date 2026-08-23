@@ -24,6 +24,99 @@ SPEC.loader.exec_module(localizer)
 
 
 class LiveRoomAlignmentTests(unittest.TestCase):
+    def test_post_translation_hover_uses_route_bounded_fixed_center_recovery(self):
+        context = {
+            "controller_translation_locked": True,
+            "post_translation_progress_recovery": True,
+            "route_progress_command_sequence": 1,
+            "route_progress_command_ceiling": 0.0695,
+        }
+
+        self.assertTrue(localizer.route_bounded_fixed_center_recovery(context))
+        self.assertFalse(
+            localizer.route_bounded_fixed_center_recovery(
+                {**context, "controller_translation_locked": False}
+            )
+        )
+        self.assertFalse(
+            localizer.route_bounded_fixed_center_recovery(
+                {**context, "post_translation_progress_recovery": False}
+            )
+        )
+        self.assertFalse(
+            localizer.route_bounded_fixed_center_recovery(
+                {**context, "route_progress_command_sequence": 0}
+            )
+        )
+
+    def test_verified_lap_checkpoint_rebases_tsolve_tracking_without_relaxing_normal_gate(self):
+        anchor = np.asarray([-1.36, 0.21, -0.97], dtype=float)
+        solved = np.asarray([-1.62, 0.41, -1.68], dtype=float)
+        pool = {
+            "lap_start_metric_rebootstrap": True,
+            "fixed_center_position_lock": True,
+            "tsolve_only_correspondences": True,
+            "valid_2d3d": 95,
+            "fixed_center_median_angle_degrees": 0.86,
+            "correspondence_spread": {"ok": True},
+        }
+        result = {
+            "success": True,
+            "R": np.eye(3).tolist(),
+            "t": (-solved).tolist(),
+            "objective": 6.7,
+        }
+
+        rebase = localizer.lap_checkpoint_output_rebase(
+            pool=pool,
+            result=result,
+            lap_start_metric_center=anchor,
+        )
+
+        self.assertIsNotNone(rebase)
+        tracking_center, output_bias = rebase
+        np.testing.assert_allclose(tracking_center, solved)
+        np.testing.assert_allclose(tracking_center + output_bias, anchor)
+        self.assertIsNone(
+            localizer.lap_checkpoint_output_rebase(
+                pool={**pool, "lap_start_metric_rebootstrap": False},
+                result=result,
+                lap_start_metric_center=anchor,
+            )
+        )
+
+    def test_verified_lap_checkpoint_rejects_weak_or_unbounded_rebase(self):
+        anchor = np.zeros(3, dtype=float)
+        result = {
+            "success": True,
+            "R": np.eye(3).tolist(),
+            "t": [-1.2, 0.0, 0.0],
+            "objective": 4.0,
+        }
+        valid_pool = {
+            "lap_start_metric_rebootstrap": True,
+            "fixed_center_position_lock": True,
+            "tsolve_only_correspondences": True,
+            "valid_2d3d": 60,
+            "fixed_center_median_angle_degrees": 0.7,
+            "correspondence_spread": {"ok": True},
+        }
+
+        self.assertIsNone(
+            localizer.lap_checkpoint_output_rebase(
+                pool=valid_pool,
+                result=result,
+                lap_start_metric_center=anchor,
+            )
+        )
+        self.assertIsNone(
+            localizer.lap_checkpoint_output_rebase(
+                pool={**valid_pool, "valid_2d3d": 39},
+                result={**result, "t": [-0.5, 0.0, 0.0]},
+                lap_start_metric_center=anchor,
+            )
+        )
+
     def test_point4_pose_epoch_is_an_in_leg_tracking_boundary_only(self):
         ordinary = {
             "lap": 1,
@@ -2983,6 +3076,7 @@ class LiveRoomAlignmentTests(unittest.TestCase):
                 {
                     "metric_position_recovery_allowed": True,
                     "require_metric_pose": True,
+                    "lap_start_metric_rebootstrap": True,
                 }
             )
             status_path.write_text(json.dumps(status), encoding="utf-8")
@@ -2992,6 +3086,7 @@ class LiveRoomAlignmentTests(unittest.TestCase):
         self.assertFalse(metric_checkpoint["position_guard_locked"])
         self.assertTrue(metric_checkpoint["metric_position_recovery"])
         self.assertTrue(metric_checkpoint["require_metric_pose"])
+        self.assertTrue(metric_checkpoint["lap_start_metric_rebootstrap"])
 
     def test_post_translation_recovery_accepts_only_issued_route_budget(self):
         segment_length = 2.589597223809809
@@ -3004,6 +3099,7 @@ class LiveRoomAlignmentTests(unittest.TestCase):
             "position_guard_locked": False,
             "post_translation_progress_recovery": True,
             "route_progress_command_ceiling": ceiling,
+            "route_progress_command_tolerance_m": 0.12,
         }
 
         class RouteGate:
@@ -3075,7 +3171,96 @@ class LiveRoomAlignmentTests(unittest.TestCase):
             "command_bounded_post_translation_recovery",
         )
 
-        reason, _accepted, _timestamp, _observation = guarded(0.39)
+        # The failed live run had a current-frame TSolve catch-up 10.4 cm past
+        # the nominal accumulated RC distance. It is still inside the explicit
+        # one-time coast tolerance and the 0.55 m hard continuity cap.
+        reason, accepted, _timestamp, observation = guarded(0.39)
+        self.assertIsNone(reason)
+        self.assertTrue(np.allclose(accepted[0], 0.39 * segment_length))
+        self.assertAlmostEqual(
+            observation["route_progress_command_tolerance_m"],
+            0.12,
+        )
+
+        reason, _accepted, _timestamp, _observation = guarded(0.42)
+        self.assertIsNotNone(reason)
+
+    def test_live_163619_delayed_tsolve_pose_uses_one_bounded_coast_tolerance(self):
+        """The real Point-1->2 catch-up solve must not be held forever.
+
+        Live ATLAS 16:36:19 had issued five bounded forward windows.  The
+        current-frame TSolve center was route-consistent and 11.8 cm beyond
+        the nominal RC-distance ceiling, while still only 33.5 cm from the
+        last trusted center.  That is a delayed observation of already-issued
+        motion, not authority for another command.
+        """
+        segment_length = 2.589597223809809
+        floor = 0.263409402881221
+        ceiling = 0.34754439482906235
+        context = {
+            "start": [0.0, 0.0, 0.0],
+            "end": [segment_length, 0.0, 0.0],
+            "anchor": [floor * segment_length, 0.0, 0.0],
+            "position_guard_locked": False,
+            "post_translation_progress_recovery": True,
+            "route_progress_command_ceiling": ceiling,
+            "route_progress_command_sequence": 5,
+            "route_progress_command_tolerance_m": 0.12,
+        }
+
+        class RouteGate:
+            enabled = True
+            last_key = ("patrol_leg", 0, 1)
+            last_progress = floor
+
+            def active_context(self):
+                return context
+
+            def rejection(self, candidate, _previous):
+                progress, cross_track = localizer.route_segment_projection_xz(
+                    candidate, context["start"], context["end"]
+                )
+                return None, {
+                    "key": self.last_key,
+                    "progress": progress,
+                    "cross_track": cross_track,
+                    "context": context,
+                }
+
+        previous = np.asarray([floor * segment_length, 0.0, 0.0])
+
+        def guarded(progress):
+            candidate = np.asarray([progress * segment_length, 0.0, 0.0])
+            return localizer.route_guarded_output_rejection(
+                case={"time_sec": 10.1, "tracked_pool_points": 235},
+                result={
+                    "success": True,
+                    "objective": 20.0,
+                    "R": np.eye(3).tolist(),
+                    "t": (-candidate).tolist(),
+                },
+                previous_center=previous,
+                previous_time=10.0,
+                previous_pose={"rcenter": previous.tolist()},
+                route_gate=RouteGate(),
+                room_transform=lambda center: center,
+                output_center_bias=None,
+                max_step=0.30,
+                max_speed=0.85,
+                objective_threshold=30.0,
+            )
+
+        reason, accepted, _timestamp, observation = guarded(0.3929547842579859)
+        self.assertIsNone(reason)
+        self.assertTrue(np.allclose(accepted[0], 0.3929547842579859 * segment_length))
+        self.assertEqual(
+            observation["route_continuity_override_source"],
+            "command_bounded_post_translation_recovery",
+        )
+
+        # Even with the same strong TSolve pool, the tolerance remains a hard
+        # total envelope: another 1.8 cm beyond it is not accepted.
+        reason, _accepted, _timestamp, _observation = guarded(0.40)
         self.assertIsNotNone(reason)
 
     def test_active_translation_accepts_only_current_issued_route_envelope(self):

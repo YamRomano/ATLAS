@@ -4630,6 +4630,21 @@ def execute_guarded_mission_packet(
         0.05,
         0.30,
     )
+    # A DJI RC window is not a precise distance actuator: braking/coast and
+    # frame exposure can place the first post-command metric observation a few
+    # centimetres beyond the nominal accumulated command distance.  Keep this
+    # as one bounded tolerance on the complete outstanding envelope (not per
+    # pulse), so it can recover a delayed TSolve pose without authorizing
+    # unbounded movement.
+    route_progress_command_tolerance_m = min(
+        max_unverified_translation_m,
+        clamp_float(
+            mission.get("route_progress_command_tolerance_m"),
+            0.12,
+            0.02,
+            0.15,
+        ),
+    )
     try:
         requested_patrol_laps = int(mission.get("patrol_laps") or 0)
     except (TypeError, ValueError):
@@ -4847,6 +4862,9 @@ def execute_guarded_mission_packet(
                         "route_progress_command_budget_m": (
                             max_unverified_translation_m
                         ),
+                        "route_progress_command_tolerance_m": (
+                            route_progress_command_tolerance_m
+                        ),
                         "route_pose_epoch": active_route_pose_epoch,
                         "route_pose_epoch_unix": active_route_pose_epoch_unix,
                         "route_pose_epoch_reason": active_route_pose_epoch_reason,
@@ -4945,6 +4963,7 @@ def execute_guarded_mission_packet(
         require_observed_translation_progress: bool = False,
         allow_visual_stationary_retry: bool = False,
         require_metric_pose: bool = False,
+        lap_start_metric_rebootstrap: bool = False,
     ) -> dict[str, Any] | None:
         nonlocal abort_reason, last_pose_gate, active_route_progress
         nonlocal total_pose_recovery_pause_seconds
@@ -5000,6 +5019,9 @@ def execute_guarded_mission_packet(
                         "pose_gate": last_recovery_gate,
                         "continuous_relocalization": continuous_relocalization,
                         "require_metric_pose": require_metric_pose,
+                        "lap_start_metric_rebootstrap": bool(
+                            lap_start_metric_rebootstrap
+                        ),
                         # A metric checkpoint is a neutral hover, not a yaw
                         # command.  Permit the localizer to publish the newly
                         # measured raw room position instead of projecting it
@@ -7374,8 +7396,29 @@ def execute_guarded_mission_packet(
                             if rotation_alignment_ready_at is None:
                                 neutral_hover(drone, 0.12)
                                 continue
+                            # A verified visual Point-1 endpoint is sufficient
+                            # to authorize this yaw-only alignment, but it is
+                            # not a metric position measurement for the next
+                            # lap.  The synthetic route anchor intentionally
+                            # reports an otherwise healthy gate, so checking
+                            # only ``rotation_position_untrusted`` allowed one
+                            # forward pulse before the lap rebootstrap ran.
+                            # Force every repeated-lap Point-1 departure
+                            # through current-frame metric recovery before any
+                            # horizontal RC can be emitted.
+                            if lap_point_one_handoff:
+                                rotation_position_untrusted = True
                             if rotation_position_untrusted:
-                                if point_three_recorded_stop:
+                                if lap_point_one_handoff:
+                                    # At the second-lap Point-1 boundary the
+                                    # endpoint and heading can both be visually
+                                    # correct while the last metric raw center
+                                    # still belongs to Point 4. Do not consume
+                                    # the generic one-pulse visual departure:
+                                    # rebootstrap TSolve from the first-lap
+                                    # Point-1 view before any translation.
+                                    endpoint_departure_gate = None
+                                elif point_three_recorded_stop:
                                     endpoint_departure_gate = (
                                         verified_recorded_point_three_departure_gate(
                                             verified_endpoint_turn_source_gate,
@@ -7555,6 +7598,10 @@ def execute_guarded_mission_packet(
                                         "waiting for the verified recorded route position after heading alignment",
                                         timeout=max_rotation_position_recovery_seconds,
                                         require_translation_safe=True,
+                                        require_metric_pose=lap_point_one_handoff,
+                                        lap_start_metric_rebootstrap=(
+                                            lap_point_one_handoff
+                                        ),
                                     )
                                     if recovered_gate is None:
                                         break
@@ -9394,6 +9441,9 @@ def execute_guarded_mission_packet(
             "cruise_window_seconds": cruise_window_seconds,
             "cruise_pose_watchdog_seconds": cruise_pose_watchdog_seconds,
             "max_unverified_translation_m": max_unverified_translation_m,
+            "route_progress_command_tolerance_m": (
+                route_progress_command_tolerance_m
+            ),
             "localization_recovery_hover_seconds": total_pose_recovery_pause_seconds,
             "pulse_seconds": pulse_seconds,
             "max_forward_rc": max_forward_rc,

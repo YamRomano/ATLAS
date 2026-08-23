@@ -4827,11 +4827,16 @@ def add_faiss_live_arguments(
     cmd.extend(
         [
             "--faiss-index-dir", index_dir,
-            "--faiss-nprobe", cfg.get("live_faiss_nprobe", 32),
-            "--faiss-top-k", cfg.get("live_faiss_top_k", 32),
-            "--faiss-ratio", cfg.get("live_faiss_ratio", 0.80),
+            "--faiss-nprobe", cfg.get("live_faiss_nprobe", 8),
+            "--faiss-top-k", cfg.get("live_faiss_top_k", 48),
+            "--faiss-ratio", cfg.get("live_faiss_ratio", 0.86),
             "--faiss-min-points", cfg.get("live_faiss_min_points", 40),
             "--faiss-reprojection-error", cfg.get("live_faiss_reprojection_error", 6.0),
+            "--opencv-sift-max-features", cfg.get("live_opencv_sift_max_features", 2400),
+            "--opencv-sift-n-octave-layers", cfg.get("live_opencv_sift_n_octave_layers", 3),
+            "--opencv-sift-contrast-threshold", cfg.get("live_opencv_sift_contrast_threshold", 0.02),
+            "--opencv-sift-edge-threshold", cfg.get("live_opencv_sift_edge_threshold", 12.0),
+            "--opencv-sift-sigma", cfg.get("live_opencv_sift_sigma", 1.6),
         ]
     )
 
@@ -5894,6 +5899,11 @@ def dji_live_atlas_job(
                     cfg.get("live_patrol_turn_max_position_drift", 0.75),
                 ]
             )
+            # A repeated patrol lap must close the metric loop at Point 1.
+            # The bridge requests this only at the verified Point-1 handoff;
+            # the localizer then runs a current-frame TSolve rebootstrap before
+            # the first Point-1->2 command of the next lap.
+            live_stream_cmd.append("--wait-for-metric-checkpoint-recovery")
             if live_patrol_lock.get("visual_recovery_path"):
                 live_stream_cmd.extend(
                     [
@@ -7569,6 +7579,7 @@ def fleet_live_atlas_job(drone_id: str) -> None:
                     cfg.get("live_patrol_turn_max_position_drift", 0.75),
                 ]
             )
+            live_cmd.append("--wait-for-metric-checkpoint-recovery")
             if live_patrol_lock.get("visual_recovery_path"):
                 live_cmd.extend(
                     [

@@ -22,6 +22,15 @@ LOCALIZER_PATH = Path(__file__).resolve().parents[1] / "scripts" / "run_bounded_
 OVERLAY_PATH = Path(__file__).resolve().parents[1] / "viewer" / "drone_glb_overlay.js"
 APP_PATH = Path(__file__).resolve().parents[1] / "viewer" / "app.js"
 SERVER_PATH = Path(__file__).resolve().parents[1] / "scripts" / "atlas_app_server.py"
+SETUP_RUNTIME_PATH = (
+    Path(__file__).resolve().parents[1] / "scripts" / "setup_tsolve_runtime.py"
+)
+SETUP_RUNTIME_SPEC = importlib.util.spec_from_file_location(
+    "setup_tsolve_runtime", SETUP_RUNTIME_PATH
+)
+assert SETUP_RUNTIME_SPEC and SETUP_RUNTIME_SPEC.loader
+setup_runtime = importlib.util.module_from_spec(SETUP_RUNTIME_SPEC)
+SETUP_RUNTIME_SPEC.loader.exec_module(setup_runtime)
 GEOMETRY_LOCK_PATH = (
     Path(__file__).resolve().parents[1]
     / "viewer"
@@ -65,6 +74,33 @@ FULL_RECORDED_PATROL_RESULT = (
 
 
 class PatrolSafetyTests(unittest.TestCase):
+    def test_tsolve_runtime_restores_missing_template_core_from_base_harness(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            base_yam_code = root / "base" / "yam_code"
+            base_harness = root / "base" / "harness"
+            generated_harness = root / "runtime" / "harness"
+            base_yam_code.mkdir(parents=True)
+            base_harness.mkdir(parents=True)
+            generated_harness.mkdir(parents=True)
+            expected = "# canonical TSolve template core\n"
+            (base_harness / "ysolve_template_core.py").write_text(
+                expected,
+                encoding="utf-8",
+            )
+
+            setup_runtime.ensure_harness_dependencies(
+                base_yam_code,
+                generated_harness,
+            )
+
+            self.assertEqual(
+                (generated_harness / "ysolve_template_core.py").read_text(
+                    encoding="utf-8"
+                ),
+                expected,
+            )
+
     def test_partial_pose_writer_imports_regex_dependency(self):
         source = LOCALIZER_PATH.read_text(encoding="utf-8")
         self.assertIn("\nimport re\n", source[:1000])
@@ -303,6 +339,28 @@ class PatrolSafetyTests(unittest.TestCase):
         self.assertIn("lap_point_one_handoff = True", checkpoint)
         self.assertNotIn("require_metric_pose=True,", checkpoint)
 
+        departure_start = source.index(
+            "if lap_point_one_handoff:\n"
+            "                                rotation_position_untrusted = True",
+            lap_end,
+        )
+        departure_end = source.index(
+            "confirmed_rotation_angle = alignment_angle",
+            departure_start,
+        )
+        repeated_lap_departure = source[departure_start:departure_end]
+        self.assertIn("if lap_point_one_handoff:", repeated_lap_departure)
+        self.assertIn("endpoint_departure_gate = None", repeated_lap_departure)
+        self.assertIn(
+            "require_metric_pose=lap_point_one_handoff",
+            repeated_lap_departure,
+        )
+        self.assertIn(
+            "lap_start_metric_rebootstrap=(\n"
+            "                                            lap_point_one_handoff",
+            repeated_lap_departure,
+        )
+
         endpoint_start = source.index("if visual_checkpoint_arrival:")
         endpoint_end = source.index(
             "if (\n                            tight_point_three_candidate",
@@ -319,9 +377,49 @@ class PatrolSafetyTests(unittest.TestCase):
         )
         self.assertIn('route_context.get("require_metric_pose") is True', localizer)
         self.assertIn("lap_start_metric_center", localizer)
-        self.assertIn("lap_checkpoint_taught_consensus_recovery", localizer)
+        self.assertIn("lap_checkpoint_pair_vote_fixed_center_tsolve", localizer)
+        self.assertIn("skip_faiss=True", localizer)
+        self.assertIn("position_locked=True", localizer)
+        self.assertIn("direct_fixed_center_sift_consensus_to_tsolve", localizer)
         self.assertIn("LAP CHECKPOINT CURRENT-FRAME METRIC RECOVERY", localizer)
+        self.assertIn("LAP CHECKPOINT TSOLVE TRACK REBASED", localizer)
         self.assertIn("superseded_by_new_lap_metric_checkpoint", localizer)
+        self.assertIn(
+            'route_context.get("lap_start_metric_rebootstrap") is True',
+            localizer,
+        )
+        self.assertIn('pool["lap_start_metric_rebootstrap"] = True', localizer)
+        self.assertIn(
+            "lap_checkpoint_output_rebase(",
+            localizer,
+        )
+        self.assertIn(
+            "continuity_previous_center, output_center_bias = lap_rebase",
+            localizer,
+        )
+        self.assertIn(
+            "and not lap_start_metric_rebootstrap",
+            localizer,
+        )
+        fixed_center_start = localizer.index(
+            "if bool(position_locked) and expected is not None:"
+        )
+        fixed_center_end = localizer.index(
+            "solutions: list[dict[str, Any]] = []",
+            fixed_center_start,
+        )
+        fixed_center_recovery = localizer[fixed_center_start:fixed_center_end]
+        self.assertNotIn("solvePnPRansac", fixed_center_recovery)
+        self.assertIn('"tsolve_only_correspondences": True', fixed_center_recovery)
+        self.assertIn('"pnp_hypotheses": 0', fixed_center_recovery)
+
+        server = SERVER_PATH.read_text(encoding="utf-8")
+        self.assertGreaterEqual(
+            server.count(
+                'append("--wait-for-metric-checkpoint-recovery")'
+            ),
+            3,
+        )
 
         viewer = APP_PATH.read_text(encoding="utf-8")
         self.assertIn("opticalHeadingTracks >= 16", viewer)
@@ -4793,7 +4891,7 @@ class PatrolSafetyTests(unittest.TestCase):
         self.assertIn("last_online_recovery_anchor_frame = frame_idx", recovery)
         self.assertIn("online_recovery_anchor_count += 1", recovery)
 
-    def test_fixed_center_recovery_is_only_enabled_while_controller_locks_translation(self):
+    def test_fixed_center_recovery_covers_stopped_post_translation_hover(self):
         source = LOCALIZER_PATH.read_text(encoding="utf-8")
         start = source.index("    def schedule_background_global_recovery(")
         end = source.index("    def append_global_recovery_pose(", start)
@@ -4802,8 +4900,14 @@ class PatrolSafetyTests(unittest.TestCase):
             'recovery_route_context.get("controller_translation_locked") is True',
             scheduler,
         )
+        self.assertIn(
+            "route_bounded_recovery = route_bounded_fixed_center_recovery(",
+            scheduler,
+        )
+        self.assertIn("or route_bounded_recovery", scheduler)
         self.assertIn('"position_locked_recovery": position_locked_recovery', scheduler)
         self.assertIn("position_locked=position_locked_recovery", scheduler)
+        self.assertIn("faiss_only=faiss_only_recovery", scheduler)
 
     def test_bridge_shutdown_cancels_mission_before_socket_close(self):
         source = BRIDGE_PATH.read_text(encoding="utf-8")

@@ -1398,7 +1398,7 @@
       "deletable": true,
       "kind": "fixed_reference_map",
       "created_at": "2026-07-30 11:48:51",
-      "updated_at": "2026-08-23 15:53:35",
+      "updated_at": "2026-08-23 17:04:09",
       "counts": {
         "points": 440249,
         "dense_points": 0,
@@ -4534,9 +4534,24 @@
             "failed": 1
           },
           "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260823_154451_94903f/query_frames"
+        },
+        {
+          "id": "dji_live_20260823_170043_deb268",
+          "title": "Live ATLAS 17:00:43",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260823_170043_deb268",
+          "created_at": "2026-08-23 17:04:09",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 101,
+            "accepted": 101,
+            "frames": 713,
+            "held": 612,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260823_170043_deb268/query_frames"
         }
       ],
-      "active_replay_id": "dji_live_20260823_154451_94903f"
+      "active_replay_id": "dji_live_20260823_170043_deb268"
     }
   ],
   "hidden_builtin_ids": [

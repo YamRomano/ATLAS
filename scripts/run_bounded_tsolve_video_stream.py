@@ -1176,6 +1176,10 @@ class LivePatrolRouteGate:
             and progress.get("metric_position_recovery_allowed") is True
             and progress.get("require_metric_pose") is True
         )
+        lap_start_metric_rebootstrap = bool(
+            metric_position_recovery
+            and progress.get("lap_start_metric_rebootstrap") is True
+        )
         post_translation_progress_recovery = bool(
             recovery_hover
             and phase == "pose_recovery"
@@ -1262,12 +1266,16 @@ class LivePatrolRouteGate:
             "route_progress_command_budget_m": progress.get(
                 "route_progress_command_budget_m"
             ),
+            "route_progress_command_tolerance_m": progress.get(
+                "route_progress_command_tolerance_m"
+            ),
             "route_pose_epoch": route_pose_epoch,
             "route_pose_epoch_unix": route_pose_epoch_unix,
             "route_pose_epoch_reason": route_pose_epoch_reason,
             "endpoint_overshoot_correction": endpoint_overshoot_correction,
             "recovery_hover": recovery_hover,
             "metric_position_recovery": metric_position_recovery,
+            "lap_start_metric_rebootstrap": lap_start_metric_rebootstrap,
             "post_translation_progress_recovery": (
                 post_translation_progress_recovery
             ),
@@ -3001,6 +3009,14 @@ def global_recovery_continuity_rejection(
         return None
     recovered_center = pool_reference_center(pool)
     if recovered_center is None:
+        # OpenCV-SIFT/Faiss recovery deliberately returns correspondences, not
+        # an OpenCV pose. TSolve will estimate R,t immediately afterward and
+        # the ordinary output, route and command-envelope gates validate that
+        # estimate against last_center before it can be published or move the
+        # drone. Requiring a fabricated pre-TSolve center here would silently
+        # reintroduce PnP into the live path.
+        if pool.get("tsolve_only_correspondences") is True:
+            return None
         return "global_recovery_missing_colmap_center"
     previous = np.asarray(last_center, dtype=float).reshape(3)
     if not np.all(np.isfinite(previous)):
@@ -3076,6 +3092,7 @@ def continuity_max_step(
 
 OUTPUT_OBJECTIVE_REJECTION_THRESHOLD = 26.0
 TRACKED_OBJECTIVE_HARD_MULTIPLIER = 2.0
+LAP_CHECKPOINT_MAX_METRIC_REBASE_M = 1.0
 # The output gate may be configured more tightly than this (the lab currently
 # uses 0.30 m), but that publication threshold is not proof that the underlying
 # 2D-to-3D optical correspondences are corrupt.  Keep tracking through bounded
@@ -3087,6 +3104,40 @@ TRACKING_RESET_HARD_MOTION_CAP = 0.55
 def tracking_reset_hard_motion_cap(configured_output_cap: float) -> float:
     """Separate pose-publication strictness from destructive tracker reset."""
     return max(float(configured_output_cap), TRACKING_RESET_HARD_MOTION_CAP)
+
+
+def route_bounded_fixed_center_recovery(
+    route_context: dict[str, Any] | None,
+) -> bool:
+    """Use the issued route envelope to disambiguate a stopped live recovery.
+
+    After a bounded horizontal command, the aircraft is neutral and the
+    controller knows that its position is confined to the retained command
+    envelope. A free all-map PnP can still select a repeated-room alias and
+    then fall through to a many-second legacy COLMAP match. In this specific
+    recovery phase, use the last trusted metric center only to verify the
+    FAISS correspondences' orientation before TSolve estimates the new pose.
+
+    This is correspondence selection, not pose publication: TSolve and the
+    ordinary continuity, route, objective, and command-envelope gates still
+    decide whether the resulting position is accepted.
+    """
+    if not isinstance(route_context, dict):
+        return False
+    if route_context.get("controller_translation_locked") is not True:
+        return False
+    if route_context.get("post_translation_progress_recovery") is not True:
+        return False
+    try:
+        command_sequence = int(
+            route_context.get("route_progress_command_sequence") or 0
+        )
+        command_ceiling = float(
+            route_context.get("route_progress_command_ceiling")
+        )
+    except (TypeError, ValueError):
+        return False
+    return bool(command_sequence > 0 and math.isfinite(command_ceiling))
 
 
 def output_objective_rejection(
@@ -3107,6 +3158,59 @@ def output_objective_rejection(
             f"{threshold:.3f}"
         )
     return None
+
+
+def lap_checkpoint_output_rebase(
+    *,
+    pool: dict[str, Any],
+    result: dict[str, Any],
+    lap_start_metric_center: np.ndarray | None,
+) -> tuple[np.ndarray, np.ndarray] | None:
+    """Rebase one verified loop closure without weakening normal jump gates.
+
+    Point 1 is independently confirmed by the controller's stopped motion and
+    visual checkpoint matcher. A fresh, spatially distributed COLMAP SIFT
+    consensus may nevertheless make unconstrained TSolve choose the same view
+    from a nearby depth root. Accept that root only at this explicit handoff,
+    preserve TSolve's raw center for subsequent optical tracking, and carry a
+    constant output bias that keeps the public/controller pose on the proven
+    first-lap Point-1 anchor.
+    """
+    if (
+        pool.get("lap_start_metric_rebootstrap") is not True
+        or pool.get("fixed_center_position_lock") is not True
+        or pool.get("tsolve_only_correspondences") is not True
+        or lap_start_metric_center is None
+        or not result.get("success")
+    ):
+        return None
+    try:
+        inliers = int(pool.get("valid_2d3d") or 0)
+        median_angle = float(pool.get("fixed_center_median_angle_degrees"))
+    except (TypeError, ValueError):
+        return None
+    spread = pool.get("correspondence_spread")
+    solved_center = result_center_from_rt(result)
+    reference = np.asarray(lap_start_metric_center, dtype=float).reshape(3)
+    if (
+        inliers < 40
+        or not isinstance(spread, dict)
+        or spread.get("ok") is not True
+        or not math.isfinite(median_angle)
+        or median_angle > 1.0
+        or solved_center is None
+        or not np.all(np.isfinite(reference))
+    ):
+        return None
+    rebase = reference - solved_center
+    rebase_length = float(np.linalg.norm(rebase))
+    if (
+        not math.isfinite(rebase_length)
+        or rebase_length > LAP_CHECKPOINT_MAX_METRIC_REBASE_M
+        or output_objective_rejection(result) is not None
+    ):
+        return None
+    return solved_center, rebase
 
 
 def output_continuity_rejection(
@@ -3370,9 +3474,14 @@ def route_guarded_output_rejection(
             command_sequence = int(
                 context.get("route_progress_command_sequence") or 0
             )
+            command_tolerance_m = float(
+                context.get("route_progress_command_tolerance_m") or 0.02
+            )
         except (AttributeError, TypeError, ValueError):
             command_ceiling = float("nan")
             command_sequence = 0
+            command_tolerance_m = 0.02
+        command_tolerance_m = max(0.0, min(0.15, command_tolerance_m))
         # The bridge publishes the command envelope before sending RC and
         # intentionally retains it while waiting for the resulting camera
         # frame.  Tying catch-up authority only to the short-lived
@@ -3409,11 +3518,13 @@ def route_guarded_output_rejection(
                 # remains rejected.
                 commanded_recovery_cap = max(
                     0.0,
-                    (command_ceiling - float(floor)) * segment_length + 0.02,
+                    (command_ceiling - float(floor)) * segment_length
+                    + command_tolerance_m,
                 )
                 commanded_recovery_progress_ok = bool(
                     math.isfinite(raw_progress)
-                    and raw_progress <= command_ceiling + 0.008
+                    and raw_progress
+                    <= command_ceiling + command_tolerance_m / segment_length
                 )
             else:
                 commanded_recovery_progress_ok = False
@@ -3480,6 +3591,7 @@ def route_guarded_output_rejection(
             )
         )
         observation["route_along_step_m"] = along_step
+        observation["route_progress_command_tolerance_m"] = command_tolerance_m
         if controller_position_locked:
             # Accept the frame's optical correspondences and orientation, but
             # never let a monocular center solved during commanded yaw become
@@ -4239,6 +4351,7 @@ def direct_pnp_correspondence_pool(
             # multi-gigabyte two_view_geometries table. SQLite's common bind
             # limit is 999, so query the fixed reference IDs in small batches.
             geometry_rows: list[tuple[Any, ...]] = []
+            raw_match_rows: list[tuple[Any, ...]] = []
             pair_ids = [
                 min(query_id, int(reference_id)) * COLMAP_PAIR_ID_MAX
                 + max(query_id, int(reference_id))
@@ -4258,12 +4371,34 @@ def direct_pnp_correspondence_pool(
                         batch,
                     ).fetchall()
                 )
+                if bool(position_locked):
+                    raw_match_rows.extend(
+                        conn.execute(
+                            f"""
+                            SELECT pair_id, rows, cols, data
+                            FROM matches
+                            WHERE rows > 0 AND pair_id IN ({placeholders})
+                            """,
+                            batch,
+                        ).fetchall()
+                    )
     except (sqlite3.Error, ValueError) as exc:
         return {
             "accepted": False,
             "reason": f"direct_pnp_database_error:{exc}",
             "image_name": image_name,
         }
+
+    # Guided two-view geometry is preferable. During a recovery timeout COLMAP
+    # can still leave the imported mutual SIFT pairs in `matches` while every
+    # query row in `two_view_geometries` is empty. At a controller-verified,
+    # translation-locked checkpoint those raw pairs are still safe input to
+    # the fixed-center angular consensus below; TSolve remains the only full
+    # pose solver.
+    match_rows_source = "two_view_geometries"
+    if bool(position_locked) and not geometry_rows and raw_match_rows:
+        geometry_rows = raw_match_rows
+        match_rows_source = "mutual_sift_matches"
 
     votes: dict[int, dict[int, int]] = {}
     matched_references = 0
@@ -4370,12 +4505,31 @@ def direct_pnp_correspondence_pool(
                 "fixed_center_hypotheses": 48000,
                 "correspondence_spread": fixed_center_diagnostic["correspondence_spread"],
                 "fixed_center_position_lock": True,
+                "fixed_center_match_source": match_rows_source,
                 "fixed_center_median_angle_degrees": fixed_center_diagnostic[
                     "median_angle_degrees"
                 ],
+                "pose_prior_center": expected.astype(float).tolist(),
+                "pose_prior_R": fixed_R.astype(float).tolist(),
+                "trusted_recovery": True,
+                "tsolve_only_correspondences": True,
                 "colmap_qvec_world_to_camera": rotmat_to_qvec(fixed_R).tolist(),
                 "colmap_tvec_world_to_camera": fixed_t.tolist(),
             }
+        return {
+            "accepted": False,
+            "reason": str(
+                (fixed_center_diagnostic or {}).get("reason")
+                or "fixed_center_sift_consensus_failed"
+            ),
+            "image_name": image_name,
+            "valid_2d3d": int(len(unique)),
+            "direct_pnp_candidates": int(len(unique)),
+            "matched_references": int(matched_references),
+            "fixed_center_match_source": match_rows_source,
+            "fixed_center_diagnostic": fixed_center_diagnostic,
+            "pnp_hypotheses": 0,
+        }
     solutions: list[dict[str, Any]] = []
     spatially_weak_solutions: list[dict[str, Any]] = []
     most_inliers = 0
@@ -4550,6 +4704,22 @@ def merge_verified_tracking_pool(
     point id so a refresh both removes poisoned tracks and restores points LK
     dropped during a turn.
     """
+    if recovered.get("tsolve_only_correspondences") is True:
+        # The ANN anchor layer intentionally does not manufacture an OpenCV
+        # pose.  Do not use a missing temporary R,t to filter LK points; pass
+        # the clean recovered correspondences directly to the ordinary
+        # TSolve case builder.  TSolve and the route/continuity gates decide
+        # whether the resulting pose is safe to publish.
+        out = dict(recovered)
+        out["verified_lk_input_points"] = int(
+            len(np.asarray(tracked.get("xy", [])))
+        )
+        out["verified_lk_inlier_points"] = None
+        out["verified_recovered_points"] = int(
+            len(np.asarray(recovered.get("xy", [])))
+        )
+        return out
+
     K = np.asarray(recovered.get("K", tracked.get("K")), dtype=float).reshape(3, 3)
     R = np.asarray(recovered.get("pose_prior_R"), dtype=float).reshape(3, 3)
     t = np.asarray(recovered.get("colmap_tvec_world_to_camera"), dtype=float).reshape(3)
@@ -4611,6 +4781,8 @@ def stable_case_indices(
     consensus_indices: np.ndarray | None = None
     consensus_reason = "consensus_unavailable"
     if (
+        pool.get("tsolve_only_correspondences") is not True
+        and
         len(xy) >= 8
         and len(p3d) == len(xy)
         and hasattr(cv2, "solvePnPRansac")
@@ -4901,6 +5073,12 @@ def write_case_from_pool(
         "recovery_max_step": pool.get("recovery_max_step"),
         "taught_anchor_name": pool.get("taught_anchor_name"),
         "taught_consensus_count": pool.get("taught_consensus_count"),
+        "tsolve_only_correspondences": bool(
+            pool.get("tsolve_only_correspondences", False)
+        ),
+        "lap_start_metric_rebootstrap": bool(
+            pool.get("lap_start_metric_rebootstrap", False)
+        ),
     }
     (case_dir / "input.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
     return {
@@ -4946,11 +5124,16 @@ class GlobalRelocalizer:
         matching_threads: int,
         direct_pnp_recovery: bool = False,
         faiss_index_dir: Path | None = None,
-        faiss_nprobe: int = 32,
-        faiss_top_k: int = 32,
-        faiss_ratio: float = 0.80,
+        faiss_nprobe: int = 8,
+        faiss_top_k: int = 48,
+        faiss_ratio: float = 0.86,
         faiss_min_points: int | None = None,
         faiss_reprojection_error: float = 6.0,
+        opencv_sift_max_features: int = 2400,
+        opencv_sift_n_octave_layers: int = 3,
+        opencv_sift_contrast_threshold: float = 0.02,
+        opencv_sift_edge_threshold: float = 12.0,
+        opencv_sift_sigma: float = 1.6,
     ):
         self.colmap = colmap
         self.map_database = map_database
@@ -4974,7 +5157,9 @@ class GlobalRelocalizer:
         self.matching_threads = max(1, int(matching_threads))
         self.direct_pnp_recovery = bool(direct_pnp_recovery)
         self.map_model_images = (
-            read_images_model(map_sparse_model) if self.direct_pnp_recovery else {}
+            read_images_model(map_sparse_model)
+            if self.direct_pnp_recovery or faiss_index_dir is not None
+            else {}
         )
         self.faiss_relocalizer = None
         if faiss_index_dir is not None:
@@ -4989,6 +5174,11 @@ class GlobalRelocalizer:
                     else int(faiss_min_points)
                 ),
                 reprojection_error=faiss_reprojection_error,
+                opencv_sift_max_features=opencv_sift_max_features,
+                opencv_sift_n_octave_layers=opencv_sift_n_octave_layers,
+                opencv_sift_contrast_threshold=opencv_sift_contrast_threshold,
+                opencv_sift_edge_threshold=opencv_sift_edge_threshold,
+                opencv_sift_sigma=opencv_sift_sigma,
             )
             print(
                 "Loaded Faiss global 2D-3D map index:",
@@ -4998,6 +5188,9 @@ class GlobalRelocalizer:
                         "vectors": int(self.faiss_relocalizer.index.ntotal),
                         "nprobe": int(self.faiss_relocalizer.index.nprobe),
                         "top_k": int(self.faiss_relocalizer.top_k),
+                        "ratio": float(self.faiss_relocalizer.ratio),
+                        "feature_backend": "opencv_sift",
+                        "pose_backend": "tsolve_only",
                     }
                 ),
                 flush=True,
@@ -5014,6 +5207,8 @@ class GlobalRelocalizer:
         recovery_max_step: float | None = None,
         max_duration_seconds: float | None = None,
         position_locked: bool = False,
+        faiss_only: bool = False,
+        skip_faiss: bool = False,
     ) -> tuple[dict[str, Any] | None, dict[str, Any]]:
         localize_started = time.perf_counter()
 
@@ -5040,7 +5235,7 @@ class GlobalRelocalizer:
         # Live query-frame directories are intentionally short-lived and are
         # removed when a DJI session stops.  Keep the exact encoded pixels for
         # every expensive global recovery attempt inside the persistent run
-        # directory so a failed SIFT/Faiss/PnP decision can be reproduced
+        # directory so a failed OpenCV-SIFT/Faiss/TSolve decision can be reproduced
         # byte-for-byte after the flight.
         recovery_frame_dir = self.work_dir / "recovery_frames"
         recovery_frame_dir.mkdir(parents=True, exist_ok=True)
@@ -5048,6 +5243,101 @@ class GlobalRelocalizer:
         if frame.resolve() != preserved_frame.resolve():
             shutil.copy2(frame, preserved_frame)
         stage["preserved_recovery_frame"] = str(preserved_frame)
+
+        # The live global matcher ends here whenever a Faiss map index is
+        # available: OpenCV extracts the current SIFT descriptors in-process,
+        # Faiss performs actual IVF ANN retrieval, source-view/fixed-center
+        # geometry filters aliases, and TSolve consumes the returned 2D->3D
+        # pool. Do not copy the multi-gigabyte COLMAP database, launch COLMAP,
+        # or call PnP RANSAC on this path.
+        if self.faiss_relocalizer is not None and not skip_faiss:
+            command_timeout()
+            faiss_pool, faiss_diagnostic = self.faiss_relocalizer.localize_frame(
+                image_path=preserved_frame,
+                image_name=query_name,
+                camera_model=self.query_camera_model,
+                camera_params=self.query_camera_params,
+                map_images=self.map_model_images,
+                map_points=map_points,
+                expected_center=last_center,
+                position_locked=position_locked,
+            )
+            command_timeout()
+            stage["feature_extract_ms"] = float(
+                faiss_diagnostic.get("feature_extract_ms") or 0.0
+            )
+            stage["match_ms"] = sum(
+                float(faiss_diagnostic.get(name) or 0.0)
+                for name in (
+                    "search_ms",
+                    "match_filter_ms",
+                    "geometric_verification_ms",
+                )
+            )
+            stage["register_ms"] = 0.0
+            stage["registration_profile"] = (
+                "opencv_sift_faiss_fixed_center_to_tsolve"
+                if position_locked
+                else "opencv_sift_faiss_source_geometry_to_tsolve"
+            )
+            stage["feature_backend"] = "opencv_sift"
+            stage["ann_backend"] = "faiss_ivf_sq8_l2"
+            stage["pose_backend"] = "tsolve_only"
+            stage["pnp_ransac_used"] = False
+            stage["faiss"] = faiss_diagnostic
+            stage["extracted_features"] = int(
+                faiss_diagnostic.get("query_descriptors") or 0
+            )
+            stage["matched_features"] = int(
+                faiss_diagnostic.get("unique_2d3d_candidates") or 0
+            )
+            stage["verified_2d3d"] = 0
+            stage["pnp_inliers"] = 0
+            if faiss_pool is not None:
+                stage["verified_2d3d"] = int(faiss_pool.get("valid_2d3d") or 0)
+                continuity_reason = global_recovery_continuity_rejection(
+                    pool=faiss_pool,
+                    last_center=last_center,
+                    max_step=step_limit,
+                )
+                if continuity_reason is None:
+                    faiss_pool = mark_global_recovery_pool(
+                        faiss_pool,
+                        last_center=last_center,
+                        recovery_max_step=step_limit,
+                    )
+                    stage["reason"] = ""
+                    print(
+                        "OpenCV-SIFT/Faiss correspondence recovery accepted:",
+                        json.dumps(
+                            {
+                                "image_name": query_name,
+                                "profile": stage["registration_profile"],
+                                "verified_2d3d": faiss_pool.get("valid_2d3d"),
+                                "unique_2d3d": faiss_pool.get("faiss_unique_matches"),
+                                "source_images": faiss_pool.get("faiss_source_images"),
+                                "pnp_ransac_used": False,
+                                "pose_backend": "tsolve_only",
+                                "timing_ms": faiss_diagnostic,
+                            }
+                        ),
+                        flush=True,
+                    )
+                    return faiss_pool, stage
+                faiss_diagnostic["reason"] = continuity_reason
+            stage["reason"] = str(
+                faiss_diagnostic.get("reason") or "faiss_tsolve_relocalization_failed"
+            )
+            print(
+                "OpenCV-SIFT/Faiss correspondence recovery rejected:",
+                json.dumps(faiss_diagnostic, default=str),
+                flush=True,
+            )
+            # With an ANN index configured, failure means hold and retry the
+            # newest frame. Falling through would revive the slow COLMAP/PnP
+            # path and create the exact live backlog this mode removes.
+            return None, stage
+
         shutil.copy2(frame, self.query_root / frame.name)
         image_list = self.work_dir / f"global_{frame_idx:06d}_image.txt"
         pair_list = self.work_dir / f"global_{frame_idx:06d}_pairs.txt"
@@ -5103,20 +5393,25 @@ class GlobalRelocalizer:
         except (sqlite3.Error, TypeError, ValueError):
             stage["extracted_features"] = None
 
-        if self.faiss_relocalizer is not None:
+        if self.faiss_relocalizer is not None and not skip_faiss:
             command_timeout()
             faiss_pool, faiss_diagnostic = self.faiss_relocalizer.localize(
                 database_path=db,
                 image_name=query_name,
                 map_points=map_points,
                 expected_center=last_center,
+                position_locked=position_locked,
             )
             command_timeout()
             stage["match_ms"] += float(faiss_diagnostic.get("feature_read_ms") or 0.0)
             stage["match_ms"] += float(faiss_diagnostic.get("search_ms") or 0.0)
             stage["match_ms"] += float(faiss_diagnostic.get("match_filter_ms") or 0.0)
             stage["register_ms"] += float(faiss_diagnostic.get("pnp_ms") or 0.0)
-            stage["registration_profile"] = "faiss_ivf_global_pnp"
+            stage["registration_profile"] = (
+                "faiss_ivf_fixed_center_to_tsolve"
+                if position_locked
+                else "faiss_ivf_global_pnp"
+            )
             stage["faiss"] = faiss_diagnostic
             stage["extracted_features"] = int(
                 faiss_diagnostic.get("query_descriptors")
@@ -5141,7 +5436,11 @@ class GlobalRelocalizer:
                     max_step=step_limit,
                 )
                 if continuity_reason is None:
-                    faiss_pool["localization_method"] = "faiss_ivf_global_pnp"
+                    faiss_pool["localization_method"] = (
+                        "faiss_ivf_fixed_center_to_tsolve"
+                        if position_locked
+                        else "faiss_ivf_global_pnp"
+                    )
                     faiss_pool = mark_global_recovery_pool(
                         faiss_pool,
                         last_center=last_center,
@@ -5153,11 +5452,16 @@ class GlobalRelocalizer:
                     pair_list.unlink(missing_ok=True)
                     shutil.rmtree(localized, ignore_errors=True)
                     print(
-                        "Faiss global PnP recovery accepted:",
+                        "Faiss fixed-center/TSolve recovery accepted:"
+                        if position_locked
+                        else "Faiss global PnP recovery accepted:",
                         json.dumps(
                             {
                                 "image_name": query_name,
-                                "inliers": faiss_pool.get("faiss_pnp_inliers"),
+                                "inliers": (
+                                    faiss_pool.get("faiss_fixed_center_inliers")
+                                    or faiss_pool.get("faiss_pnp_inliers")
+                                ),
                                 "unique_2d3d": faiss_pool.get("faiss_unique_matches"),
                                 "source_images": faiss_pool.get("faiss_source_images"),
                                 "center": pool_reference_center(faiss_pool).tolist(),
@@ -5172,10 +5476,18 @@ class GlobalRelocalizer:
                 faiss_diagnostic.get("reason") or "faiss_global_relocalization_failed"
             )
             print(
-                "Faiss global PnP recovery rejected:",
+                "Faiss fixed-center/TSolve recovery rejected:"
+                if position_locked
+                else "Faiss global PnP recovery rejected:",
                 json.dumps(faiss_diagnostic, default=str),
                 flush=True,
             )
+            if faiss_only:
+                db.unlink(missing_ok=True)
+                image_list.unlink(missing_ok=True)
+                pair_list.unlink(missing_ok=True)
+                shutil.rmtree(localized, ignore_errors=True)
+                return None, stage
 
         attempts = [("tracking_global", self.references.near(last_center))]
         bootstrap = self.references.bootstrap()
@@ -5222,7 +5534,11 @@ class GlobalRelocalizer:
                     position_locked=position_locked,
                 )
                 stage["register_ms"] += 1000.0 * (time.perf_counter() - direct_started)
-                stage["registration_profile"] = "direct_fixed_map_pnp"
+                stage["registration_profile"] = (
+                    "direct_fixed_center_sift_consensus_to_tsolve"
+                    if position_locked
+                    else "direct_fixed_map_pnp"
+                )
                 stage["matched_features"] = max(
                     int(stage.get("matched_features") or 0),
                     int(
@@ -5255,7 +5571,11 @@ class GlobalRelocalizer:
                         pair_list.unlink(missing_ok=True)
                         shutil.rmtree(localized, ignore_errors=True)
                         print(
-                            "direct PnP recovery accepted:",
+                            (
+                                "direct fixed-center SIFT/TSolve recovery accepted:"
+                                if position_locked
+                                else "direct PnP recovery accepted:"
+                            ),
                             json.dumps(
                                 {
                                     "image_name": query_name,
@@ -5271,7 +5591,15 @@ class GlobalRelocalizer:
                         return pool, stage
                     pool = {**pool, "accepted": False, "reason": continuity_reason}
                 stage["reason"] = str(pool.get("reason") or "direct_pnp_recovery_failed")
-                print("direct PnP recovery rejected:", json.dumps(pool, default=str), flush=True)
+                print(
+                    (
+                        "direct fixed-center SIFT/TSolve recovery rejected:"
+                        if position_locked
+                        else "direct PnP recovery rejected:"
+                    ),
+                    json.dumps(pool, default=str),
+                    flush=True,
+                )
                 # A second attempt can add the wider bootstrap reference set.
                 # Do not fall through to image_registrator: doing so would
                 # reintroduce the long model-rewrite pause this mode avoids.
@@ -5545,9 +5873,9 @@ def main() -> None:
         type=Path,
         help="Persistent Faiss IVF index over all COLMAP SIFT observations linked to 3D points.",
     )
-    ap.add_argument("--faiss-nprobe", type=int, default=32)
-    ap.add_argument("--faiss-top-k", type=int, default=32)
-    ap.add_argument("--faiss-ratio", type=float, default=0.80)
+    ap.add_argument("--faiss-nprobe", type=int, default=8)
+    ap.add_argument("--faiss-top-k", type=int, default=48)
+    ap.add_argument("--faiss-ratio", type=float, default=0.86)
     ap.add_argument(
         "--faiss-min-points",
         type=int,
@@ -5555,6 +5883,11 @@ def main() -> None:
         help="Minimum geometrically verified Faiss 2D-3D matches; zero uses --min-points.",
     )
     ap.add_argument("--faiss-reprojection-error", type=float, default=6.0)
+    ap.add_argument("--opencv-sift-max-features", type=int, default=2400)
+    ap.add_argument("--opencv-sift-n-octave-layers", type=int, default=3)
+    ap.add_argument("--opencv-sift-contrast-threshold", type=float, default=0.02)
+    ap.add_argument("--opencv-sift-edge-threshold", type=float, default=12.0)
+    ap.add_argument("--opencv-sift-sigma", type=float, default=1.6)
     ap.add_argument(
         "--calibrate-output-to-first-global-anchor",
         action="store_true",
@@ -5843,6 +6176,11 @@ def main() -> None:
         faiss_ratio=args.faiss_ratio,
         faiss_min_points=args.faiss_min_points,
         faiss_reprojection_error=args.faiss_reprojection_error,
+        opencv_sift_max_features=args.opencv_sift_max_features,
+        opencv_sift_n_octave_layers=args.opencv_sift_n_octave_layers,
+        opencv_sift_contrast_threshold=args.opencv_sift_contrast_threshold,
+        opencv_sift_edge_threshold=args.opencv_sift_edge_threshold,
+        opencv_sift_sigma=args.opencv_sift_sigma,
     )
     # Always maintain a small sliding bank of correspondences learned from the
     # current live flight.  It is independent of any taught/prerecorded path
@@ -5967,7 +6305,7 @@ def main() -> None:
     visual_route_acquisition_hold_count = 0
     route_rejection_recovery_attempt_count = 0
     route_rejection_recovery_success_count = 0
-    lap_checkpoint_taught_recovery_count = 0
+    lap_checkpoint_metric_rebootstrap_count = 0
     periodic_feature_refresh_count = 0
     last_feature_extraction_frame: int | None = None
     last_feature_extraction_time: float | None = None
@@ -6213,9 +6551,23 @@ def main() -> None:
             recovery_route_context is not None
             and recovery_route_context.get("controller_translation_locked") is True
         )
+        route_bounded_recovery = route_bounded_fixed_center_recovery(
+            recovery_route_context
+        )
         position_locked_recovery = bool(
             recovery_route_context is not None
-            and recovery_route_context.get("position_guard_locked") is True
+            and (
+                recovery_route_context.get("position_guard_locked") is True
+                or route_bounded_recovery
+            )
+        )
+        # A bad current frame is safer and much faster to retry than falling
+        # through to the legacy pair matcher while the aircraft is waiting
+        # after an issued pulse. Ordinary bootstrap/yaw recovery retains the
+        # historical COLMAP fallback.
+        faiss_only_recovery = bool(
+            route_bounded_recovery
+            and relocalizer.faiss_relocalizer is not None
         )
         recovery: dict[str, Any] = {
             "done": False,
@@ -6239,6 +6591,8 @@ def main() -> None:
             "started_at": time.perf_counter(),
             "reason": reason,
             "position_locked_recovery": position_locked_recovery,
+            "route_bounded_recovery": route_bounded_recovery,
+            "faiss_only_recovery": faiss_only_recovery,
             # A correspondence pool belongs to both a camera view and the
             # controller motion phase that produced it. A yaw-only recovery
             # must never replace a forward-translation pool after the turn.
@@ -6260,6 +6614,7 @@ def main() -> None:
                         else None
                     ),
                     position_locked=position_locked_recovery,
+                    faiss_only=faiss_only_recovery,
                 )
                 recovery["pool"] = pool
                 recovery["stage"] = stage
@@ -6509,10 +6864,31 @@ def main() -> None:
         output_rejection_reason = None
         route_observation = None
         if result.get("success"):
+            continuity_previous_center = last_output_center
+            lap_rebase = lap_checkpoint_output_rebase(
+                pool=pool,
+                result=result,
+                lap_start_metric_center=lap_start_metric_center,
+            )
+            if lap_rebase is not None:
+                continuity_previous_center, output_center_bias = lap_rebase
+                print(
+                    "LAP CHECKPOINT TSOLVE TRACK REBASED:",
+                    json.dumps(
+                        {
+                            "frame_index": frame_idx,
+                            "raw_center": continuity_previous_center.tolist(),
+                            "output_bias": output_center_bias.tolist(),
+                            "bias_m": float(np.linalg.norm(output_center_bias)),
+                            "inliers": int(pool.get("valid_2d3d") or 0),
+                        }
+                    ),
+                    flush=True,
+                )
             output_rejection_reason, last_output_center, last_output_time, route_observation = route_guarded_output_rejection(
                 case=case,
                 result=result,
-                previous_center=last_output_center,
+                previous_center=continuity_previous_center,
                 previous_time=last_output_time,
                 previous_pose=last_output_pose,
                 route_gate=patrol_route_gate,
@@ -7441,6 +7817,9 @@ def main() -> None:
             "pace_wait_ms": pace_wait_ms,
             "reason": "",
         }
+        # All taught/online banks use the same current-image SIFT settings.
+        # Extract once per frame even when more than one bank is consulted.
+        taught_feature_cache: dict[str, Any] = {}
         visual_observation: dict[str, Any] | None = None
         visual_stage: dict[str, Any] = {"reason": "visual_route_unavailable"}
         visual_progress_hint: float | None = None
@@ -7596,6 +7975,10 @@ def main() -> None:
             and route_context is not None
             and route_context.get("require_metric_pose") is True
         )
+        lap_start_metric_rebootstrap = bool(
+            metric_checkpoint_wait
+            and route_context.get("lap_start_metric_rebootstrap") is True
+        )
         route_supervision_total_ms = 1000.0 * (
             time.perf_counter() - route_supervision_started
         )
@@ -7607,14 +7990,19 @@ def main() -> None:
         )
         if metric_checkpoint_wait and pending_global is not None:
             checkpoint_route_key = LivePatrolRouteGate._key(route_context)
-            if pending_global.get("route_key") != checkpoint_route_key:
+            if (
+                lap_start_metric_rebootstrap
+                or pending_global.get("route_key") != checkpoint_route_key
+            ):
                 # A rematch launched on the previous 4->1 leg cannot satisfy
                 # the new Point-1->2 metric checkpoint. Do not make the drone
                 # hover until that obsolete full-map worker times out; discard
                 # it when it finishes while current-frame compact recovery runs.
                 pending_global["ignored"] = True
                 pending_global["ignore_reason"] = (
-                    "superseded_by_new_lap_metric_checkpoint"
+                    "superseded_by_lap_start_metric_rebootstrap"
+                    if lap_start_metric_rebootstrap
+                    else "superseded_by_new_lap_metric_checkpoint"
                 )
         if (
             visual_primary_mode is None
@@ -7707,6 +8095,14 @@ def main() -> None:
 
         must_global = current_pool is None or prev_gray is None
         global_reason = "bootstrap" if must_global else ""
+        if lap_start_metric_rebootstrap:
+            # The verified Point-1 handoff changes route ownership, but the
+            # last raw tracking pool can still belong to Point 4. Treat that
+            # pool as ineligible for this checkpoint. A current-frame taught
+            # 2D->3D set must be solved by TSolve against the saved first-lap
+            # Point-1 metric center before any lap-two translation.
+            must_global = True
+            global_reason = "lap_start_metric_rebootstrap"
         periodic_refresh_due = periodic_feature_refresh_due(
             frame_index=frame_idx,
             frame_time=current_frame_time,
@@ -7768,62 +8164,91 @@ def main() -> None:
         pool: dict[str, Any] | None = None
         proactive_fallback_pool: dict[str, Any] | None = None
         if (
-            metric_checkpoint_wait
+            lap_start_metric_rebootstrap
             and must_global
             and lap_start_metric_center is not None
-            and lap_start_metric_K is not None
-            and taught_recoveries
+            and relocalizer.faiss_relocalizer is not None
         ):
             checkpoint_stage: dict[str, Any] = {
-                "reason": "lap_checkpoint_taught_recovery_unavailable"
+                "reason": "lap_checkpoint_opencv_faiss_recovery_unavailable"
             }
-            checkpoint_recovery_banks = (
-                taught_recoveries
-                if reference_frames_enabled
-                else [online_recovery]
+            checkpoint_started = time.perf_counter()
+            pool, checkpoint_stage = relocalizer.localize(
+                frame=frame,
+                frame_idx=frame_idx,
+                query_name=query_name,
+                map_points=map_points,
+                last_center=lap_start_metric_center,
+                recovery_max_step=args.global_recovery_max_step,
+                max_duration_seconds=args.background_recovery_timeout_seconds,
+                position_locked=True,
+                faiss_only=True,
+                skip_faiss=False,
             )
-            for checkpoint_recovery in checkpoint_recovery_banks:
-                local_recovery_started = time.perf_counter()
-                pool, checkpoint_stage = checkpoint_recovery.recover(
-                    gray=curr_gray,
-                    K=lap_start_metric_K,
-                    last_center=lap_start_metric_center,
-                    max_step=args.global_recovery_max_step,
-                )
-                stage["local_recovery_ms"] += 1000.0 * (
-                    time.perf_counter() - local_recovery_started
-                )
-                if pool is not None:
-                    break
+            checkpoint_elapsed_ms = 1000.0 * (
+                time.perf_counter() - checkpoint_started
+            )
+            record_feature_extraction(frame_idx, current_frame_time)
+            global_relocalization_count += 1
+            stage.update(checkpoint_stage)
             if pool is not None:
+                pool["lap_start_metric_rebootstrap"] = True
+                pool["pose_prior_center"] = (
+                    lap_start_metric_center.astype(float).tolist()
+                )
                 must_global = False
                 stable_solve_reset = True
                 stable_solve_point3d_ids = None
-                method = "lap_checkpoint_taught_consensus_recovery"
+                method = "lap_checkpoint_opencv_sift_faiss_fixed_center_tsolve"
                 stage["reason"] = ""
-                lap_checkpoint_taught_recovery_count += 1
+                lap_checkpoint_metric_rebootstrap_count += 1
                 print(
                     "LAP CHECKPOINT CURRENT-FRAME METRIC RECOVERY:",
                     json.dumps(
                         {
                             "frame_index": frame_idx,
-                            "anchor": checkpoint_stage.get("anchor_name"),
-                            "inliers": checkpoint_stage.get("inliers"),
-                            "consensus": checkpoint_stage.get("consensus_count"),
-                            "center_step": checkpoint_stage.get("center_step"),
-                            "recovery_ms": checkpoint_stage.get("total_ms"),
+                            "source": "opencv_sift_faiss_fixed_center_to_tsolve",
+                            "inliers": pool.get(
+                                "valid_2d3d"
+                            ),
+                            "unique_2d3d": pool.get(
+                                "faiss_unique_matches"
+                            ),
+                            "source_images": pool.get(
+                                "faiss_source_images"
+                            ),
+                            "recovery_ms": checkpoint_elapsed_ms,
+                            "pnp_ransac_used": False,
+                            "pose_backend": "tsolve_only",
                         }
                     ),
                     flush=True,
                 )
             else:
+                # Do not fall through to LK or a full-map recovery constrained
+                # by the stale Point-4 center. The controller is publishing
+                # neutral hover and will give us another newest frame. Retry
+                # the complete-map fixed-center matcher on that frame.
+                must_global = False
+                method = "lap_start_metric_rebootstrap_retry"
                 stage["reason"] = str(
                     checkpoint_stage.get("reason")
-                    or "lap_checkpoint_taught_recovery_failed"
+                    or "lap_checkpoint_opencv_faiss_recovery_failed"
                 )
+        if lap_start_metric_rebootstrap and pool is None and must_global:
+            # Missing first-lap state or an unavailable taught bank is not
+            # permission to compare Point-1 imagery with the stale Point-4
+            # continuity state. Fail closed at hover and keep retrying.
+            must_global = False
+            method = "lap_start_metric_rebootstrap_waiting_for_anchor"
+            stage["reason"] = (
+                "lap_start_metric_rebootstrap_anchor_unavailable"
+            )
         if (
             visual_primary_mode is None
             and not must_global
+            and pool is None
+            and not lap_start_metric_rebootstrap
             and current_pool is not None
             and prev_gray is not None
         ):
@@ -7890,6 +8315,7 @@ def main() -> None:
                                 K=np.asarray(current_pool["K"], dtype=float),
                                 last_center=np.asarray(last_center, dtype=float),
                                 max_step=args.global_recovery_max_step,
+                                feature_cache=taught_feature_cache,
                             )
                         )
                         stage["local_recovery_ms"] += 1000.0 * (
@@ -7972,6 +8398,7 @@ def main() -> None:
                             K=np.asarray(current_pool["K"], dtype=float),
                             last_center=np.asarray(last_center, dtype=float),
                             max_step=args.global_recovery_max_step,
+                            feature_cache=taught_feature_cache,
                         )
                         stage["local_recovery_ms"] += 1000.0 * (
                             time.perf_counter() - local_recovery_started
@@ -8074,6 +8501,7 @@ def main() -> None:
                             K=np.asarray(current_pool["K"], dtype=float),
                             last_center=np.asarray(last_center, dtype=float),
                             max_step=args.global_recovery_max_step,
+                            feature_cache=taught_feature_cache,
                         )
                         stage["local_recovery_ms"] += 1000.0 * (
                             time.perf_counter() - local_recovery_started
@@ -8724,10 +9152,31 @@ def main() -> None:
         output_rejection_reason = None
         route_observation = None
         if result.get("success"):
+            continuity_previous_center = last_output_center
+            lap_rebase = lap_checkpoint_output_rebase(
+                pool=pool,
+                result=result,
+                lap_start_metric_center=lap_start_metric_center,
+            )
+            if lap_rebase is not None:
+                continuity_previous_center, output_center_bias = lap_rebase
+                print(
+                    "LAP CHECKPOINT TSOLVE TRACK REBASED:",
+                    json.dumps(
+                        {
+                            "frame_index": frame_idx,
+                            "raw_center": continuity_previous_center.tolist(),
+                            "output_bias": output_center_bias.tolist(),
+                            "bias_m": float(np.linalg.norm(output_center_bias)),
+                            "inliers": int(pool.get("valid_2d3d") or 0),
+                        }
+                    ),
+                    flush=True,
+                )
             output_rejection_reason, last_output_center, last_output_time, route_observation = route_guarded_output_rejection(
                 case=case,
                 result=result,
-                previous_center=last_output_center,
+                previous_center=continuity_previous_center,
                 previous_time=last_output_time,
                 previous_pose=last_output_pose,
                 route_gate=patrol_route_gate,
@@ -9255,8 +9704,8 @@ def main() -> None:
         "route_rejection_recovery_success_count": (
             route_rejection_recovery_success_count
         ),
-        "lap_checkpoint_taught_recovery_count": (
-            lap_checkpoint_taught_recovery_count
+        "lap_checkpoint_metric_rebootstrap_count": (
+            lap_checkpoint_metric_rebootstrap_count
         ),
         "rotation_position_locked_frames": rotation_position_stabilizer.locked_frames,
         "rotation_position_reanchor_count": rotation_position_stabilizer.reanchor_count,
