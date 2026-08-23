@@ -19,7 +19,14 @@ from pathlib import Path
 from typing import Any
 
 
-DEFAULT_OPENDJI_ROOT = Path("/Users/yamromano/Desktop/DJI-MSDK-to-PC-main")
+ROOT = Path(__file__).resolve().parents[1]
+WORKSTATION_OPENDJI_ROOT = Path("/Users/yamromano/Desktop/DJI-MSDK-to-PC-main")
+VENDORED_OPENDJI_ROOT = ROOT / "vendor" / "opendji"
+DEFAULT_OPENDJI_ROOT = (
+    WORKSTATION_OPENDJI_ROOT
+    if (WORKSTATION_OPENDJI_ROOT / "OpenDJI.py").is_file()
+    else VENDORED_OPENDJI_ROOT
+)
 TAKEOFF_VERTICAL_SPEED = 0.03
 TAKEOFF_STEP_SECONDS = 0.50
 TAKEOFF_MAX_ASSIST_SECONDS = 16.0

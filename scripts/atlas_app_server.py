@@ -14,6 +14,7 @@ import select
 import shutil
 import signal
 import subprocess
+import sys
 import threading
 import time
 import urllib.parse
@@ -432,7 +433,35 @@ def mark_live_dji_status_stopped(message: str) -> None:
 
 
 def load_config() -> dict:
-    return json.loads(CONFIG.read_text(encoding="utf-8"))
+    cfg = json.loads(CONFIG.read_text(encoding="utf-8"))
+
+    # Keep the workstation's explicitly configured paths when they exist, but
+    # make a restored checkout self-contained. The Yams restore snapshot
+    # vendors TSolve and restores the exact COLMAP runtime under ``tools/``;
+    # collaborators should not need Yam's original parent-directory layout.
+    portable_paths = {
+        "work_dir": ROOT,
+        "python": Path(sys.executable),
+        "colmap_bin": ROOT / "tools" / "colmap-env" / "bin" / "colmap",
+        "solver_dir": ROOT / "vendor" / "tsolve" / "solver",
+        "base_yam_code_dir": ROOT / "vendor" / "tsolve" / "base_yam_code",
+        "dropin_patch_dir": ROOT / "vendor" / "tsolve" / "dropin_patch",
+        "base_harness_dir": ROOT / "vendor" / "tsolve" / "dropin_patch" / "harness",
+    }
+    for key, fallback in portable_paths.items():
+        raw = str(cfg.get(key) or "").strip()
+        configured = Path(raw).expanduser() if raw else None
+        if configured is not None and not configured.is_absolute():
+            configured = ROOT / configured
+        if configured is not None and configured.exists():
+            cfg[key] = str(configured)
+        elif fallback.exists():
+            cfg[key] = str(fallback)
+    if not Path(str(cfg.get("colmap_bin") or "")).exists():
+        system_colmap = shutil.which("colmap")
+        if system_colmap:
+            cfg["colmap_bin"] = system_colmap
+    return cfg
 
 
 def make_map_id(prefix: str) -> str:
@@ -5688,7 +5717,7 @@ def dji_live_atlas_job(
                 "--dropin-patch-dir",
                 cfg["dropin_patch_dir"],
                 "--base-harness-dir",
-                str(ROOT.parent / "pnp-symbolic-research/Yam/exact_ff_ysolve_pnp/harness"),
+                cfg["base_harness_dir"],
                 "--out-dir",
                 runtime_dir,
             ],
@@ -7441,7 +7470,7 @@ def fleet_live_atlas_job(drone_id: str) -> None:
                 "--dropin-patch-dir",
                 cfg["dropin_patch_dir"],
                 "--base-harness-dir",
-                str(ROOT.parent / "pnp-symbolic-research/Yam/exact_ff_ysolve_pnp/harness"),
+                cfg["base_harness_dir"],
                 "--out-dir",
                 runtime_dir,
             ],
@@ -8310,7 +8339,7 @@ def drone_video_job(
                 "--dropin-patch-dir",
                 cfg["dropin_patch_dir"],
                 "--base-harness-dir",
-                str(ROOT.parent / "pnp-symbolic-research/Yam/exact_ff_ysolve_pnp/harness"),
+                cfg["base_harness_dir"],
                 "--out-dir",
                 runtime_dir,
             ],

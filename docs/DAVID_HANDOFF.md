@@ -1,8 +1,8 @@
 # ATLAS partner handoff — `David`
 
-This branch is a snapshot of the ATLAS indoor patrol system as used on
-2026-08-17. It is intended for code review, offline replay/diagnostics, UI work,
-and continuing the physical DJI Mini 3 Pro integration.
+This branch is a self-contained restore snapshot of the ATLAS indoor patrol
+system as used on 2026-08-23. It is intended for code review, exact saved-run
+diagnostics, UI work, and continuing the physical DJI Mini 3 Pro integration.
 
 ## What is in this branch
 
@@ -21,9 +21,10 @@ and continuing the physical DJI Mini 3 Pro integration.
 - Compact active-map visualization, Patrol 1 geometry/locks, and the precision
   route-recovery banks. Large binary assets are stored with Git LFS.
 
-Generated movie outputs, mutable live status files, live JPEG frame streams,
-Python environments, COLMAP installations, and the full 4.1 GB COLMAP working
-map are deliberately excluded.
+The `best 1 live lap` Git LFS restore bundle includes the full active COLMAP
+working map, the exact saved live frames plus pose/control trace, and the exact
+macOS arm64 COLMAP environment. Generated movie outputs and the Python virtual
+environment remain excluded; Python versions are locked in `requirements.txt`.
 
 ## Current architecture
 
@@ -74,13 +75,15 @@ declaring a checkpoint reached and issuing the next command.
 - Map: `map_copy_20260730_114851_cfefdc` / **Video Map 20:07:46 Copy**
 - Patrol: `patrol_ms4br5xr_4xclts` / **Patrol 1**
 - Precision baseline: `patrol_baseline_precision_20260813`
-- Current active replay at handoff: `dji_live_20260817_111824_60175b`
+- Preserved full-lap session: `atlas_dji_live_20260823_154451_94903f`
+- Preserved pose replay: `dji_live_20260823_154451_94903f`
 - Map scale: 3,235 registered cameras and 440,249 sparse points
 
 The branch includes the browser scene, map validation summary, route reference,
 route/geometry locks, active taught recovery bank, precision poses, and both
-single-run and multi-run visual recovery banks. The source frame banks and the
-full COLMAP database/images/sparse model are not practical Git content.
+single-run and multi-run visual recovery banks. The large physical map and
+saved full-lap evidence are split into sub-2-GB Git LFS archive parts with
+SHA-256 checksums.
 
 ## Known live limitation
 
@@ -106,18 +109,25 @@ and relocalization.
 
 1. Install Git LFS before cloning/pulling this branch.
 2. Create a Python environment and install `requirements.txt`.
-3. Install COLMAP with `bash scripts/install_colmap_micromamba.sh` or point the
-   configuration at an existing COLMAP installation.
-4. Copy `config.example.json` to `config.json`, use absolute paths for
-   `work_dir`, `python`, and external media/data where appropriate.
-5. Clone or copy `DJI-MSDK-to-PC` and pass its directory with
-   `--opendji-root`; the Android MSDK application must use its own DJI developer
-   key. No key is stored here.
-6. For physical localization, copy the active COLMAP working dataset into
-   `results/maps/map_copy_20260730_114851_cfefdc/colmap/` or rebuild/import an
-   equivalent map. Required components are the database, map images, and sparse
-   model. The original workstation paths are recorded in
-   `viewer/public/maps/manifest.json` and must be changed on another machine.
+3. Fetch LFS objects and verify the restore bundle:
+
+   ```bash
+   git lfs pull
+   bash scripts/restore_best_1_live_lap.sh --verify-only
+   ```
+
+4. Restore the active map, saved run, and macOS arm64 COLMAP environment:
+
+   ```bash
+   bash scripts/restore_best_1_live_lap.sh --restore
+   ```
+
+5. Copy `config.example.json` to `config.json` if needed. The app now resolves
+   missing workstation-specific TSolve/COLMAP paths to the vendored/restored
+   paths automatically.
+6. The PC-side `OpenDJI.py` used by this snapshot is vendored. The Android
+   MSDKRemote application remains a separate deployment and must use the
+   operator's own DJI developer key. No key or key-bearing APK is stored here.
 
 Typical app startup from the repository root:
 
@@ -167,16 +177,20 @@ python3 scripts/audit_live_patrol_runs.py \
    periodically anchored by COLMAP+TSolve. A Kalman filter can bridge short
    delays but cannot repair a wrong data association by itself.
 
-## Data transfer outside Git
+## Restore bundle contents
 
-To run the exact physical map on another machine, transfer the following folder
-through an approved large-file channel, preserving paths and checksums:
+`restore_assets/best_1_live_lap/manifest.json` is the machine-readable source
+of truth. The bundle restores:
 
-```text
-results/maps/map_copy_20260730_114851_cfefdc/colmap/
-```
+- `results/maps/map_copy_20260730_114851_cfefdc/` — database, source images,
+  sparse models, text models, and FAISS index used by global relocalization.
+- `viewer/public/live_dji_sessions/atlas_dji_live_20260823_154451_94903f/` —
+  4,052 live frames and the complete command trace.
+- `viewer/public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260823_154451_94903f/`
+  — accepted/held pose stream and events.
+- `tools/colmap-env/` — COLMAP 3.11.1 for macOS arm64.
 
-On the handoff workstation this folder is approximately 4.1 GB; its database is
-approximately 3.1 GB. It must not be placed in ordinary Git history. The
-compact Git/LFS assets are sufficient for code review, route-recovery analysis,
-and the 3D browser presentation, but not for fresh global COLMAP registration.
+Every archive part is tracked by Git LFS and verified against
+`restore_assets/best_1_live_lap/SHA256SUMS` before extraction. On non-arm64 or
+non-macOS systems, install COLMAP 3.11.1 separately instead of using the bundled
+runtime.

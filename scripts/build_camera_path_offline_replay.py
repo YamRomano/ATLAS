@@ -478,7 +478,7 @@ def main() -> None:
                 "--dropin-patch-dir",
                 cfg["dropin_patch_dir"],
                 "--base-harness-dir",
-                ROOT.parent / "pnp-symbolic-research/Yam/exact_ff_ysolve_pnp/harness",
+                cfg["base_harness_dir"],
                 "--out-dir",
                 runtime_code,
             ],
