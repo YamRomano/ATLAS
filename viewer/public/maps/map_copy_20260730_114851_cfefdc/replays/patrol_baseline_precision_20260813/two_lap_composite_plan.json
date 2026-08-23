@@ -6,13 +6,13 @@
   "map_id": "map_copy_20260730_114851_cfefdc",
   "patrol_id": "patrol_ms4br5xr_4xclts",
   "baseline_replay_id": "patrol_baseline_precision_20260813",
-  "description": "Lap 1 uses the validated 15:47:14 loop. Lap 2 uses independent 11:57:36 camera frames from Point 1 through the completed Point 4 turn, then the validated 15:47:14 Point 4 to Point 1 final leg because 11:57:36 did not record a trustworthy return to Point 1.",
+  "description": "Lap 1 uses the validated 15:47:14 loop. Lap 2 uses independent 11:57:36 camera frames from Point 1 through Point 4 arrival, then the coherent validated 15:47:14 Point 4 turn and Point 4 to Point 1 final leg because 11:57:36 did not finish the Point 4 turn at the same 4-to-1 departure heading.",
   "second_lap_segments": [
     {
-      "label": "Independent Live ATLAS 11:57:36 Point 1 through Point 4 turn",
+      "label": "Independent Live ATLAS 11:57:36 Point 1 through Point 4 arrival",
       "source_replay_id": "dji_live_20260811_115736_2b91ca",
       "start_frame": 675,
-      "end_frame": 2210,
+      "end_frame": 2019,
       "phase_boundaries": {
         "point1": 675,
         "point2_arrival": 930,
@@ -25,9 +25,9 @@
       }
     },
     {
-      "label": "Validated 15:47:14 Point 4 to Point 1 final leg",
+      "label": "Validated 15:47:14 Point 4 turn and Point 4 to Point 1 final leg",
       "source_replay_id": "patrol_baseline_precision_20260813",
-      "start_frame": 4093,
+      "start_frame": 3900,
       "end_frame": 4414,
       "phase_boundaries": {
         "point1": 991,
@@ -54,14 +54,14 @@
       "inlier_ratio": 0.5454545454545454
     },
     {
-      "at": "alternate Point 4 turn to validated final leg",
+      "at": "alternate Point 4 arrival to validated Point 4 turn",
       "left_replay_id": "dji_live_20260811_115736_2b91ca",
-      "left_frame": 2210,
+      "left_frame": 2019,
       "right_replay_id": "patrol_baseline_precision_20260813",
-      "right_frame": 4093,
-      "orb_matches": 77,
-      "orb_inliers": 58,
-      "inlier_ratio": 0.7532467532467533
+      "right_frame": 3900,
+      "orb_matches": 319,
+      "orb_inliers": 274,
+      "inlier_ratio": 0.8589341692789969
     }
   ],
   "motion_audit": {
@@ -75,6 +75,6 @@
   },
   "limitations": [
     "This is a mixed-recording localization stress test, not evidence of one physical two-lap flight.",
-    "The final Point 4 to Point 1 segment is reused from the validated baseline because the alternate run stops after turning at Point 4."
+    "The Point 4 turn and final Point 4 to Point 1 segment are reused from the validated baseline because the alternate run stops its Point 4 turn about ten degrees short of the baseline departure heading."
   ]
 }

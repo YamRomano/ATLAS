@@ -155,6 +155,45 @@ def sequence_candidate_progress(
     return max(float(previous), float(selected))
 
 
+def command_bounded_recovery_candidate(
+    candidates: list[dict[str, Any]],
+    *,
+    previous: float,
+    command_progress_ceiling: float | None,
+    minimum_inliers: int,
+    backward_window: float = 0.04,
+    lookahead_tolerance: float = 0.045,
+) -> dict[str, Any] | None:
+    """Return strong image evidence inside acknowledged motion authority.
+
+    A delayed localizer can remain more than one safe correction behind the
+    aircraft. In that state the ordinary one-step sequence window is too
+    small even when the current image repeatedly recognizes the correct later
+    anchor. This helper never predicts motion: it considers only real ORB
+    candidates inside the accumulated distance of acknowledged horizontal
+    commands. The caller still requires consecutive-frame consensus and uses
+    the existing bounded publication step.
+    """
+    try:
+        floor = float(previous) - max(0.0, float(backward_window))
+        ceiling = float(command_progress_ceiling)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(floor) or not math.isfinite(ceiling):
+        return None
+    eligible = [
+        item
+        for item in candidates
+        if floor
+        <= float(item.get("progress", float("inf")))
+        <= min(1.0, ceiling + max(0.0, float(lookahead_tolerance)))
+        and int(item.get("inliers") or 0) >= max(1, int(minimum_inliers))
+    ]
+    if not eligible:
+        return None
+    return max(eligible, key=geometric_candidate_rank)
+
+
 def weak_endpoint_candidate_progress(
     candidates: list[dict[str, Any]],
     *,
@@ -916,6 +955,14 @@ class PatrolVisualRouteRecovery:
                 ] * len(self.anchor_names)
         self.detector = cv2.ORB_create(nfeatures=1200, fastThreshold=10)
         self.matcher = cv2.BFMatcher(cv2.NORM_HAMMING)
+        # Route progress and departure-heading verification are often requested
+        # for the same live image.  ORB extraction is deterministic for that
+        # image, so compute it once and share the exact keypoints/descriptors.
+        # Retaining the ndarray object itself makes the cache identity-safe and
+        # limits it to one current frame; a new frame replaces all three values.
+        self._query_feature_image: np.ndarray | None = None
+        self._query_feature_keypoints: Any = None
+        self._query_feature_descriptors: np.ndarray | None = None
         self.last_match_diagnostic: dict[str, Any] = {}
         # The bank is immutable for the lifetime of this matcher.  Building
         # descriptor row lists inside every frame/anchor loop used
@@ -983,6 +1030,8 @@ class PatrolVisualRouteRecovery:
         self.temporal_recovery_progress: float | None = None
         self.temporal_recovery_source_replay_id: str | None = None
         self.temporal_recovery_hits = 0
+        self.temporal_recovery_samples: list[float] = []
+        self.temporal_recovery_command_ceiling: float | None = None
         self.endpoint_candidate_progress: float | None = None
         self.endpoint_hits = 0
         self.endpoint_verified = False
@@ -992,6 +1041,22 @@ class PatrolVisualRouteRecovery:
         self.rewind_candidate_progress: float | None = None
         self.rewind_candidate_source_replay_id: str | None = None
         self.rewind_candidate_hits = 0
+
+    def _extract_query_features(
+        self,
+        gray: np.ndarray,
+    ) -> tuple[Any, np.ndarray | None]:
+        image = np.asarray(gray)
+        if self._query_feature_image is image:
+            return (
+                self._query_feature_keypoints,
+                self._query_feature_descriptors,
+            )
+        keypoints, descriptors = self.detector.detectAndCompute(image, None)
+        self._query_feature_image = image
+        self._query_feature_keypoints = keypoints
+        self._query_feature_descriptors = descriptors
+        return keypoints, descriptors
 
     def _matching_anchors(self, start: Any, end: Any) -> list[int]:
         return [
@@ -1089,6 +1154,8 @@ class PatrolVisualRouteRecovery:
         self.temporal_recovery_progress = None
         self.temporal_recovery_source_replay_id = None
         self.temporal_recovery_hits = 0
+        self.temporal_recovery_samples = []
+        self.temporal_recovery_command_ceiling = None
         self.endpoint_candidate_progress = None
         self.endpoint_hits = 0
         self.endpoint_verified = False
@@ -1110,9 +1177,76 @@ class PatrolVisualRouteRecovery:
         self.temporal_recovery_progress = None
         self.temporal_recovery_source_replay_id = None
         self.temporal_recovery_hits = 0
+        self.temporal_recovery_samples = []
+        self.temporal_recovery_command_ceiling = None
         self.rewind_candidate_progress = None
         self.rewind_candidate_source_replay_id = None
         self.rewind_candidate_hits = 0
+
+    def _collect_temporal_recovery_progress(
+        self,
+        *,
+        proposed: float,
+        source_replay_id: str,
+        command_progress_ceiling: float | None,
+    ) -> float | None:
+        """Collect fresh rolling consensus without latching its first frame.
+
+        The former accumulator kept ``min(first, every_later_match)``. One
+        conservative departure match therefore pinned progress forever even
+        as later live frames moved through the saved 4->1 sequence. Keep only
+        the latest consecutive window and use its median. A source change, a
+        command-envelope change, or an implausible discontinuity starts a new
+        acquisition.
+        """
+        try:
+            value = float(proposed)
+        except (TypeError, ValueError):
+            return None
+        if not math.isfinite(value):
+            return None
+        try:
+            ceiling: float | None = float(command_progress_ceiling)
+        except (TypeError, ValueError):
+            ceiling = None
+        if ceiling is not None and not math.isfinite(ceiling):
+            ceiling = None
+        ceiling_changed = bool(
+            (ceiling is None) != (self.temporal_recovery_command_ceiling is None)
+            or (
+                ceiling is not None
+                and self.temporal_recovery_command_ceiling is not None
+                and abs(ceiling - self.temporal_recovery_command_ceiling) > 1.0e-6
+            )
+        )
+        previous_sample = (
+            self.temporal_recovery_samples[-1]
+            if self.temporal_recovery_samples
+            else None
+        )
+        sequence_changed = bool(
+            self.temporal_recovery_source_replay_id != source_replay_id
+            or ceiling_changed
+            or (
+                previous_sample is not None
+                and abs(value - previous_sample) > 0.18
+            )
+        )
+        if sequence_changed:
+            self.temporal_recovery_samples = []
+        self.temporal_recovery_source_replay_id = source_replay_id
+        self.temporal_recovery_command_ceiling = ceiling
+        self.temporal_recovery_samples.append(value)
+        self.temporal_recovery_samples = self.temporal_recovery_samples[
+            -self.recovery_acquisition_hits :
+        ]
+        self.temporal_recovery_hits = len(self.temporal_recovery_samples)
+        self.temporal_recovery_progress = float(
+            np.median(np.asarray(self.temporal_recovery_samples, dtype=np.float64))
+        )
+        if self.temporal_recovery_hits < self.recovery_acquisition_hits:
+            return None
+        return self.temporal_recovery_progress
 
     def _match_candidates(
         self,
@@ -1686,9 +1820,7 @@ class PatrolVisualRouteRecovery:
         anchors = anchors[:8]
 
         started = cv2.getTickCount()
-        query_keypoints, query_descriptors = self.detector.detectAndCompute(
-            np.asarray(gray), None
-        )
+        query_keypoints, query_descriptors = self._extract_query_features(gray)
         if query_descriptors is None or len(query_keypoints) < 120:
             return None, {"reason": "visual_heading_query_features_missing"}
 
@@ -1845,6 +1977,8 @@ class PatrolVisualRouteRecovery:
             self.temporal_recovery_progress = None
             self.temporal_recovery_source_replay_id = None
             self.temporal_recovery_hits = 0
+            self.temporal_recovery_samples = []
+            self.temporal_recovery_command_ceiling = None
             # Endpoint consensus cannot be combined across a source whose
             # route coverage just proved incomplete.
             self.endpoint_candidate_progress = None
@@ -1988,9 +2122,7 @@ class PatrolVisualRouteRecovery:
             }
 
         started = cv2.getTickCount()
-        query_keypoints, query_descriptors = self.detector.detectAndCompute(
-            np.asarray(gray), None
-        )
+        query_keypoints, query_descriptors = self._extract_query_features(gray)
         if query_descriptors is None or len(query_keypoints) < 120:
             self._mark_unverified()
             return None, {"reason": "visual_route_query_features_missing"}
@@ -2014,6 +2146,11 @@ class PatrolVisualRouteRecovery:
             and recovery_hover
             and independent_progress
             and command_progress_ceiling is not None
+            # The stale model can substantially trail the physical aircraft;
+            # retained live evidence reaches Point 1 with a 0.62 command
+            # ceiling. Keep the established early availability, then use the
+            # depth/scale condition below to prevent a mid-leg descriptor
+            # alias from suppressing ordinary local recovery.
             and command_progress_ceiling >= 0.45
         ):
             endpoint_only_candidates = self._match_candidates(
@@ -2110,12 +2247,19 @@ class PatrolVisualRouteRecovery:
                         * (cv2.getTickCount() - started)
                         / cv2.getTickFrequency(),
                     }
-            if int(endpoint_only_metadata.get("endpoint_hits") or 0) > 0:
+            if (
+                int(endpoint_only_metadata.get("endpoint_hits") or 0) > 0
+                and endpoint_only_metadata.get(
+                    "endpoint_view_geometry_verified"
+                )
+                is True
+            ):
                 # The current image already passed the whole-leg endpoint
-                # candidate test. Stay neutral and collect the remaining
-                # distinct frames without also running the ordinary local
-                # progress matcher; doing both doubled recovery latency while
-                # providing no additional movement authority.
+                # candidate and depth/scale tests. Stay neutral and collect
+                # the remaining distinct frames without also running the
+                # ordinary local progress matcher. Descriptor-only endpoint
+                # aliases without valid view geometry must fall through to
+                # the local matcher so they cannot freeze mid-leg recovery.
                 return None, {
                     "reason": "visual_route_endpoint_only_acquiring",
                     "endpoint_only_hits": int(
@@ -2187,6 +2331,7 @@ class PatrolVisualRouteRecovery:
         leg_length = float(np.linalg.norm((end - start)[[0, 2]]))
         weak_endpoint_recovery = False
         temporal_recovery = False
+        command_window_recovery = False
         effective_minimum_inliers = self.minimum_inliers
         if int(winner["inliers"]) < self.minimum_inliers:
             weak_endpoint = (
@@ -2226,6 +2371,8 @@ class PatrolVisualRouteRecovery:
                 self.temporal_recovery_progress = None
                 self.temporal_recovery_source_replay_id = None
                 self.temporal_recovery_hits = 0
+                self.temporal_recovery_samples = []
+                self.temporal_recovery_command_ceiling = None
                 if (
                     self.weak_endpoint_progress is None
                     or abs(float(weak_endpoint) - self.weak_endpoint_progress) > 0.08
@@ -2278,6 +2425,34 @@ class PatrolVisualRouteRecovery:
                     minimum_inliers=effective_recovery_minimum_inliers,
                     forward_window=sequence_forward_window,
                 )
+                if independent_progress and command_progress_ceiling is not None:
+                    command_candidate = command_bounded_recovery_candidate(
+                        candidates,
+                        previous=matched_base_progress,
+                        command_progress_ceiling=command_progress_ceiling,
+                        minimum_inliers=effective_recovery_minimum_inliers,
+                    )
+                    if command_candidate is not None:
+                        command_candidate_progress = max(
+                            matched_base_progress,
+                            float(command_candidate["progress"]),
+                        )
+                        # The strongest command-bounded current-image match
+                        # may be farther ahead than the one-step local prior.
+                        # Prefer it only when the difference is material; the
+                        # five-frame rolling consensus below must still prove
+                        # the same later neighborhood before publication.
+                        if (
+                            proposed is None
+                            or command_candidate_progress
+                            > float(proposed) + 0.04
+                        ):
+                            proposed = command_candidate_progress
+                            winner = command_candidate
+                            winner_source_replay_id = str(
+                                winner.get("source_replay_id") or ""
+                            )
+                            command_window_recovery = True
                 if proposed is None:
                     self._mark_unverified()
                     return None, {
@@ -2286,27 +2461,12 @@ class PatrolVisualRouteRecovery:
                         "minimum_inliers": effective_recovery_minimum_inliers,
                         "total_ms": elapsed_ms,
                     }
-                if (
-                    self.temporal_recovery_progress is None
-                    or self.temporal_recovery_source_replay_id
-                    != winner_source_replay_id
-                    or abs(
-                        float(proposed) - self.temporal_recovery_progress
-                    )
-                    > 0.12
-                ):
-                    self.temporal_recovery_progress = float(proposed)
-                    self.temporal_recovery_source_replay_id = (
-                        winner_source_replay_id
-                    )
-                    self.temporal_recovery_hits = 1
-                else:
-                    self.temporal_recovery_progress = min(
-                        self.temporal_recovery_progress,
-                        float(proposed),
-                    )
-                    self.temporal_recovery_hits += 1
-                if self.temporal_recovery_hits < self.recovery_acquisition_hits:
+                temporal_consensus = self._collect_temporal_recovery_progress(
+                    proposed=float(proposed),
+                    source_replay_id=winner_source_replay_id,
+                    command_progress_ceiling=command_progress_ceiling,
+                )
+                if temporal_consensus is None:
                     return None, {
                         "reason": "visual_route_temporal_recovery_acquiring",
                         "acquisition_hits": self.temporal_recovery_hits,
@@ -2317,7 +2477,23 @@ class PatrolVisualRouteRecovery:
                     }
                 proposed = max(
                     matched_base_progress,
-                    float(self.temporal_recovery_progress),
+                    float(temporal_consensus),
+                )
+                verified_progress_candidates = [
+                    item
+                    for item in candidates
+                    if int(item.get("inliers") or 0)
+                    >= effective_recovery_minimum_inliers
+                ]
+                winner = max(
+                    verified_progress_candidates or candidates,
+                    key=lambda item: (
+                        -abs(float(item["progress"]) - float(proposed)),
+                        *geometric_candidate_rank(item),
+                    ),
+                )
+                winner_source_replay_id = str(
+                    winner.get("source_replay_id") or ""
                 )
                 temporal_recovery = True
                 effective_minimum_inliers = (
@@ -2333,6 +2509,8 @@ class PatrolVisualRouteRecovery:
             self.temporal_recovery_progress = None
             self.temporal_recovery_source_replay_id = None
             self.temporal_recovery_hits = 0
+            self.temporal_recovery_samples = []
+            self.temporal_recovery_command_ceiling = None
             # A fixed 0.12 normalized window is smaller than one safe 18 cm
             # correction on the short Point-2 -> Point-3 leg.  A real forward
             # pulse could therefore move from progress 0.785 to 0.908 while
@@ -2789,6 +2967,7 @@ class PatrolVisualRouteRecovery:
             "unbounded_progress": unbounded_proposed_progress,
             "weak_endpoint_recovery": weak_endpoint_recovery,
             "temporal_recovery": temporal_recovery,
+            "command_window_recovery": command_window_recovery,
             "temporal_recovery_hits": int(self.temporal_recovery_hits),
             "temporal_recovery_required_hits": int(
                 self.recovery_acquisition_hits
@@ -2809,6 +2988,7 @@ class PatrolVisualRouteRecovery:
             "unbounded_progress": unbounded_proposed_progress,
             "weak_endpoint_recovery": weak_endpoint_recovery,
             "temporal_recovery": temporal_recovery,
+            "command_window_recovery": command_window_recovery,
             "temporal_recovery_hits": int(self.temporal_recovery_hits),
             "temporal_recovery_required_hits": int(
                 self.recovery_acquisition_hits

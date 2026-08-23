@@ -50,6 +50,8 @@ VIDEO_REVIEW_DIR = ROOT / "outputs" / "spy_demo" / "reviews"
 VIDEO_REVIEW_JSON = VIDEO_REVIEW_DIR / "ATLAS_CINEMATIC_PRODUCT_STORY_review.json"
 VIDEO_REVIEW_BRIEF = VIDEO_REVIEW_DIR / "ATLAS_CINEMATIC_PRODUCT_STORY_adjustment_brief.md"
 VIDEO_REVIEW_LOCK = threading.RLock()
+LIVE_POSE_EVENT_CACHE_LOCK = threading.RLock()
+LIVE_POSE_EVENT_CACHE: dict[str, dict] = {}
 
 STATE_LOCK = threading.Lock()
 STATE = {
@@ -91,6 +93,7 @@ FLEET_LOCK = threading.RLock()
 FLEET_SESSIONS: dict[str, dict] = {}
 LIBRARY_LOCK = threading.RLock()
 CAMERA_PATH_LAB_LOCK = threading.RLock()
+FAISS_INDEX_LOCK = threading.Lock()
 CAMERA_PATH_LAB_STATE = {
     "status": "idle",
     "message": "Choose a phone video to begin camera tracking.",
@@ -3062,6 +3065,77 @@ def fleet_snapshot() -> dict:
     }
 
 
+def fleet_live_replay_payload(drone_id: str, requested_after: int | None = None) -> tuple[dict, int]:
+    """Return one fleet drone's isolated live pose stream.
+
+    Fleet map windows must never read the legacy singleton live stream. This
+    mirrors the delta behavior of ``/api/live-replay`` while resolving only the
+    pose path owned by the requested fleet session.
+    """
+    drone_id = slugify_label(drone_id, "")
+    if not drone_id:
+        return {"ok": False, "error": "Choose a fleet drone.", "poses": []}, 400
+    with FLEET_LOCK:
+        session = FLEET_SESSIONS.get(drone_id)
+        stream = fleet_session_snapshot(session) if session else None
+    if not stream:
+        return {
+            "ok": False,
+            "error": "This drone does not have a fleet monitor session.",
+            "poses": [],
+        }, 404
+
+    rel = stream.get("partial_pose_url") or stream.get("final_pose_url")
+    if not rel:
+        return {
+            "ok": True,
+            "mode": "dji_fleet_live_tsolve_partial",
+            "processed_count": 0,
+            "expected_count": 0,
+            "complete": False,
+            "message": stream.get("message") or "Preparing this drone's isolated TSolve stream.",
+            "poses": [],
+            "stream": stream,
+        }, 200
+    try:
+        pose_path = (VIEWER / str(rel)).resolve()
+        if not pose_path.is_relative_to(VIEWER.resolve()):
+            raise RuntimeError("Invalid fleet live stream path.")
+        payload = json.loads(pose_path.read_text(encoding="utf-8")) if pose_path.exists() else {"poses": []}
+    except Exception as exc:
+        return {"ok": False, "error": str(exc), "stream": stream, "poses": []}, 200
+
+    if requested_after is not None:
+        requested_after = max(0, int(requested_after))
+        compact_poses = payload.get("poses") if isinstance(payload.get("poses"), list) else []
+        event_name = str(payload.get("pose_events_file") or "").strip()
+        event_path = pose_path.parent / event_name if event_name else None
+        if (
+            event_path is not None
+            and event_path.exists()
+            and event_path.resolve().is_relative_to(pose_path.parent.resolve())
+        ):
+            all_poses = read_live_pose_events(event_path)
+            delta_reset = requested_after > len(all_poses)
+            delta_start = 0 if delta_reset else requested_after
+            payload["poses"] = all_poses[delta_start:]
+        else:
+            pose_start = max(0, int(payload.get("pose_start_index") or 0))
+            processed_count = int(payload.get("processed_count") or len(compact_poses))
+            in_window = pose_start <= requested_after <= processed_count
+            delta_reset = not in_window
+            delta_start = pose_start if delta_reset else requested_after
+            offset = 0 if delta_reset else requested_after - pose_start
+            payload["poses"] = compact_poses[offset:]
+        payload["delta"] = True
+        payload["delta_start"] = delta_start
+        payload["delta_reset"] = delta_reset
+        payload["returned_count"] = len(payload["poses"])
+    payload["ok"] = True
+    payload["stream"] = stream
+    return payload, 200
+
+
 def manual_patrol_recording_state_path() -> Path:
     return PUBLIC / "live_dji" / "manual_patrol_recording.json"
 
@@ -3636,6 +3710,85 @@ def current_live_stream() -> dict | None:
         return json.loads(json.dumps(stream)) if isinstance(stream, dict) else None
 
 
+def read_live_pose_events(path: Path) -> list[dict]:
+    """Incrementally tail a localizer JSONL stream without reparsing history."""
+    key = str(path.resolve())
+    try:
+        size = path.stat().st_size
+    except OSError:
+        return []
+    with LIVE_POSE_EVENT_CACHE_LOCK:
+        state = LIVE_POSE_EVENT_CACHE.get(key)
+        if state is None or size < int(state.get("offset", 0)):
+            state = {"offset": 0, "buffer": "", "poses": []}
+            LIVE_POSE_EVENT_CACHE[key] = state
+        offset = int(state["offset"])
+        if size > offset:
+            with path.open("r", encoding="utf-8") as stream:
+                stream.seek(offset)
+                chunk = stream.read()
+                state["offset"] = stream.tell()
+            text = str(state.get("buffer") or "") + chunk
+            lines = text.split("\n")
+            state["buffer"] = lines.pop()
+            for line in lines:
+                if not line.strip():
+                    continue
+                try:
+                    pose = json.loads(line)
+                except json.JSONDecodeError:
+                    # A malformed complete event should not poison later live
+                    # observations. Partial final writes remain in `buffer`.
+                    continue
+                if isinstance(pose, dict):
+                    state["poses"].append(pose)
+        return list(state["poses"])
+
+
+def complete_live_pose_history(payload: dict, pose_path: Path) -> list[dict]:
+    """Recover a compact/aborted live stream into a complete saved history."""
+    poses = payload.get("poses") if isinstance(payload.get("poses"), list) else []
+    processed_count = int(payload.get("processed_count") or len(poses))
+    pose_start = max(0, int(payload.get("pose_start_index") or 0))
+    if pose_start == 0 and len(poses) >= processed_count:
+        return poses
+    event_name = str(payload.get("pose_events_file") or "").strip()
+    event_path = pose_path.parent / event_name if event_name else None
+    if (
+        event_path is None
+        or not event_path.exists()
+        or not event_path.resolve().is_relative_to(pose_path.parent.resolve())
+    ):
+        return poses
+    events = read_live_pose_events(event_path)
+
+    def pose_sort_key(pose: dict) -> tuple[float, str, str]:
+        try:
+            frame_time = float(pose.get("time_sec"))
+        except (TypeError, ValueError):
+            frame_time = float("inf")
+        return (
+            frame_time,
+            str(pose.get("image_name") or ""),
+            str(pose.get("instance_id") or ""),
+        )
+
+    return sorted(events, key=pose_sort_key) if events else poses
+
+
+def pose_stream_payload_counts(payload: dict, poses: list[dict]) -> dict:
+    """Use aggregate counters when the live controller window is compact."""
+    fallback = pose_stream_counts(poses)
+    try:
+        return {
+            "poses": int(payload.get("accepted_count", fallback["poses"])),
+            "held": int(payload.get("held_count", fallback["held"])),
+            "failed": int(payload.get("failed_count", fallback["failed"])),
+        }
+    except (TypeError, ValueError):
+        return fallback
+
+
 def dji_live_bridge_readiness(live_status: dict, command: str) -> tuple[bool, str]:
     state = str(live_status.get("status") or "").strip().lower()
     try:
@@ -4052,7 +4205,7 @@ def recover_live_stream_from_disk() -> dict | None:
     try:
         payload = json.loads(partial_pose_path.read_text(encoding="utf-8"))
         poses = payload.get("poses") if isinstance(payload.get("poses"), list) else []
-        counts = pose_stream_counts(poses)
+        counts = pose_stream_payload_counts(payload, poses)
         stream["pose_count"] = int(payload.get("processed_count") or len(poses))
         stream["accepted_pose_count"] = counts["poses"]
         stream["held_pose_count"] = counts["held"]
@@ -4102,7 +4255,7 @@ def stream_partial_poses(
             payload["current_frame"] = existing["current_frame"]
             payload["current_frame_time_sec"] = existing.get("current_frame_time_sec")
         poses = payload.get("poses") if isinstance(payload.get("poses"), list) else []
-        counts = pose_stream_counts(poses)
+        counts = pose_stream_payload_counts(payload, poses)
         count = int(payload.get("processed_count") or len(poses))
         now = time.time()
         if count != last_count or now - last_write > 2.5:
@@ -4144,7 +4297,7 @@ def stream_partial_poses(
         payload["current_frame_time_sec"] = existing.get("current_frame_time_sec")
     atomic_write_json(partial_path, payload)
     poses = payload.get("poses") if isinstance(payload.get("poses"), list) else []
-    counts = pose_stream_counts(poses)
+    counts = pose_stream_payload_counts(payload, poses)
     final_count = int(payload.get("processed_count") or len(poses))
     stream_update = {
         "pose_count": final_count,
@@ -4255,6 +4408,98 @@ def latest_live_stage_row(stage_times_path: Path | None) -> dict:
     return rows[-1] if rows else {}
 
 
+def live_stage_diagnostics(row: dict | None) -> dict:
+    """Normalize one localization CSV row for compact live GUI telemetry."""
+    source = row if isinstance(row, dict) else {}
+
+    def number(name: str) -> float | None:
+        value = source.get(name)
+        if value in (None, ""):
+            return None
+        try:
+            parsed = float(value)
+        except (TypeError, ValueError):
+            return None
+        return parsed if math.isfinite(parsed) else None
+
+    def integer(name: str) -> int | None:
+        value = number(name)
+        return max(0, int(value)) if value is not None else None
+
+    foreground_timing_names = (
+        "frame_load_ms",
+        "heading_flow_ms",
+        "feature_extract_ms",
+        "match_ms",
+        "register_ms",
+        "optical_flow_ms",
+        "case_build_ms",
+        "case_output_ms",
+        "visual_route_ms",
+        "visual_heading_ms",
+        "route_logic_ms",
+        "local_recovery_ms",
+        "background_apply_ms",
+        "pose_update_ms",
+        "stream_publish_ms",
+        "tsolve_ms",
+        "pace_wait_ms",
+    )
+    timings = {
+        name: number(name)
+        for name in (*foreground_timing_names, "background_worker_ms")
+    }
+    total_ms = number("total_frame_ms")
+    method = str(source.get("method") or "")
+    async_background = method.startswith("global_colmap_background_recovery")
+    # SIFT extraction/matching/registration in a background-recovery row ran
+    # on the worker thread.  Show them, but do not subtract asynchronous work
+    # from the foreground frame's total or percentage remainder.
+    accounted_names = tuple(
+        name
+        for name in foreground_timing_names
+        if not (
+            async_background
+            and name in {"feature_extract_ms", "match_ms", "register_ms"}
+        )
+    )
+    accounted_ms = sum(timings.get(name) or 0.0 for name in accounted_names)
+    other_ms = (
+        max(0.0, total_ms - accounted_ms)
+        if total_ms is not None
+        else None
+    )
+    return {
+        "frame_index": integer("frame_index"),
+        "case_id": str(source.get("case_id") or ""),
+        "image_name": str(source.get("image_name") or ""),
+        "method": method,
+        "async_background": async_background,
+        "accepted": str(source.get("accepted") or "").lower() == "true",
+        "reason": str(source.get("reason") or "").strip(),
+        "features": {
+            "extracted": integer("extracted_features"),
+            "matched": integer("matched_features"),
+            "flow_input": integer("flow_input_points"),
+            "tracked": integer("tracked_points"),
+            "pnp_inliers": integer("pnp_inliers"),
+            "selected": integer("selected_points"),
+            "pruned": integer("pruned_features"),
+        },
+        "timings_ms": {
+            **timings,
+            "total_frame_ms": total_ms,
+            "accounted_ms": accounted_ms,
+            "other_ms": other_ms,
+            "overlap_or_rounding_ms": (
+                max(0.0, accounted_ms - total_ms)
+                if total_ms is not None
+                else None
+            ),
+        },
+    }
+
+
 def monitor_partial_pose_file(
     partial_path: Path,
     stop_event: threading.Event,
@@ -4273,7 +4518,7 @@ def monitor_partial_pose_file(
         except (OSError, json.JSONDecodeError):
             payload = {}
         poses = payload.get("poses") if isinstance(payload.get("poses"), list) else []
-        counts = pose_stream_counts(poses)
+        counts = pose_stream_payload_counts(payload, poses)
         count = int(payload.get("processed_count") or len(poses))
         if count != last_count:
             stream_update = {
@@ -4313,6 +4558,9 @@ def monitor_partial_pose_file(
                     latest_frame_index=frame_index,
                     latest_localization_reason=reason,
                     latest_total_frame_ms=total_ms,
+                    latest_localization_diagnostics=live_stage_diagnostics(
+                        latest_stage
+                    ),
                     message=msg,
                 )
                 publish_status(msg)
@@ -4331,7 +4579,7 @@ def finalize_partial_replay(
     query_frame_base_url: str | None = None,
 ) -> int:
     payload = json.loads(partial_pose_path.read_text(encoding="utf-8")) if partial_pose_path.exists() else {"poses": []}
-    poses = payload.get("poses") if isinstance(payload.get("poses"), list) else []
+    poses = complete_live_pose_history(payload, partial_pose_path)
     counts = pose_stream_counts(poses)
     final_payload = {
         **payload,
@@ -4520,6 +4768,42 @@ def colmap_artifacts_for_entry(entry: dict) -> dict[str, Path]:
     raise RuntimeError(
         f"No reusable COLMAP reference map was found for {entry.get('title', entry.get('id'))}. "
         "Create/rebuild the map before uploading a drone video."
+    )
+
+
+def faiss_index_command(cfg: dict, artifacts: dict[str, Path]) -> tuple[Path, list[object]] | None:
+    """Return the persistent all-map SIFT-to-3D index and its idempotent build command."""
+    if not cfg.get("live_faiss_global_recovery", True):
+        return None
+    index_dir = artifacts["root"] / "faiss_sift_3d_ivf"
+    return index_dir, [
+        Path(cfg["python"]),
+        ROOT / "scripts" / "colmap_faiss_relocalizer.py",
+        "--database", artifacts["database"],
+        "--map-sparse-model", artifacts["sparse_model"],
+        "--out-dir", index_dir,
+        "--nlist", cfg.get("live_faiss_nlist", 4096),
+        "--nprobe", cfg.get("live_faiss_nprobe", 32),
+        "--training-sample-size", cfg.get("live_faiss_training_sample_size", 262144),
+    ]
+
+
+def add_faiss_live_arguments(
+    cmd: list[object],
+    cfg: dict,
+    index_dir: Path | None,
+) -> None:
+    if index_dir is None:
+        return
+    cmd.extend(
+        [
+            "--faiss-index-dir", index_dir,
+            "--faiss-nprobe", cfg.get("live_faiss_nprobe", 32),
+            "--faiss-top-k", cfg.get("live_faiss_top_k", 32),
+            "--faiss-ratio", cfg.get("live_faiss_ratio", 0.80),
+            "--faiss-min-points", cfg.get("live_faiss_min_points", 40),
+            "--faiss-reprojection-error", cfg.get("live_faiss_reprojection_error", 6.0),
+        ]
     )
 
 
@@ -5264,6 +5548,17 @@ def dji_live_atlas_job(
         effective_map_id = live_patrol_lock["map_id"] if live_patrol_lock is not None else map_id
         selected = set_selected_map(effective_map_id) if effective_map_id else selected_map_entry()
         map_artifacts = colmap_artifacts_for_entry(selected)
+        faiss_index_dir: Path | None = None
+        faiss_spec = faiss_index_command(cfg, map_artifacts)
+        if faiss_spec is not None:
+            faiss_index_dir, faiss_build_cmd = faiss_spec
+            set_job(
+                "drone",
+                "running",
+                "Preparing the complete COLMAP SIFT-to-3D search index.",
+            )
+            with FAISS_INDEX_LOCK:
+                run_cmd("drone", faiss_build_cmd, DRONE_STOP_EVENT)
         replay_id = make_map_id("dji_live")
         session = f"atlas_{replay_id}"
         replay_title = f"Live ATLAS {time.strftime('%H:%M:%S')}"
@@ -5470,8 +5765,12 @@ def dji_live_atlas_job(
             stream_work,
             "--max-image-size",
             cfg["max_image_size"],
+            "--sift-max-num-features",
+            cfg.get("live_sift_max_num_features", 1024),
             "--query-camera-model",
             cfg["query_camera_model"],
+            "--query-camera-params",
+            cfg.get("query_camera_params", ""),
             "--min-points",
             cfg["min_query_correspondences"],
             "--max-points",
@@ -5484,6 +5783,8 @@ def dji_live_atlas_job(
             cfg.get("live_tracking_pool_size", 900),
             "--relocalize-every",
             cfg.get("live_relocalize_every", 0),
+            "--relocalize-every-seconds",
+            cfg.get("live_relocalize_every_seconds", 0.0),
             "--flow-max-error",
             cfg.get("live_flow_max_error", 34.0),
             "--flow-backtrack-error",
@@ -5501,7 +5802,9 @@ def dji_live_atlas_job(
             "--proactive-relocalize-points",
             cfg.get("live_proactive_relocalize_points", 500),
             "--proactive-relocalize-cooldown-frames",
-            cfg.get("live_proactive_relocalize_cooldown_frames", 60),
+            cfg.get("live_proactive_relocalize_cooldown_frames", 15),
+            "--pose-recovery-global-cooldown-frames",
+            cfg.get("live_pose_recovery_global_cooldown_frames", 15),
             "--global-recovery-after-failures",
             cfg.get("live_global_recovery_after_failures", 2),
             "--background-recovery-timeout-seconds",
@@ -5555,7 +5858,7 @@ def dji_live_atlas_job(
                     "--patrol-route-max-cross-track",
                     cfg.get("live_patrol_route_max_cross_track", 0.55),
                     "--patrol-route-backward-tolerance",
-                    cfg.get("live_patrol_route_backward_tolerance", 0.045),
+                    cfg.get("live_patrol_route_backward_tolerance", 0.08),
                     "--patrol-status-max-age",
                     cfg.get("live_patrol_status_max_age", 5.0),
                     "--patrol-turn-max-position-drift",
@@ -5580,6 +5883,12 @@ def dji_live_atlas_job(
             live_stream_cmd.append("--disable-background-recovery")
         if cfg.get("live_direct_pnp_recovery", True):
             live_stream_cmd.append("--direct-pnp-recovery")
+        add_faiss_live_arguments(live_stream_cmd, cfg, faiss_index_dir)
+        set_job(
+            "drone",
+            "running",
+            "Initial global localization: all-map Faiss SIFT retrieval with verified PnP.",
+        )
         run_cmd("drone", live_stream_cmd, None)
 
         set_job("drone", "running", "Finalizing stopped DJI live path.")
@@ -6203,6 +6512,17 @@ def localized_recorded_patrol_job(
         inputs_out = run_root / "tsolve_inputs"
         work_dir = run_root / "live_existing_map_stream"
         map_artifacts = colmap_artifacts_for_entry(selected)
+        faiss_index_dir: Path | None = None
+        faiss_spec = faiss_index_command(cfg, map_artifacts)
+        if faiss_spec is not None:
+            faiss_index_dir, faiss_build_cmd = faiss_spec
+            set_job(
+                "drone",
+                "running",
+                "Preparing the complete COLMAP SIFT-to-3D search index for validation.",
+            )
+            with FAISS_INDEX_LOCK:
+                run_cmd("drone", faiss_build_cmd, DRONE_STOP_EVENT)
         baseline_reference_path = Path(str(lock.get("baseline_reference_path") or ""))
         baseline_reference = json.loads(baseline_reference_path.read_text(encoding="utf-8"))
         baseline_legs = list(baseline_reference.get("legs") or [])
@@ -6221,6 +6541,9 @@ def localized_recorded_patrol_job(
         simulated_control_status = run_root / "simulated_control_status.json"
         frame_plan: list[dict] = []
         composite_source_replay_ids: list[str] = [baseline_replay_id]
+        simulation_visual_recovery_path = Path(
+            str(lock.get("visual_recovery_path") or "")
+        )
         # A concatenated validation stream has an artificial camera cut at
         # the start of lap 2.  Requiring a fresh map-wide metric solve at that
         # exact cut tests COLMAP's cold-start latency, not the continuity a
@@ -6341,6 +6664,38 @@ def localized_recorded_patrol_job(
             )
             query_frame_base_url = public_rel(query_frames)
             expected_count = len(frame_plan)
+
+            # The physical patrol uses the newest manual-tail bank because it
+            # contains the latest real Point-4 -> Point-1 recovery views.  A
+            # recorded validation stream must instead use a bank that covers
+            # the recordings placed in its frame plan.  The audited multirun
+            # bank contains both the full-loop baseline and the independent
+            # second-lap source.  Using the physical-only manual-tail bank on
+            # the older baseline video produced no accepted 4->1 positions:
+            # the model remained at Point 4 and snapped to Point 1 afterward.
+            recorded_bank = (
+                baseline_asset / "visual_route_recovery_multirun_turn_headings.npz"
+            )
+            recorded_audit = (
+                baseline_asset
+                / "visual_route_recovery_multirun_turn_headings_audit.json"
+            )
+            try:
+                recorded_audit_payload = json.loads(
+                    recorded_audit.read_text(encoding="utf-8")
+                )
+            except (OSError, json.JSONDecodeError) as exc:
+                raise RuntimeError(
+                    f"Recorded simulation visual-bank audit cannot be read: {exc}"
+                ) from exc
+            if (
+                not recorded_bank.is_file()
+                or recorded_audit_payload.get("passed") is not True
+            ):
+                raise RuntimeError(
+                    "The recorded simulation visual bank has not passed its audit."
+                )
+            simulation_visual_recovery_path = recorded_bank
 
         source_session = str(
             source_payload.get("source_session")
@@ -6557,9 +6912,15 @@ def localized_recorded_patrol_job(
                                     else "patrol_translation"
                                 )
                             ),
+                            # A verified Point-1 seam only permits the
+                            # simulation to skip its artificial cold-start
+                            # metric checkpoint.  It is not a recovery hover.
+                            # Treating the whole second lap as recovery made
+                            # LivePatrolRouteGate release every yaw lock, so
+                            # recorded turn frames advanced the model along
+                            # the next leg while the camera was still rotating.
                             "route_visual_recovery_allowed": bool(
                                 metric_checkpoint_active
-                                or (lap_number > 1 and composite_point1_seam_verified)
                             ),
                             "require_metric_pose": metric_checkpoint_active,
                             "metric_pose_ready": lap_two_metric_ready,
@@ -6602,13 +6963,16 @@ def localized_recorded_patrol_job(
             "--out-dir", runtime_out,
             "--work-dir", work_dir,
             "--max-image-size", cfg["max_image_size"],
+            "--sift-max-num-features", cfg.get("live_sift_max_num_features", 1024),
             "--query-camera-model", cfg["query_camera_model"],
+            "--query-camera-params", cfg.get("query_camera_params", ""),
             "--min-points", cfg["min_query_correspondences"],
             "--max-points", cfg["max_query_correspondences"],
             "--max-reference-images", cfg.get("live_reference_image_cap", 120),
             "--tracking-reference-images", cfg.get("live_tracking_reference_image_cap", 18),
             "--track-pool-size", cfg.get("live_tracking_pool_size", 900),
             "--relocalize-every", cfg.get("live_relocalize_every", 0),
+            "--relocalize-every-seconds", cfg.get("live_relocalize_every_seconds", 0.0),
             "--flow-max-error", cfg.get("live_flow_max_error", 34.0),
             "--flow-backtrack-error", cfg.get("live_flow_backtrack_error", 2.5),
             "--flow-window", cfg.get("live_flow_window", 31),
@@ -6617,7 +6981,8 @@ def localized_recorded_patrol_job(
             "--min-track-points", cfg.get("live_min_track_points", 15),
             "--min-track-ratio", cfg.get("live_min_track_ratio", 0.10),
             "--proactive-relocalize-points", cfg.get("live_proactive_relocalize_points", 500),
-            "--proactive-relocalize-cooldown-frames", cfg.get("live_proactive_relocalize_cooldown_frames", 30),
+            "--proactive-relocalize-cooldown-frames", cfg.get("live_proactive_relocalize_cooldown_frames", 15),
+            "--pose-recovery-global-cooldown-frames", cfg.get("live_pose_recovery_global_cooldown_frames", 15),
             "--global-recovery-after-failures", cfg.get("live_global_recovery_after_failures", 3),
             "--background-recovery-timeout-seconds", cfg.get("live_background_recovery_timeout_seconds", 20.0),
             "--global-recovery-max-step", cfg.get("live_global_recovery_max_step", 0.55),
@@ -6640,7 +7005,7 @@ def localized_recorded_patrol_job(
             "--rotation-command-status-json", simulated_control_status,
             "--patrol-route-baseline", baseline_reference_path,
             "--patrol-route-max-cross-track", cfg.get("live_patrol_route_max_cross_track", 0.55),
-            "--patrol-route-backward-tolerance", cfg.get("live_patrol_route_backward_tolerance", 0.045),
+            "--patrol-route-backward-tolerance", cfg.get("live_patrol_route_backward_tolerance", 0.08),
             "--patrol-status-max-age", 2.0,
             "--patrol-turn-max-position-drift", cfg.get("live_patrol_turn_max_position_drift", 0.75),
             "--direct-pnp-recovery",
@@ -6655,13 +7020,19 @@ def localized_recorded_patrol_job(
             lock["patrol_id"],
         ):
             cmd.extend(["--taught-patrol-recovery-bank", recovery_bank])
-        if lock.get("visual_recovery_path"):
-            cmd.extend(["--patrol-visual-recovery-bank", lock["visual_recovery_path"]])
+        if simulation_visual_recovery_path.is_file():
+            cmd.extend(
+                [
+                    "--patrol-visual-recovery-bank",
+                    simulation_visual_recovery_path,
+                ]
+            )
         if laps > 1:
             # The recorded two-lap stream emulates the live Point-1 hover:
             # never consume an advancing second-lap camera stream while the
             # metric rematch for the current frame is still pending.
             cmd.append("--wait-for-metric-checkpoint-recovery")
+        add_faiss_live_arguments(cmd, cfg, faiss_index_dir)
         run_cmd("drone", cmd, DRONE_STOP_EVENT)
         monitor_stop.set()
         monitor_thread.join(timeout=3.0)
@@ -6670,7 +7041,7 @@ def localized_recorded_patrol_job(
         poses = payload.get("poses") if isinstance(payload.get("poses"), list) else []
         if not poses:
             raise RuntimeError("Recorded-frame live localization produced no poses.")
-        counts = pose_stream_counts(poses)
+        counts = pose_stream_payload_counts(payload, poses)
         if frame_plan:
             for pose in poses:
                 match = re.search(r"(\d{6})(?:\.[^.]+)?$", str(pose.get("image_name") or ""))
@@ -6841,7 +7212,7 @@ def monitor_fleet_partial_pose(
         except (OSError, json.JSONDecodeError):
             payload = {}
         poses = payload.get("poses") if isinstance(payload.get("poses"), list) else []
-        counts = pose_stream_counts(poses)
+        counts = pose_stream_payload_counts(payload, poses)
         count = int(payload.get("processed_count") or len(poses))
         fields = {
             "pose_count": count,
@@ -6875,6 +7246,7 @@ def monitor_fleet_partial_pose(
                     latest_frame_index=frame_index,
                     latest_localization_reason=reason,
                     latest_total_frame_ms=row.get("total_frame_ms"),
+                    latest_localization_diagnostics=live_stage_diagnostics(row),
                 )
                 if reason not in {"processing", "accepted", "fresh_pose"}:
                     fleet_event(drone_id, f"Localization frame {frame_index}: {reason}", "warning")
@@ -6893,7 +7265,7 @@ def finalize_fleet_replay(
     query_frames: Path,
 ) -> int:
     payload = json.loads(partial_pose_path.read_text(encoding="utf-8")) if partial_pose_path.exists() else {"poses": []}
-    poses = payload.get("poses") if isinstance(payload.get("poses"), list) else []
+    poses = complete_live_pose_history(payload, partial_pose_path)
     counts = pose_stream_counts(poses)
     final_payload = {
         **payload,
@@ -6966,6 +7338,14 @@ def fleet_live_atlas_job(drone_id: str) -> None:
         ):
             live_patrol_lock = None
         map_artifacts = colmap_artifacts_for_entry(selected)
+        faiss_index_dir: Path | None = None
+        faiss_spec = faiss_index_command(cfg, map_artifacts)
+        if faiss_spec is not None:
+            faiss_index_dir, faiss_build_cmd = faiss_spec
+            fleet_update(drone_id, stage="preparing_global_index")
+            fleet_event(drone_id, "Preparing the complete COLMAP SIFT-to-3D search index.")
+            with FAISS_INDEX_LOCK:
+                fleet_run_cmd(drone_id, faiss_build_cmd, stop_event)
         replay_id = make_map_id(f"fleet_{drone_id}")
         session_id = f"atlas_{replay_id}"
         replay_title = f"Fleet {drone_id} {time.strftime('%H:%M:%S')}"
@@ -7097,13 +7477,16 @@ def fleet_live_atlas_job(drone_id: str) -> None:
             "--out-dir", tsolve_runtime,
             "--work-dir", stream_work,
             "--max-image-size", cfg["max_image_size"],
+            "--sift-max-num-features", cfg.get("live_sift_max_num_features", 1024),
             "--query-camera-model", cfg["query_camera_model"],
+            "--query-camera-params", cfg.get("query_camera_params", ""),
             "--min-points", cfg["min_query_correspondences"],
             "--max-points", cfg["max_query_correspondences"],
             "--max-reference-images", cfg.get("live_reference_image_cap", 24),
             "--tracking-reference-images", cfg.get("live_tracking_reference_image_cap", 10),
             "--track-pool-size", cfg.get("live_tracking_pool_size", 900),
             "--relocalize-every", cfg.get("live_relocalize_every", 0),
+            "--relocalize-every-seconds", cfg.get("live_relocalize_every_seconds", 0.0),
             "--flow-max-error", cfg.get("live_flow_max_error", 34.0),
             "--flow-backtrack-error", cfg.get("live_flow_backtrack_error", 2.5),
             "--flow-window", cfg.get("live_flow_window", 21),
@@ -7112,7 +7495,8 @@ def fleet_live_atlas_job(drone_id: str) -> None:
             "--min-track-points", cfg.get("live_min_track_points", 80),
             "--min-track-ratio", cfg.get("live_min_track_ratio", 0.10),
             "--proactive-relocalize-points", cfg.get("live_proactive_relocalize_points", 500),
-            "--proactive-relocalize-cooldown-frames", cfg.get("live_proactive_relocalize_cooldown_frames", 60),
+            "--proactive-relocalize-cooldown-frames", cfg.get("live_proactive_relocalize_cooldown_frames", 15),
+            "--pose-recovery-global-cooldown-frames", cfg.get("live_pose_recovery_global_cooldown_frames", 15),
             "--global-recovery-after-failures", cfg.get("live_global_recovery_after_failures", 2),
             "--background-recovery-timeout-seconds", cfg.get("live_background_recovery_timeout_seconds", 20.0),
             "--global-recovery-max-step", cfg.get("live_global_recovery_max_step", 0.55),
@@ -7149,7 +7533,7 @@ def fleet_live_atlas_job(drone_id: str) -> None:
                     "--patrol-route-max-cross-track",
                     cfg.get("live_patrol_route_max_cross_track", 0.55),
                     "--patrol-route-backward-tolerance",
-                    cfg.get("live_patrol_route_backward_tolerance", 0.045),
+                    cfg.get("live_patrol_route_backward_tolerance", 0.08),
                     "--patrol-status-max-age",
                     cfg.get("live_patrol_status_max_age", 5.0),
                     "--patrol-turn-max-position-drift",
@@ -7174,6 +7558,12 @@ def fleet_live_atlas_job(drone_id: str) -> None:
             live_cmd.append("--disable-background-recovery")
         if cfg.get("live_direct_pnp_recovery", True):
             live_cmd.append("--direct-pnp-recovery")
+        add_faiss_live_arguments(live_cmd, cfg, faiss_index_dir)
+        fleet_update(drone_id, stage="initial_localization")
+        fleet_event(
+            drone_id,
+            "Initial all-map Faiss SIFT retrieval with verified PnP started.",
+        )
         fleet_run_cmd(drone_id, live_cmd, None)
         fleet_update(drone_id, stage="finalizing")
         fleet_event(drone_id, "Localization stopped; saving the fleet replay.")
@@ -7982,6 +8372,8 @@ def drone_video_job(
                 cfg.get("simulated_live_tracking_pool_size", 900),
                 "--relocalize-every",
                 cfg.get("live_relocalize_every", 0),
+                "--relocalize-every-seconds",
+                cfg.get("live_relocalize_every_seconds", 0.0),
                 "--flow-max-error",
                 cfg.get("live_flow_max_error", 34.0),
                 "--flow-backtrack-error",
@@ -8104,6 +8496,8 @@ def drone_video_job(
                     cfg["max_image_size"],
                     "--query-camera-model",
                     cfg["query_camera_model"],
+                    "--query-camera-params",
+                    cfg.get("query_camera_params", ""),
                     "--min-points",
                     cfg["min_query_correspondences"],
                     "--max-points",
@@ -8454,10 +8848,31 @@ class AtlasHandler(SimpleHTTPRequestHandler):
                     requested_after = max(0, int(after_values[0]))
                 except (TypeError, ValueError):
                     requested_after = 0
-                all_poses = payload.get("poses") if isinstance(payload.get("poses"), list) else []
-                delta_reset = requested_after > len(all_poses)
-                delta_start = 0 if delta_reset else requested_after
-                payload["poses"] = all_poses[delta_start:]
+                compact_poses = payload.get("poses") if isinstance(payload.get("poses"), list) else []
+                event_name = str(payload.get("pose_events_file") or "").strip()
+                event_path = pose_path.parent / event_name if event_name else None
+                if (
+                    event_path is not None
+                    and event_path.exists()
+                    and event_path.resolve().is_relative_to(pose_path.parent.resolve())
+                ):
+                    all_poses = read_live_pose_events(event_path)
+                    delta_reset = requested_after > len(all_poses)
+                    delta_start = 0 if delta_reset else requested_after
+                    payload["poses"] = all_poses[delta_start:]
+                else:
+                    # Backwards-compatible fallback for legacy/full streams.
+                    # A compact stream without its sidecar can only return its
+                    # retained window and explicitly asks the browser to reset.
+                    pose_start = max(0, int(payload.get("pose_start_index") or 0))
+                    processed_count = int(
+                        payload.get("processed_count") or len(compact_poses)
+                    )
+                    in_window = pose_start <= requested_after <= processed_count
+                    delta_reset = not in_window
+                    delta_start = pose_start if delta_reset else requested_after
+                    offset = 0 if delta_reset else requested_after - pose_start
+                    payload["poses"] = compact_poses[offset:]
                 payload["delta"] = True
                 payload["delta_start"] = delta_start
                 payload["delta_reset"] = delta_reset
@@ -8497,6 +8912,17 @@ class AtlasHandler(SimpleHTTPRequestHandler):
                 if item.get("patrols")
             ]
             self.send_json(payload)
+            return
+        if url.path == "/api/fleet/live-replay":
+            query = urllib.parse.parse_qs(url.query)
+            drone_id = (query.get("drone_id") or [""])[0]
+            after_values = query.get("after") or []
+            try:
+                requested_after = max(0, int(after_values[0])) if after_values else None
+            except (TypeError, ValueError):
+                requested_after = 0
+            payload, status = fleet_live_replay_payload(drone_id, requested_after)
+            self.send_json(payload, status)
             return
         super().do_GET()
 

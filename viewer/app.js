@@ -1,5 +1,9 @@
 const canvas = document.getElementById("map");
 let ctx = canvas.getContext("2d");
+const launchParams = new URLSearchParams(window.location.search);
+const fleetEmbedDroneId = String(launchParams.get("fleet-drone") || "").trim();
+const fleetEmbedMode = launchParams.get("fleet-embed") === "1" && Boolean(fleetEmbedDroneId);
+if (fleetEmbedMode) document.body.classList.add("fleet-map-embed");
 let currentRenderedPose = null;
 const staticCanvas = document.createElement("canvas");
 const staticCtx = staticCanvas.getContext("2d");
@@ -14,6 +18,36 @@ const poseRoot = document.getElementById("pose-root");
 const poseCenter = document.getElementById("pose-center");
 const poseT = document.getElementById("pose-t");
 const poseR = document.getElementById("pose-r");
+const diagState = document.getElementById("diag-state");
+const diagFrameMethod = document.getElementById("diag-frame-method");
+const diagReason = document.getElementById("diag-reason");
+const diagExtracted = document.getElementById("diag-extracted");
+const diagMatched = document.getElementById("diag-matched");
+const diagFlowInput = document.getElementById("diag-flow-input");
+const diagTracked = document.getElementById("diag-tracked");
+const diagPnp = document.getElementById("diag-pnp");
+const diagSelected = document.getElementById("diag-selected");
+const diagPruned = document.getElementById("diag-pruned");
+const diagTotalMs = document.getElementById("diag-total-ms");
+const diagFrameLoadMs = document.getElementById("diag-frame-load-ms");
+const diagHeadingFlowMs = document.getElementById("diag-heading-flow-ms");
+const diagFeatureMs = document.getElementById("diag-feature-ms");
+const diagMatchMs = document.getElementById("diag-match-ms");
+const diagRegisterMs = document.getElementById("diag-register-ms");
+const diagFlowMs = document.getElementById("diag-flow-ms");
+const diagVisualRouteMs = document.getElementById("diag-visual-route-ms");
+const diagVisualHeadingMs = document.getElementById("diag-visual-heading-ms");
+const diagRouteLogicMs = document.getElementById("diag-route-logic-ms");
+const diagLocalRecoveryMs = document.getElementById("diag-local-recovery-ms");
+const diagCaseBuildMs = document.getElementById("diag-case-build-ms");
+const diagCaseOutputMs = document.getElementById("diag-case-output-ms");
+const diagTsolveMs = document.getElementById("diag-tsolve-ms");
+const diagBackgroundApplyMs = document.getElementById("diag-background-apply-ms");
+const diagPoseUpdateMs = document.getElementById("diag-pose-update-ms");
+const diagStreamPublishMs = document.getElementById("diag-stream-publish-ms");
+const diagPaceMs = document.getElementById("diag-pace-ms");
+const diagBackgroundWorkerMs = document.getElementById("diag-background-worker-ms");
+const diagOtherMs = document.getElementById("diag-other-ms");
 const demoApp = document.getElementById("demo-app");
 const startPage = document.getElementById("start-page");
 const enemyPage = document.getElementById("enemy-page");
@@ -245,6 +279,9 @@ let screenHistory = [];
 let fleetData = { drones: [], maps: [], summary: {} };
 let selectedFleetDroneId = "";
 let fleetPollTimer = null;
+let fleetEmbedSession = null;
+let fleetEmbedAssignmentKey = "";
+let fleetEmbedPollBusy = false;
 let pendingLiveReplayOpen = false;
 let pendingLiveReplayMapId = null;
 let liveReplayInFlight = false;
@@ -835,7 +872,7 @@ function markLegacyHeldPoses(roomPoses) {
 }
 
 function filterReplayPoseTrack(roomPoses, options = {}) {
-  const out = roomPoses.map(p => ({
+  const out = chronologicalPoseObservations(roomPoses).map(p => ({
     ...p,
     rawRcenter: p.rcenter ? p.rcenter.slice() : null,
   }));
@@ -888,7 +925,7 @@ function filterReplayPoseTrack(roomPoses, options = {}) {
     if (Number.isFinite(refErr)) pose.colmap_reference_error_m = refErr;
     if (keep) {
       accepted += 1;
-    } else if (pose.rcenter && (pose.success || pose.held_pose)) {
+    } else if (pose.rcenter && pose.success && !pose.held_pose) {
       pose.rcenter = null;
     }
   }
@@ -1758,12 +1795,52 @@ function setVideoFrameSteppingMode(enabled) {
   video.classList.toggle("frame-stepping", Boolean(enabled));
 }
 
-function latestPoseFrame(poses) {
-  if (!Array.isArray(poses) || !poses.length) return null;
-  for (let i = poses.length - 1; i >= 0; i -= 1) {
-    if (poses[i]?.image_name) return poses[i];
+function poseObservationFrameIndex(pose) {
+  const explicitRaw = pose?.frame_index;
+  const explicit = Number(explicitRaw);
+  if (explicitRaw !== null && explicitRaw !== undefined && explicitRaw !== "" && Number.isFinite(explicit)) {
+    return explicit;
   }
-  return null;
+  const raw = String(pose?.image_name || pose?.instance_id || "");
+  const match = raw.match(/(\d+)(?:\.[^.]+)?$/);
+  return match ? Number(match[1]) : -1;
+}
+
+function poseObservationOrderKey(pose) {
+  const frameIndex = poseObservationFrameIndex(pose);
+  const receivedUnix = Number(pose?.received_unix);
+  const timeSec = Number(pose?.time_sec);
+  return [
+    frameIndex >= 0 ? 1 : 0,
+    frameIndex,
+    Number.isFinite(receivedUnix) ? 1 : 0,
+    Number.isFinite(receivedUnix) ? receivedUnix : -Infinity,
+    Number.isFinite(timeSec) ? 1 : 0,
+    Number.isFinite(timeSec) ? timeSec : -Infinity,
+  ];
+}
+
+function comparePoseObservations(a, b) {
+  const ak = poseObservationOrderKey(a);
+  const bk = poseObservationOrderKey(b);
+  for (let i = 0; i < ak.length; i += 1) {
+    if (ak[i] !== bk[i]) return ak[i] - bk[i];
+  }
+  return 0;
+}
+
+function chronologicalPoseObservations(poses) {
+  if (!Array.isArray(poses)) return [];
+  return poses
+    .map((pose, index) => ({ pose, index }))
+    .sort((a, b) => comparePoseObservations(a.pose, b.pose) || a.index - b.index)
+    .map(item => item.pose);
+}
+
+function latestPoseFrame(poses) {
+  const ordered = chronologicalPoseObservations(poses)
+    .filter(pose => pose?.image_name);
+  return ordered.length ? ordered[ordered.length - 1] : null;
 }
 
 function liveFrameUrlForPayload(payload, stream = null, options = {}) {
@@ -1919,12 +1996,13 @@ function syncUploadedVideoToFirstPose(partialPoses) {
 }
 
 function latestSuccessfulPose(partialPoses) {
-  const good = (partialPoses || []).filter(p => p && p.success !== false && !p.held_pose && (p.rcenter || p.center));
+  const good = chronologicalPoseObservations(partialPoses)
+    .filter(p => p && p.success !== false && !p.held_pose && (p.rcenter || p.center));
   return good.length ? good[good.length - 1] : null;
 }
 
 function latestLivePoseForDisplay(partialPoses) {
-  const good = (partialPoses || [])
+  const good = chronologicalPoseObservations(partialPoses)
     .filter(p => p && (p.success !== false || p.held_pose) && (p.rcenter || p.rawRcenter || p.center));
   if (!good.length) return null;
   const latest = good[good.length - 1];
@@ -2379,10 +2457,7 @@ function correctedLivePose(pose) {
   );
   if (
     currentFrameOpticalHeading &&
-    (
-      pose.pose_source === "patrol_visual_route_recovery" ||
-      pose.rotation_position_locked
-    )
+    pose.rotation_position_locked
   ) {
     corrected.rheadingRaw = corrected.rheading;
     corrected.rheading = opticalHeading;
@@ -2474,6 +2549,7 @@ function advanceLiveFrameLockedPlayback(nowMs = performance.now()) {
 
 function enqueueLiveFrameLockedPoses(displayPoses, payload, stream = null) {
   if (!Array.isArray(displayPoses)) return;
+  displayPoses = chronologicalPoseObservations(displayPoses);
   const replayId = String(payload?.replay_id || payload?.stream?.replay_id || stream?.replay_id || "live");
   if (liveFrameLockedReplayId && replayId !== liveFrameLockedReplayId) {
     resetLiveFrameLockedPlayback();
@@ -6090,7 +6166,7 @@ function drawMapCardPreview(canvas, entry) {
   previewSceneCache.set(entry.id, { loading });
 }
 
-async function refreshMapLibrary() {
+async function refreshMapLibrary(options = {}) {
   try {
     const resp = await fetch("/api/maps", { cache: "no-store" });
     if (!resp.ok) throw new Error(`maps ${resp.status}`);
@@ -6111,7 +6187,7 @@ async function refreshMapLibrary() {
       };
     }
   }
-  renderMapLibrary();
+  if (options.render !== false) renderMapLibrary();
   return mapLibraryData;
 }
 
@@ -10245,9 +10321,9 @@ function createFleetOverviewCard(droneId) {
       <div><h3 data-field="name">Drone</h3><p data-field="assignment">No assignment</p></div>
       <div class="fleet-state-badge" data-field="badge">Offline</div>
     </div>
-    <div class="fleet-overview-video">
-      <img data-field="preview" alt="" hidden />
-      <div class="fleet-overview-video-placeholder"><span>⌁</span><small>Waiting for live video</small></div>
+    <div class="fleet-overview-map-window">
+      <iframe data-field="map" title="" loading="eager" hidden></iframe>
+      <div class="fleet-overview-map-placeholder"><span>⌁</span><small>Dispatch this drone to open its live 3D map</small></div>
       <div class="fleet-overview-video-bar"><span data-field="bridge">Offline</span><strong data-field="frames">0 frames</strong></div>
     </div>
     <div class="fleet-overview-metrics">
@@ -10266,8 +10342,6 @@ function createFleetOverviewCard(droneId) {
       <button type="button" data-action="end_session">End Session</button>
     </div>
   `;
-  const preview = card.querySelector('[data-field="preview"]');
-  preview.addEventListener("error", () => { preview.hidden = true; });
   for (const button of card.querySelectorAll("button[data-action]")) {
     button.addEventListener("click", () => {
       const action = button.dataset.action;
@@ -10305,19 +10379,19 @@ function updateFleetOverviewCard(card, drone) {
   card.querySelector('[data-field="poses"]').textContent = `${Number(session.accepted_pose_count || 0).toLocaleString()} poses`;
   card.querySelector('[data-field="patrol"]').textContent = session.patrol_title || "—";
   card.querySelector('[data-field="action"]').textContent = session.last_command ? String(session.last_command).replaceAll("_", " ") : "None";
-  const preview = card.querySelector('[data-field="preview"]');
-  if (session.live_preview_url && state.bridgeState !== "offline") {
-    const nextSrc = `${session.live_preview_url}?t=${Math.floor(Number(session.bridge_updated_at || Date.now() / 1000) * 2)}`;
-    if (preview.dataset.fleetSrc !== nextSrc) {
-      preview.dataset.fleetSrc = nextSrc;
-      preview.src = nextSrc;
+  const mapFrame = card.querySelector('[data-field="map"]');
+  if (session.map_id) {
+    const nextSrc = `index.html?fleet-embed=1&fleet-drone=${encodeURIComponent(drone.id)}`;
+    if (mapFrame.dataset.fleetSrc !== nextSrc) {
+      mapFrame.dataset.fleetSrc = nextSrc;
+      mapFrame.src = nextSrc;
     }
-    preview.alt = `${drone.name} live camera`;
-    preview.hidden = false;
+    mapFrame.title = `${drone.name} live 3D map and TSolve statistics`;
+    mapFrame.hidden = false;
   } else {
-    preview.removeAttribute("src");
-    preview.removeAttribute("data-fleet-src");
-    preview.hidden = true;
+    mapFrame.removeAttribute("src");
+    mapFrame.removeAttribute("data-fleet-src");
+    mapFrame.hidden = true;
   }
   const latestEvent = (session.events || []).at(-1);
   card.querySelector('[data-field="event"]').textContent = latestEvent?.message || session.message || "Waiting for the first operational event.";
@@ -10460,6 +10534,74 @@ function renderFleet() {
   if (fleetStopAllButton) fleetStopAllButton.disabled = Number(summary.active || 0) === 0;
 }
 
+function scheduleFleetEmbedMesh() {
+  if (!fleetEmbedMode) return;
+  let attempts = 0;
+  const reveal = () => {
+    attempts += 1;
+    if (window.ATLAS_MAP_MESH?.isVisible?.()) return;
+    const button = document.getElementById("toggle-mesh");
+    if (window.ATLAS_MAP_MESH?.isAvailable?.() && button && !button.disabled) {
+      button.click();
+      return;
+    }
+    if (attempts < 80) window.setTimeout(reveal, 100);
+  };
+  window.setTimeout(reveal, 0);
+}
+
+async function refreshFleetEmbed() {
+  if (!fleetEmbedMode || fleetEmbedPollBusy) return;
+  fleetEmbedPollBusy = true;
+  try {
+    const response = await fetch("/api/fleet", { cache: "no-store" });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || "Could not load fleet state.");
+    const drone = (data.drones || []).find(item => item.id === fleetEmbedDroneId);
+    const session = drone?.session || null;
+    fleetEmbedSession = session;
+    document.body.dataset.fleetEmbedDrone = fleetEmbedDroneId;
+    document.body.dataset.fleetEmbedStatus = session?.status || "waiting";
+    if (!drone || !session?.map_id) {
+      liveReplayMessage = drone
+        ? `Waiting for ${drone.name} to be assigned to a map.`
+        : "This fleet drone is not registered.";
+      if (stats) stats.textContent = liveReplayMessage;
+      return;
+    }
+
+    const entry = (mapLibraryData.maps || []).find(item => item.id === session.map_id);
+    if (!entry) throw new Error(`Assigned map ${session.map_id} is not available.`);
+    const assignmentKey = `${drone.id}:${session.map_id}:${session.replay_id || session.created_at || "session"}`;
+    liveReplayInFlight = true;
+    pendingLiveReplayOpen = true;
+    pendingLiveReplayMapId = session.map_id;
+    liveAtlasPreviewActive = true;
+    liveReplayMessage = session.message || `${drone.name} fleet localization is ${session.stage || session.status}.`;
+    liveReplayStageDetail = `${session.map_title || entry.title} · ${session.patrol_title || "Patrol"} · ${session.stage || session.status}`;
+
+    if (assignmentKey !== fleetEmbedAssignmentKey || currentMapEntry?.id !== entry.id || !scene || !room) {
+      fleetEmbedAssignmentKey = assignmentKey;
+      livePoseStreamKey = "";
+      livePoseStreamCount = 0;
+      poses = [];
+      poseStreamMeta = null;
+      liveCurrentPoseOverride = null;
+      resetLiveFrameLockedPlayback();
+      mapLibraryData.selected_map_id = entry.id;
+      currentMapEntry = entry;
+      await loadViewerData(true, entry);
+      showDemo({ push: false, resetVideo: false });
+      scheduleFleetEmbedMesh();
+    }
+  } catch (error) {
+    liveReplayMessage = error?.message || String(error);
+    if (stats) stats.textContent = liveReplayMessage;
+  } finally {
+    fleetEmbedPollBusy = false;
+  }
+}
+
 async function refreshFleet() {
   const response = await fetch("/api/fleet", { cache: "no-store" });
   const data = await response.json();
@@ -10557,7 +10699,14 @@ async function stopAllFleetSessions() {
 }
 
 async function init() {
-  await refreshMapLibrary();
+  await refreshMapLibrary({ render: !fleetEmbedMode });
+  if (fleetEmbedMode) {
+    renderStarted = true;
+    showDemo({ push: false, resetVideo: false });
+    render();
+    await refreshFleetEmbed();
+    return;
+  }
   await refreshEnemyLibrary();
   await refreshFleet();
   await loadViewerData(true);
@@ -10571,7 +10720,6 @@ async function init() {
   renderObstacleList();
   renderSavedPatrols();
   render();
-  const launchParams = new URLSearchParams(window.location.search);
   if (launchParams.get("patrol-view") === "1") {
     showDemo({ push: false, resetVideo: false });
   }
@@ -12021,7 +12169,81 @@ async function pollDjiLivePreview() {
 	  }
 	}
 
+function diagnosticCount(value) {
+  if (value === null || value === undefined || value === "") return "-";
+  const count = Number(value);
+  return Number.isFinite(count) && count >= 0 ? Math.round(count).toLocaleString() : "-";
+}
+
+function diagnosticTiming(value, total) {
+  if (value === null || value === undefined || value === "") return "-";
+  const milliseconds = Number(value);
+  if (!Number.isFinite(milliseconds) || milliseconds < 0) return "-";
+  const totalMilliseconds = Number(total);
+  const percentage = Number.isFinite(totalMilliseconds) && totalMilliseconds > 0
+    ? ` · ${(100 * milliseconds / totalMilliseconds).toFixed(0)}%`
+    : "";
+  return `${milliseconds.toFixed(milliseconds >= 100 ? 0 : 2)} ms${percentage}`;
+}
+
+function updateLocalizationDiagnostics(stream, payload) {
+  if (!diagState) return;
+  const diagnostic =
+    payload?.latest_localization_diagnostics ||
+    payload?.stream?.latest_localization_diagnostics ||
+    stream?.latest_localization_diagnostics;
+  if (!diagnostic) {
+    diagState.textContent = "waiting";
+    diagState.className = "localization-diagnostics-state";
+    diagFrameMethod.textContent = "Waiting for a localization frame";
+    diagReason.textContent = "No diagnostics received yet.";
+    return;
+  }
+
+  const features = diagnostic.features || {};
+  const timings = diagnostic.timings_ms || {};
+  const total = timings.total_frame_ms;
+  const frame = Number(diagnostic.frame_index);
+  const frameLabel = Number.isFinite(frame) ? `Frame ${Math.round(frame).toLocaleString()}` : "Current frame";
+  const method = String(diagnostic.method || "localization").replaceAll("_", " ");
+  const accepted = diagnostic.accepted === true;
+  diagState.textContent = accepted ? "accepted" : "held / rejected";
+  diagState.className = `localization-diagnostics-state ${accepted ? "ok" : "warning"}`;
+  diagFrameMethod.textContent = `${frameLabel} · ${method}`;
+  diagReason.textContent = diagnostic.reason || (accepted ? "Pose accepted." : "No acceptance reason reported.");
+
+  diagExtracted.textContent = diagnosticCount(features.extracted);
+  diagMatched.textContent = diagnosticCount(features.matched);
+  diagFlowInput.textContent = diagnosticCount(features.flow_input);
+  diagTracked.textContent = diagnosticCount(features.tracked);
+  diagPnp.textContent = diagnosticCount(features.pnp_inliers);
+  diagSelected.textContent = diagnosticCount(features.selected);
+  diagPruned.textContent = diagnosticCount(features.pruned);
+
+  diagTotalMs.textContent = diagnosticTiming(total, null);
+  diagFrameLoadMs.textContent = diagnosticTiming(timings.frame_load_ms, total);
+  diagHeadingFlowMs.textContent = diagnosticTiming(timings.heading_flow_ms, total);
+  diagFeatureMs.textContent = diagnosticTiming(timings.feature_extract_ms, total);
+  diagMatchMs.textContent = diagnosticTiming(timings.match_ms, total);
+  diagRegisterMs.textContent = diagnosticTiming(timings.register_ms, total);
+  diagFlowMs.textContent = diagnosticTiming(timings.optical_flow_ms, total);
+  diagVisualRouteMs.textContent = diagnosticTiming(timings.visual_route_ms, total);
+  diagVisualHeadingMs.textContent = diagnosticTiming(timings.visual_heading_ms, total);
+  diagRouteLogicMs.textContent = diagnosticTiming(timings.route_logic_ms, total);
+  diagLocalRecoveryMs.textContent = diagnosticTiming(timings.local_recovery_ms, total);
+  diagCaseBuildMs.textContent = diagnosticTiming(timings.case_build_ms, total);
+  diagCaseOutputMs.textContent = diagnosticTiming(timings.case_output_ms, total);
+  diagTsolveMs.textContent = diagnosticTiming(timings.tsolve_ms, total);
+  diagBackgroundApplyMs.textContent = diagnosticTiming(timings.background_apply_ms, total);
+  diagPoseUpdateMs.textContent = diagnosticTiming(timings.pose_update_ms, total);
+  diagStreamPublishMs.textContent = diagnosticTiming(timings.stream_publish_ms, total);
+  diagPaceMs.textContent = diagnosticTiming(timings.pace_wait_ms, total);
+  diagBackgroundWorkerMs.textContent = diagnosticTiming(timings.background_worker_ms, null);
+  diagOtherMs.textContent = diagnosticTiming(timings.other_ms, total);
+}
+
 function updateLivePoseStats(stream, payload) {
+  updateLocalizationDiagnostics(stream, payload);
   if (!stats || !scene || !room) return;
   const title = currentMapEntry?.title || "Selected map";
   const scanLine = displayPointSummaryLine();
@@ -12058,11 +12280,20 @@ function liveRouteRenderingActive() {
 async function loadLiveReplayPartial(stream = null) {
   if (!liveReplayInFlight && !pendingLiveReplayOpen && !liveReplayCompletionPending) return false;
   if (!scene) return false;
-  const resp = await fetch(`/api/live-replay?after=${Math.max(0, livePoseStreamCount)}&t=${Date.now()}`, { cache: "no-store" });
+  const resp = fleetEmbedMode
+    ? await fetch(
+      `/api/fleet/live-replay?drone_id=${encodeURIComponent(fleetEmbedDroneId)}&after=${Math.max(0, livePoseStreamCount)}&t=${Date.now()}`,
+      { cache: "no-store" }
+    )
+    : await fetch(
+      `/api/live-replay?after=${Math.max(0, livePoseStreamCount)}&t=${Date.now()}`,
+      { cache: "no-store" }
+    );
   if (!resp.ok && resp.status !== 404) return false;
   const payload = await resp.json().catch(() => null);
   if (!payload?.ok || !Array.isArray(payload.poses)) return false;
 
+  const previousProcessed = livePoseStreamCount;
   const processed = Number(payload.processed_count ?? payload.poses.length ?? 0);
   const currentFrameKey = payload.current_frame
     ? `${payload.current_frame.frame_index ?? ""}:${payload.current_frame_time_sec ?? payload.current_frame.time_sec ?? ""}`
@@ -12081,7 +12312,7 @@ async function loadLiveReplayPartial(stream = null) {
     payload.delta === true &&
     payload.delta_reset !== true &&
     Number.isFinite(deltaStart) &&
-    deltaStart === poses.length
+    deltaStart === previousProcessed
   );
   poses = canAppendDelta ? poses.concat(incomingPoses) : incomingPoses;
   poseStreamMeta = { ...payload, poses };
@@ -12126,7 +12357,7 @@ async function pollLivePoseStream() {
   if (!liveReplayInFlight && !pendingLiveReplayOpen) return;
   livePosePollBusy = true;
   try {
-    await loadLiveReplayPartial(poseStreamMeta?.stream || null);
+    await loadLiveReplayPartial(fleetEmbedSession || poseStreamMeta?.stream || null);
   } finally {
     livePosePollBusy = false;
   }
@@ -12430,10 +12661,12 @@ async function pollEnemyLiveDetections() {
 
 setEnemyDetectionEnabled(storedEnemyDetectionEnabled(), { persist: false });
 void syncEnemyDetectionRuntime(enemyDetectionEnabled());
-setInterval(pollDjiLivePreview, 1000);
-pollDjiLivePreview();
-setInterval(pollEnemyLiveDetections, 1000);
-pollEnemyLiveDetections();
+if (!fleetEmbedMode) {
+  setInterval(pollDjiLivePreview, 1000);
+  pollDjiLivePreview();
+  setInterval(pollEnemyLiveDetections, 1000);
+  pollEnemyLiveDetections();
+}
 
 document.getElementById("create-map").addEventListener("click", openMapModal);
 document.getElementById("close-map-modal").addEventListener("click", closeMapModal);
@@ -12559,13 +12792,23 @@ renderPhoneIpOptions();
 renderDroneHeadingTrim();
 updateLiveControlSummary();
 setupLiveControlSections();
-setInterval(() => pollStatus(true), 2000);
-// Fetch only newly localized poses at the selected 10-FPS ceiling.  Status is
+if (fleetEmbedMode) {
+  setInterval(() => refreshFleetEmbed(), 1000);
+} else {
+  setInterval(() => pollStatus(true), 2000);
+}
+// Fetch only newly published observations at the restored 10-FPS ceiling. Status is
 // intentionally kept on its slower interval because it contains maps and job
 // logs; using it as the pose clock made the model visibly pause and jump.
+if (fleetEmbedMode) {
+  setInterval(() => {
+    pollLivePoseStream();
+  }, 100);
+} else {
 setInterval(() => {
   pollLivePoseStream();
 }, 100);
+}
 setInterval(() => {
   if (liveRouteRenderingActive()) advanceLiveFrameLockedPlayback();
 }, 25);

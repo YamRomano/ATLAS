@@ -161,6 +161,51 @@ class FleetMonitorTests(unittest.TestCase):
         self.assertFalse(session["control_pending"])
         self.assertEqual(session["last_control_status"], "ok")
 
+    def test_fleet_live_replay_is_scoped_to_requested_drone_and_supports_deltas(self):
+        pose_path = self.viewer / "public" / "fleet" / "drones" / "scout_one" / "poses_partial.json"
+        pose_path.parent.mkdir(parents=True)
+        pose_path.write_text(
+            json.dumps(
+                {
+                    "processed_count": 3,
+                    "complete": False,
+                    "poses": [
+                        {"instance_id": "one", "rcenter": [0, 1, 0]},
+                        {"instance_id": "two", "rcenter": [1, 1, 0]},
+                        {"instance_id": "three", "rcenter": [2, 1, 0]},
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+        SERVER.FLEET_SESSIONS["scout_one"] = {
+            "drone_id": "scout_one",
+            "status": "running",
+            "map_id": "lab",
+            "partial_pose_url": "public/fleet/drones/scout_one/poses_partial.json",
+            "events": [],
+        }
+        SERVER.FLEET_SESSIONS["scout_two"] = {
+            "drone_id": "scout_two",
+            "status": "running",
+            "map_id": "other_lab",
+            "partial_pose_url": None,
+            "events": [],
+        }
+
+        payload, status = SERVER.fleet_live_replay_payload("scout_one", requested_after=1)
+        self.assertEqual(status, 200)
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["delta_start"], 1)
+        self.assertEqual([pose["instance_id"] for pose in payload["poses"]], ["two", "three"])
+        self.assertEqual(payload["stream"]["drone_id"], "scout_one")
+        self.assertEqual(payload["stream"]["map_id"], "lab")
+
+        waiting, waiting_status = SERVER.fleet_live_replay_payload("scout_two", requested_after=0)
+        self.assertEqual(waiting_status, 200)
+        self.assertEqual(waiting["poses"], [])
+        self.assertEqual(waiting["stream"]["drone_id"], "scout_two")
+
     def test_monitor_ui_contains_dispatch_and_emergency_controls(self):
         html = (ROOT / "viewer" / "index.html").read_text(encoding="utf-8")
         script = (ROOT / "viewer" / "app.js").read_text(encoding="utf-8")
@@ -179,6 +224,10 @@ class FleetMonitorTests(unittest.TestCase):
         self.assertIn('postJson("/api/fleet/stop"', script)
         self.assertIn("function renderFleetOverview()", script)
         self.assertIn("fleetControl(action, droneId", script)
+        self.assertIn('data-field="map"', script)
+        self.assertIn("fleet-embed=1&fleet-drone=", script)
+        self.assertIn("function refreshFleetEmbed()", script)
+        self.assertIn("/api/fleet/live-replay?drone_id=", script)
 
 
 if __name__ == "__main__":

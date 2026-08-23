@@ -125,6 +125,12 @@ class MapMeshOverlayTests(unittest.TestCase):
         self.assertIn("getMapLibrary: () => mapLibraryData", app)
         self.assertIn("isMapInteractionBusy: () => Boolean", app)
 
+    def test_live_view_keeps_held_pose_and_orders_async_results_by_frame(self):
+        app = (ROOT / "viewer/app.js").read_text()
+        self.assertIn("chronologicalPoseObservations(roomPoses)", app)
+        self.assertIn("poseObservationFrameIndex", app)
+        self.assertIn("pose.success && !pose.held_pose", app)
+
     def test_orbit_pivot_uses_oriented_footprint_midpoint(self):
         app = (ROOT / "viewer/app.js").read_text()
         html = (ROOT / "viewer/index.html").read_text()
@@ -137,7 +143,7 @@ class MapMeshOverlayTests(unittest.TestCase):
             "return { bottom, top, yaw, center: [cx, 0.5 * (y0 + y1), cz] };",
             app,
         )
-        self.assertIn('src="app.js?v=204"', html)
+        self.assertIn('src="app.js?v=211"', html)
 
 
 if __name__ == "__main__":

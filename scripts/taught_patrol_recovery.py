@@ -8,6 +8,7 @@ import csv
 import json
 import math
 import os
+import time
 from pathlib import Path
 from typing import Any
 
@@ -16,6 +17,165 @@ import numpy as np
 
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def _require_faiss():
+    try:
+        import faiss  # type: ignore
+    except ImportError as exc:  # pragma: no cover - deployment dependency
+        raise RuntimeError(
+            "Faiss is required for taught-patrol SIFT anchor retrieval."
+        ) from exc
+    return faiss
+
+
+def unique_ann_point_matches(
+    *,
+    distances: np.ndarray,
+    neighbor_ids: np.ndarray,
+    ann_rows: np.ndarray,
+    point3d_ids: np.ndarray,
+    anchor_ids: np.ndarray,
+    ratio: float = 0.78,
+) -> list[dict[str, Any]]:
+    """Convert one SIFT ANN query into unique query-feature/3D-point pairs.
+
+    Faiss reports squared L2 distance.  The ratio test therefore compares the
+    squared ratio and, importantly, searches for the second *different 3D
+    point*.  Multiple taught views often contain observations of the same map
+    point and must not incorrectly become each other's ratio-test competitor.
+    """
+    ratio_squared = float(ratio) ** 2
+    matches: list[dict[str, Any]] = []
+    for query_index, (query_distances, query_neighbors) in enumerate(
+        zip(np.asarray(distances), np.asarray(neighbor_ids))
+    ):
+        valid: list[tuple[float, int, int, int]] = []
+        for distance, ann_id in zip(query_distances, query_neighbors):
+            ann_id = int(ann_id)
+            distance = float(distance)
+            if ann_id < 0 or ann_id >= len(ann_rows) or not math.isfinite(distance):
+                continue
+            source_row = int(ann_rows[ann_id])
+            valid.append(
+                (
+                    distance,
+                    source_row,
+                    int(point3d_ids[source_row]),
+                    int(anchor_ids[source_row]),
+                )
+            )
+        if not valid:
+            continue
+        best_distance, best_row, best_point, _best_anchor = valid[0]
+        second_distance = next(
+            (distance for distance, _row, point_id, _anchor in valid if point_id != best_point),
+            None,
+        )
+        if second_distance is None:
+            continue
+        if best_distance > ratio_squared * max(float(second_distance), 1.0e-12):
+            continue
+        supporting_anchors = sorted(
+            {
+                anchor_id
+                for distance, _row, point_id, anchor_id in valid
+                if point_id == best_point and distance <= float(second_distance)
+            }
+        )
+        matches.append(
+            {
+                "query_index": int(query_index),
+                "point3d_id": int(best_point),
+                "source_row": int(best_row),
+                "distance": float(best_distance),
+                "second_point_distance": float(second_distance),
+                "anchor_ids": supporting_anchors,
+            }
+        )
+
+    # A map point may be assigned to only one current-image feature.
+    best_by_point: dict[int, dict[str, Any]] = {}
+    for match in matches:
+        point_id = int(match["point3d_id"])
+        previous = best_by_point.get(point_id)
+        if previous is None or (
+            float(match["distance"]), int(match["query_index"])
+        ) < (
+            float(previous["distance"]), int(previous["query_index"])
+        ):
+            best_by_point[point_id] = match
+    return sorted(best_by_point.values(), key=lambda item: int(item["query_index"]))
+
+
+def select_anchor_match_window(
+    matches: list[dict[str, Any]],
+    *,
+    anchor_names: list[str],
+    radius: int = 4,
+    minimum_points: int = 8,
+    minimum_anchors: int = 3,
+) -> tuple[list[dict[str, Any]], list[int]]:
+    """Select a locally coherent taught-view window without estimating pose.
+
+    Descriptor agreement chooses a small temporal keyframe neighborhood.  It
+    is deliberately only correspondence selection: TSolve receives the
+    resulting 2D->3D set and is the sole component allowed to estimate R,t.
+    """
+    anchor_votes: dict[int, int] = {}
+    for match in matches:
+        for anchor_id in match.get("anchor_ids") or []:
+            anchor_votes[int(anchor_id)] = anchor_votes.get(int(anchor_id), 0) + 1
+    if not anchor_votes:
+        return [], []
+
+    best: tuple[tuple[int, int, int, float], list[dict[str, Any]], list[int]] | None = None
+    for seed in anchor_votes:
+        if seed < 0 or seed >= len(anchor_names):
+            continue
+        # Do not let an integer-neighbor window cross from one recorded replay
+        # into another merely because their anchors are adjacent in the bank.
+        seed_group = anchor_names[seed].split("/", 1)[0]
+        window = [
+            anchor_id
+            for anchor_id in anchor_votes
+            if abs(anchor_id - seed) <= max(0, int(radius))
+            and 0 <= anchor_id < len(anchor_names)
+            and anchor_names[anchor_id].split("/", 1)[0] == seed_group
+        ]
+        window_set = set(window)
+        selected = [
+            match
+            for match in matches
+            if window_set.intersection(int(value) for value in (match.get("anchor_ids") or []))
+        ]
+        contributing = sorted(
+            {
+                int(anchor_id)
+                for match in selected
+                for anchor_id in (match.get("anchor_ids") or [])
+                if int(anchor_id) in window_set
+            }
+        )
+        median_distance = (
+            float(np.median([float(item["distance"]) for item in selected]))
+            if selected
+            else math.inf
+        )
+        rank = (
+            len(selected),
+            len(contributing),
+            sum(anchor_votes.get(anchor_id, 0) for anchor_id in window),
+            -median_distance,
+        )
+        if best is None or rank > best[0]:
+            best = (rank, selected, contributing)
+    if best is None:
+        return [], []
+    selected, contributing = best[1], best[2]
+    if len(selected) < max(8, int(minimum_points)) or len(contributing) < max(1, int(minimum_anchors)):
+        return [], []
+    return selected, contributing
 
 
 def rotmat_to_qvec(R: np.ndarray) -> list[float]:
@@ -83,7 +243,7 @@ class TaughtPatrolRecovery:
             self.point3d_ids = np.asarray(bank["point3d_ids"], dtype=np.int64)
             self.anchor_ids = np.asarray(bank["anchor_ids"], dtype=np.int32)
             self.anchor_names = [str(value) for value in bank["anchor_names"].tolist()]
-        self.sift = cv2.SIFT_create(nfeatures=3000, contrastThreshold=0.015)
+        self.sift = cv2.SIFT_create(nfeatures=1024, contrastThreshold=0.015)
         self.matcher = cv2.BFMatcher(cv2.NORM_L2)
         self.max_anchors: int | None = None
 
@@ -97,7 +257,7 @@ class TaughtPatrolRecovery:
         recovery.point3d_ids = np.empty((0,), dtype=np.int64)
         recovery.anchor_ids = np.empty((0,), dtype=np.int32)
         recovery.anchor_names = []
-        recovery.sift = cv2.SIFT_create(nfeatures=3000, contrastThreshold=0.015)
+        recovery.sift = cv2.SIFT_create(nfeatures=1024, contrastThreshold=0.015)
         recovery.matcher = cv2.BFMatcher(cv2.NORM_L2)
         recovery.max_anchors = max(4, int(max_anchors))
         return recovery

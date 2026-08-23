@@ -13,6 +13,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 
 from patrol_visual_route_recovery import (  # noqa: E402
     PatrolVisualRouteRecovery,
+    command_bounded_recovery_candidate,
     conservative_candidate_progress,
     geometric_candidate_rank,
     horizontal_distance,
@@ -25,6 +26,131 @@ from patrol_visual_route_recovery import (  # noqa: E402
 
 
 class PatrolVisualRouteRecoveryTests(unittest.TestCase):
+    def test_query_orb_features_are_shared_for_same_live_frame(self):
+        class CountingDetector:
+            def __init__(self):
+                self.calls = 0
+
+            def detectAndCompute(self, image, mask):
+                self.calls += 1
+                return [object()], np.asarray([[self.calls]], dtype=np.uint8)
+
+        recovery = object.__new__(PatrolVisualRouteRecovery)
+        recovery.detector = CountingDetector()
+        recovery._query_feature_image = None
+        recovery._query_feature_keypoints = None
+        recovery._query_feature_descriptors = None
+        image = np.zeros((12, 12), dtype=np.uint8)
+
+        first = recovery._extract_query_features(image)
+        second = recovery._extract_query_features(image)
+        third = recovery._extract_query_features(image.copy())
+
+        self.assertIs(first[0], second[0])
+        self.assertIs(first[1], second[1])
+        self.assertEqual(recovery.detector.calls, 2)
+        self.assertNotEqual(int(first[1][0, 0]), int(third[1][0, 0]))
+
+    def test_command_bounded_recovery_can_see_past_one_step_window(self):
+        candidates = [
+            {"progress": 0.080452, "inliers": 42},
+            {"progress": 0.382282, "inliers": 91},
+            {"progress": 0.62, "inliers": 180},
+        ]
+        selected = command_bounded_recovery_candidate(
+            candidates,
+            previous=0.080452,
+            command_progress_ceiling=0.371766,
+            minimum_inliers=50,
+        )
+        self.assertIsNotNone(selected)
+        self.assertAlmostEqual(float(selected["progress"]), 0.382282)
+
+    def test_temporal_recovery_uses_fresh_rolling_consensus(self):
+        recovery = object.__new__(PatrolVisualRouteRecovery)
+        recovery.recovery_acquisition_hits = 5
+        recovery.temporal_recovery_progress = None
+        recovery.temporal_recovery_source_replay_id = None
+        recovery.temporal_recovery_hits = 0
+        recovery.temporal_recovery_samples = []
+        recovery.temporal_recovery_command_ceiling = None
+
+        result = None
+        for progress in (0.0015, 0.0804, 0.0498, 0.0917, 0.1021):
+            result = recovery._collect_temporal_recovery_progress(
+                proposed=progress,
+                source_replay_id="recorded_4_to_1",
+                command_progress_ceiling=0.123922,
+            )
+        self.assertIsNotNone(result)
+        self.assertGreater(float(result), 0.04)
+        self.assertNotAlmostEqual(float(result), 0.0015)
+
+    def test_last_live_point_four_to_one_frames_advance_frozen_model(self):
+        """Regress the 23-Aug run that stayed at 8% after real movement."""
+        if not hasattr(cv2, "ORB_create"):
+            self.skipTest("OpenCV is stubbed by another combined-suite module")
+        public = ROOT / "viewer" / "public"
+        replay = (
+            public
+            / "maps"
+            / "map_copy_20260730_114851_cfefdc"
+            / "replays"
+            / "patrol_baseline_precision_20260813"
+        )
+        bank = replay / "visual_route_recovery_manual_tail_point1_20260820.npz"
+        frames = (
+            public
+            / "live_dji_sessions"
+            / "atlas_dji_live_20260823_115821_8e4a29"
+            / "query_frames"
+        )
+        indices = list(range(3825, 3835))
+        required = [bank, replay / "reference_candidate.json"] + [
+            frames / f"query_{index:06d}.jpg" for index in indices
+        ]
+        if not all(path.exists() for path in required):
+            self.skipTest("latest live Point-4 -> Point-1 frames are unavailable")
+
+        leg = json.loads(required[1].read_text(encoding="utf-8"))["legs"][3]
+        recovery = PatrolVisualRouteRecovery(bank)
+        segment_key = ("last-live-point4-to-point1",)
+        frozen_progress = 0.08045224996831972
+        command_ceiling = 0.37176646744829467
+        recovery.active_key = segment_key
+        recovery.last_matched_progress = frozen_progress
+        recovery.last_progress = frozen_progress
+        recovery.last_matched_source_frame = 2911
+        recovery.last_sequence_index = indices[0] - 1
+        recovery.active_source_replay_id = "dji_live_20260819_164415_524a50"
+        recovery.needs_acquisition = False
+        published = frozen_progress
+        observations = []
+        for index, image_path in zip(indices, required[2:]):
+            observation, _diagnostic = recovery.recover(
+                gray=cv2.imread(str(image_path), cv2.IMREAD_GRAYSCALE),
+                segment_start=leg["from"],
+                segment_end=leg["to"],
+                segment_key=segment_key,
+                progress_hint=published,
+                progress_ceiling=command_ceiling,
+                recovery_hover=True,
+                recovery_minimum_inliers=50,
+                independent_progress=True,
+                allow_endpoint_only_recovery=True,
+                sequence_index=index,
+            )
+            if observation is None:
+                continue
+            published = float(observation["progress"])
+            recovery.commit_published_progress(published)
+            observations.append(observation)
+
+        self.assertTrue(observations)
+        self.assertGreaterEqual(published, 0.22)
+        self.assertLessEqual(published, command_ceiling + 1.0e-9)
+        self.assertTrue(all(item["temporal_recovery"] for item in observations))
+
     def test_restored_point1_extension_is_active_and_valid(self):
         if not hasattr(cv2, "ORB_create"):
             self.skipTest("OpenCV is stubbed by another combined-suite module")
@@ -1875,6 +2001,83 @@ class PatrolVisualRouteRecoveryTests(unittest.TestCase):
         self.assertGreaterEqual(observations[4]["inliers"], 50)
         self.assertGreaterEqual(observations[4]["acquisition_hits"], 5)
         self.assertLessEqual(observations[4]["progress"], 0.123922)
+
+    def test_live_123007_mid_leg_endpoint_alias_does_not_starve_local_recovery(self):
+        """Regress the Point-1 alias that froze 4->1 after its fourth pulse."""
+        if not hasattr(cv2, "ORB_create"):
+            self.skipTest("OpenCV is stubbed by another combined-suite module")
+        public = ROOT / "viewer" / "public"
+        bank = (
+            public
+            / "maps"
+            / "map_copy_20260730_114851_cfefdc"
+            / "replays"
+            / "patrol_baseline_precision_20260813"
+            / "visual_route_recovery_manual_tail_point1_20260820.npz"
+        )
+        frames = (
+            public
+            / "live_dji_sessions"
+            / "atlas_dji_live_20260823_123007_6ab36a"
+            / "query_frames"
+        )
+        indices = list(range(2266, 2271))
+        required = [bank] + [
+            frames / f"query_{frame_index:06d}.jpg"
+            for frame_index in indices
+        ]
+        if not all(path.exists() for path in required):
+            self.skipTest("12:30:07 Point-4-to-1 freeze assets are unavailable")
+
+        recovery = PatrolVisualRouteRecovery(bank)
+        key = ("live_123007_point4_to_point1", 4)
+        recovery._reset_for_key(key)
+        recovery.last_progress = 0.37176646744829467
+        recovery.last_matched_progress = 0.38228182370214714
+        recovery.last_matched_source_frame = 2929
+        recovery.last_sequence_index = 2265
+        recovery.active_source_replay_id = "dji_live_20260819_164415_524a50"
+        recovery.needs_acquisition = False
+        observations = []
+        stages = []
+        for frame_index, image_path in zip(indices, required[1:]):
+            observation, stage = recovery.recover(
+                gray=cv2.imread(str(image_path), cv2.IMREAD_GRAYSCALE),
+                segment_start=[
+                    -3.0736291183109774,
+                    -0.0802621969998909,
+                    1.1113942967930859,
+                ],
+                segment_end=[
+                    -3.2329557447702215,
+                    -0.0802621969998909,
+                    -0.33236579860361815,
+                ],
+                segment_key=key,
+                translation_locked=False,
+                progress_hint=0.37176646744829467,
+                progress_ceiling=0.4956886232643929,
+                recovery_hover=True,
+                recovery_minimum_inliers=50,
+                independent_progress=True,
+                allow_endpoint_only_recovery=True,
+                sequence_index=frame_index,
+            )
+            observations.append(observation)
+            stages.append(stage)
+
+        self.assertTrue(
+            all(
+                stage.get("reason")
+                != "visual_route_endpoint_only_acquiring"
+                for stage in stages
+            )
+        )
+        self.assertEqual(observations[:4], [None, None, None, None])
+        self.assertIsNotNone(observations[4])
+        self.assertTrue(observations[4]["temporal_recovery"])
+        self.assertGreaterEqual(observations[4]["inliers"], 50)
+        self.assertLessEqual(observations[4]["progress"], 0.4956886232643929)
 
 if __name__ == "__main__":
     unittest.main()

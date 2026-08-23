@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>ATLAS Demo</title>
-  <link rel="stylesheet" href="style.css?v=112" />
+  <link rel="stylesheet" href="style.css?v=114" />
 </head>
 <body class="show-start">
   <header class="atlas-topbar" aria-label="ATLAS navigation">
@@ -346,7 +346,7 @@
       <details id="live-localization-control" class="live-localization-control live-control-tab" open>
         <summary>
           <span>Live Localization Control</span>
-          <b id="live-control-summary">8 FPS</b>
+          <b id="live-control-summary">10 FPS</b>
           <button id="pin-live-control" class="live-pin-button" type="button" aria-pressed="false" title="Pin this control panel to the left edge">Pin</button>
         </summary>
         <div class="live-atlas-panel">
@@ -641,10 +641,51 @@
         <p class="saved-patrols-copy">Start once from any localized position. ATLAS will enter Point 1, verify it online, then fly exactly two complete circles.</p>
         <div id="saved-patrol-list" class="saved-patrol-list" aria-live="polite"></div>
       </section>
+      <div class="panel localization-diagnostics-panel">
+        <div class="localization-diagnostics-head">
+          <h1>Localization Diagnostics</h1>
+          <span id="diag-state" class="localization-diagnostics-state">waiting</span>
+        </div>
+        <div id="diag-frame-method" class="localization-diagnostics-method">Waiting for a localization frame</div>
+        <h2>Features</h2>
+        <dl class="localization-diagnostics-grid">
+          <dt title="SIFT descriptors detected in a global/recovery query frame">SIFT extracted</dt><dd id="diag-extracted">-</dd>
+          <dt title="Unique descriptor-to-3D candidates after matching and ambiguity filtering">2D→3D matched</dt><dd id="diag-matched">-</dd>
+          <dt title="Feature tracks entering the current Lucas–Kanade optical-flow update">Flow input</dt><dd id="diag-flow-input">-</dd>
+          <dt title="Feature tracks surviving optical-flow checks">Flow tracked</dt><dd id="diag-tracked">-</dd>
+          <dt title="Geometrically verified PnP inliers during global recovery">PnP inliers</dt><dd id="diag-pnp">-</dd>
+          <dt title="Bounded correspondence subset passed into TSolve">TSolve selected</dt><dd id="diag-selected">-</dd>
+          <dt title="Rejected between the relevant upstream feature set and the next stage">Pruned/rejected</dt><dd id="diag-pruned">-</dd>
+        </dl>
+        <h2>Frame timing</h2>
+        <dl class="localization-diagnostics-grid localization-timing-grid">
+          <dt>Total processing</dt><dd id="diag-total-ms">-</dd>
+          <dt>Frame load/decode</dt><dd id="diag-frame-load-ms">-</dd>
+          <dt>Heading optical flow</dt><dd id="diag-heading-flow-ms">-</dd>
+          <dt>Global SIFT extraction</dt><dd id="diag-feature-ms">-</dd>
+          <dt>Descriptor match</dt><dd id="diag-match-ms">-</dd>
+          <dt>Registration/PnP</dt><dd id="diag-register-ms">-</dd>
+          <dt>Position optical flow</dt><dd id="diag-flow-ms">-</dd>
+          <dt title="ORB matching against recorded route anchors">Route visual match</dt><dd id="diag-visual-route-ms">-</dd>
+          <dt title="ORB matching against departure-heading anchors">Heading visual match</dt><dd id="diag-visual-heading-ms">-</dd>
+          <dt>Route/turn logic</dt><dd id="diag-route-logic-ms">-</dd>
+          <dt title="Taught or online local-anchor recovery attempts">Local anchor recovery</dt><dd id="diag-local-recovery-ms">-</dd>
+          <dt>TSolve case build</dt><dd id="diag-case-build-ms">-</dd>
+          <dt title="Manifest append and TSolve case copy">Case/output I/O</dt><dd id="diag-case-output-ms">-</dd>
+          <dt>TSolve</dt><dd id="diag-tsolve-ms">-</dd>
+          <dt title="Foreground integration or catch-up of a completed global worker">Background integration</dt><dd id="diag-background-apply-ms">-</dd>
+          <dt>Pose &amp; safety update</dt><dd id="diag-pose-update-ms">-</dd>
+          <dt title="Append pose event and publish the bounded live JSON window">Live stream publish</dt><dd id="diag-stream-publish-ms">-</dd>
+          <dt>Pacing wait</dt><dd id="diag-pace-ms">-</dd>
+          <dt title="Wall-clock latency of asynchronous SIFT/matching/PnP; shown separately and not charged to foreground frame processing">Async recovery worker</dt><dd id="diag-background-worker-ms">-</dd>
+          <dt title="Foreground frame time not yet attributed to a measured stage">Other residual</dt><dd id="diag-other-ms">-</dd>
+        </dl>
+        <div id="diag-reason" class="localization-diagnostics-reason">No diagnostics received yet.</div>
+      </div>
       <div class="panel">
         <h1>Live Pose</h1>
         <dl>
-          <dt>Frame time</dt><dd id="pose-time">-</dd>
+          <dt>Frame timestamp</dt><dd id="pose-time">-</dd>
           <dt>TSolve total</dt><dd id="pose-total">-</dd>
           <dt>Action stage</dt><dd id="pose-action">-</dd>
           <dt>Root stage</dt><dd id="pose-root">-</dd>
@@ -730,7 +771,7 @@
       </section>
     </aside>
   </main>
-  <script src="app.js?v=204"></script>
+  <script src="app.js?v=211"></script>
   <script type="module" src="drone_glb_overlay.js?v=23"></script>
   <script type="module" src="map_mesh_overlay.js?v=20260806-one-time-placement-v8"></script>
 </body>

@@ -2233,6 +2233,90 @@ video.frame-stepping::-webkit-media-controls-start-playback-button {
   border: 1px solid rgba(105, 218, 255, 0.18);
 }
 
+.localization-diagnostics-panel {
+  background: linear-gradient(145deg, rgba(8, 35, 49, 0.94), rgba(4, 20, 31, 0.96));
+  border-color: rgba(84, 214, 255, 0.34);
+}
+
+.localization-diagnostics-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.localization-diagnostics-head h1 {
+  margin-bottom: 0;
+}
+
+.localization-diagnostics-state {
+  border: 1px solid rgba(159, 207, 226, 0.28);
+  border-radius: 999px;
+  color: #9fcfe2;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  padding: 3px 7px;
+  text-transform: uppercase;
+}
+
+.localization-diagnostics-state.ok {
+  border-color: rgba(77, 236, 184, 0.46);
+  color: #7fffd2;
+}
+
+.localization-diagnostics-state.warning {
+  border-color: rgba(255, 188, 84, 0.48);
+  color: #ffd18b;
+}
+
+.localization-diagnostics-method {
+  color: #d9f6ff;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 10px;
+  line-height: 1.35;
+  margin-top: 7px;
+  overflow-wrap: anywhere;
+}
+
+.localization-diagnostics-panel h2 {
+  border-bottom: 1px solid rgba(105, 218, 255, 0.14);
+  color: #77dfff;
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  margin: 12px 0 8px;
+  padding-bottom: 5px;
+  text-transform: uppercase;
+}
+
+.localization-diagnostics-grid {
+  grid-template-columns: minmax(0, 1fr) minmax(72px, auto);
+  gap: 5px 10px;
+  font-size: 11px;
+}
+
+.localization-diagnostics-grid dd {
+  color: #effbff;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.localization-timing-grid dd {
+  color: #aef4ff;
+}
+
+.localization-diagnostics-reason {
+  background: rgba(0, 0, 0, 0.18);
+  border-left: 2px solid rgba(255, 188, 84, 0.5);
+  color: #b8d9e4;
+  font-size: 10px;
+  line-height: 1.4;
+  margin-top: 11px;
+  overflow-wrap: anywhere;
+  padding: 7px 8px;
+}
+
 h1 {
   margin: 0 0 12px;
   font-size: 17px;
@@ -4380,7 +4464,7 @@ video,
 
 .fleet-overview-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(330px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(560px, 1fr));
   gap: 12px;
 }
 
@@ -4438,20 +4522,20 @@ video,
 .fleet-overview-card-head h3 { margin: 0; color: #f1fdff; font-size: 19px; }
 .fleet-overview-card-head p { margin: 4px 0 0; overflow: hidden; color: #7fb4c0; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
 
-.fleet-overview-video {
+.fleet-overview-map-window {
   position: relative;
-  aspect-ratio: 16 / 9;
-  min-height: 190px;
+  height: clamp(430px, 47vh, 590px);
+  min-height: 430px;
   overflow: hidden;
   border-block: 1px solid rgba(103, 222, 244, 0.17);
   background: radial-gradient(circle at center, rgba(35, 107, 128, 0.20), transparent 44%), #01050a;
 }
 
-.fleet-overview-video img { width: 100%; height: 100%; display: block; object-fit: contain; }
-.fleet-overview-video-placeholder { position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; color: #537f8a; }
-.fleet-overview-video-placeholder span { color: var(--fleet-color); font-size: 32px; }
-.fleet-overview-video-placeholder small { margin-top: 4px; font-size: 9px; letter-spacing: 0.11em; text-transform: uppercase; }
-.fleet-overview-video img:not([hidden]) + .fleet-overview-video-placeholder { display: none; }
+.fleet-overview-map-window iframe { width: 100%; height: 100%; display: block; border: 0; background: #01050a; }
+.fleet-overview-map-placeholder { position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; color: #537f8a; }
+.fleet-overview-map-placeholder span { color: var(--fleet-color); font-size: 32px; }
+.fleet-overview-map-placeholder small { margin-top: 4px; font-size: 9px; letter-spacing: 0.11em; text-transform: uppercase; }
+.fleet-overview-map-window iframe:not([hidden]) + .fleet-overview-map-placeholder { display: none; }
 
 .fleet-overview-video-bar {
   position: absolute;
@@ -4623,7 +4707,7 @@ video,
   .fleet-layout { grid-template-columns: 1fr; }
   .fleet-dispatch-card { position: static; grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .fleet-dispatch-card .fleet-panel-head, .fleet-dispatch-card .fleet-primary, .fleet-dispatch-card .fleet-status-line, .fleet-register { grid-column: 1 / -1; }
-  .fleet-overview-grid { grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); }
+  .fleet-overview-grid { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 760px) {
@@ -4640,4 +4724,118 @@ video,
   .fleet-overview-metrics > div:nth-child(-n + 2) { border-bottom: 1px solid rgba(103, 222, 244, 0.12); }
   .fleet-dispatch-card { grid-template-columns: 1fr; }
   .fleet-dispatch-card .fleet-panel-head, .fleet-dispatch-card .fleet-primary, .fleet-dispatch-card .fleet-status-line, .fleet-register { grid-column: auto; }
+}
+
+/* Isolated renderer used only by a Fleet Monitor card. The regular map page
+   keeps its original layout and controls. */
+body.fleet-map-embed {
+  overflow: hidden;
+  background: #01050a;
+}
+
+body.fleet-map-embed .atlas-topbar,
+body.fleet-map-embed .start-page,
+body.fleet-map-embed .enemy-page,
+body.fleet-map-embed .fleet-page,
+body.fleet-map-embed .live-localization-control,
+body.fleet-map-embed .map-axis-dock {
+  display: none !important;
+}
+
+body.fleet-map-embed .app {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) minmax(210px, 28%);
+  width: 100vw;
+  height: 100vh;
+  margin: 0;
+}
+
+body.fleet-map-embed .map-pane {
+  min-width: 0;
+  min-height: 0;
+}
+
+body.fleet-map-embed .map-control-dock {
+  left: 8px;
+  right: 8px;
+  bottom: 8px;
+  justify-content: center;
+  padding: 5px;
+  background: rgba(2, 10, 19, 0.82);
+}
+
+body.fleet-map-embed .map-control-dock button {
+  display: none;
+}
+
+body.fleet-map-embed .map-control-dock #reset,
+body.fleet-map-embed .map-control-dock #view-iso,
+body.fleet-map-embed .map-control-dock #view-top,
+body.fleet-map-embed .map-control-dock #view-side,
+body.fleet-map-embed .map-control-dock #view-drone,
+body.fleet-map-embed .map-control-dock #toggle-mesh,
+body.fleet-map-embed .map-control-dock #toggle-mesh-ceiling,
+body.fleet-map-embed .map-control-dock #toggle-points,
+body.fleet-map-embed .map-control-dock #toggle-cameras {
+  display: inline-flex;
+  min-height: 28px;
+  padding: 5px 7px;
+  font-size: 8px;
+}
+
+body.fleet-map-embed .side {
+  gap: 6px;
+  padding: 6px;
+  overflow: auto;
+}
+
+body.fleet-map-embed .side > * {
+  display: none !important;
+}
+
+body.fleet-map-embed .side > .video-shell,
+body.fleet-map-embed .side > .map-summary-panel,
+body.fleet-map-embed .side > .panel {
+  display: block !important;
+}
+
+body.fleet-map-embed .video-shell {
+  position: relative;
+  min-height: 0;
+}
+
+body.fleet-map-embed video,
+body.fleet-map-embed .live-frame-view {
+  aspect-ratio: 16 / 9;
+  object-fit: contain;
+}
+
+body.fleet-map-embed .side-section,
+body.fleet-map-embed .panel {
+  padding: 8px;
+}
+
+body.fleet-map-embed .map-summary-panel .brand,
+body.fleet-map-embed .panel h1 {
+  font-size: 10px;
+}
+
+body.fleet-map-embed #stats,
+body.fleet-map-embed .panel dl {
+  font-size: 8px;
+  line-height: 1.35;
+}
+
+body.fleet-map-embed .panel dd {
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 760px) {
+  body.fleet-map-embed .app {
+    grid-template-columns: minmax(0, 1fr) 190px;
+  }
+
+  .fleet-overview-map-window {
+    height: 470px;
+  }
 }

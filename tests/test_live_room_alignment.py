@@ -63,13 +63,90 @@ class LiveRoomAlignmentTests(unittest.TestCase):
                 100.01,
             )
         )
-        # No epoch means the established 1->2->3 path is byte-for-byte key
-        # compatible and its frames are never filtered by this new boundary.
+        # No epoch means the established route keeps its historical key and
+        # frames are never filtered by this ownership boundary.
         self.assertFalse(
             localizer.LivePatrolRouteGate.frame_predates_route_pose_epoch(
                 ordinary,
                 None,
             )
+        )
+
+    def test_point1_pose_epoch_is_a_valid_next_lap_tracking_boundary(self):
+        ordinary = {
+            "lap": 2,
+            "leg_index": 1,
+            "start": [-3.2330, -0.08, -0.3324],
+            "end": [-0.6480, -0.08, -0.4877],
+        }
+        epoch = {
+            **ordinary,
+            "route_pose_epoch": 2,
+            "route_pose_epoch_unix": 101.0,
+            "route_pose_epoch_reason": "verified_point1_handoff",
+        }
+
+        self.assertNotEqual(
+            localizer.LivePatrolRouteGate._key(ordinary),
+            localizer.LivePatrolRouteGate._key(epoch),
+        )
+        self.assertTrue(
+            localizer.LivePatrolRouteGate.frame_predates_route_pose_epoch(
+                epoch,
+                100.99,
+            )
+        )
+
+    def test_point1_pose_epoch_survives_live_status_parsing(self):
+        baseline = {
+            "complete_loop": True,
+            "enabled_for_live_route_gate": True,
+            "map_id": "map_a",
+            "patrol_id": "patrol_a",
+            "legs": [
+                {"from": [0.0, 0.0, 0.0], "to": [1.0, 0.0, 0.0]},
+                {"from": [1.0, 0.0, 0.0], "to": [1.0, 0.0, 1.0]},
+                {"from": [1.0, 0.0, 1.0], "to": [0.0, 0.0, 1.0]},
+                {"from": [0.0, 0.0, 1.0], "to": [0.0, 0.0, 0.0]},
+            ],
+        }
+        with tempfile.TemporaryDirectory() as td:
+            baseline_path = Path(td) / "baseline_a" / "reference_candidate.json"
+            baseline_path.parent.mkdir()
+            baseline_path.write_text(json.dumps(baseline), encoding="utf-8")
+            status_path = Path(td) / "control_status.json"
+            status_path.write_text(
+                json.dumps(
+                    {
+                        "status": "running",
+                        "command": "mission",
+                        "updated_at": time.time(),
+                        "progress": {
+                            "map_id": "map_a",
+                            "patrol_id": "patrol_a",
+                            "baseline_replay_id": "baseline_a",
+                            "lap": 2,
+                            "segment_start": [0.0, 0.0, 0.0],
+                            "target": [1.0, 0.0, 0.0],
+                            "translation_locked": True,
+                            "position_anchor": [0.0, 0.0, 0.0],
+                            "route_pose_epoch": 2,
+                            "route_pose_epoch_unix": 101.0,
+                            "route_pose_epoch_reason": "verified_point1_handoff",
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            context = localizer.LivePatrolRouteGate(
+                baseline_path,
+                status_path,
+            ).active_context()
+
+        self.assertEqual(context["route_pose_epoch"], 2)
+        self.assertEqual(
+            context["route_pose_epoch_reason"],
+            "verified_point1_handoff",
         )
 
     def test_late_background_pose_cannot_replace_newer_published_frame(self):
@@ -195,6 +272,128 @@ class LiveRoomAlignmentTests(unittest.TestCase):
                 last_pose=last_pose,
             ),
         )
+
+    def test_point_one_through_three_rejects_visual_position_authority(self):
+        for leg_index in (1, 2):
+            context = {
+                "leg_index": leg_index,
+                "start": [0.0, 0.0, 0.0],
+                "end": [1.0, 0.0, 0.0],
+                "recovery_hover": True,
+                "controller_translation_locked": True,
+            }
+            observation = {
+                "verified": True,
+                "translation_safe": True,
+                "progress": 0.5,
+                "center": [0.5, 0.0, 0.0],
+                "inliers": 250,
+                "minimum_inliers": 120,
+                "acquisition_hits": 5,
+            }
+            self.assertFalse(
+                localizer.visual_route_position_authority_allowed(context)
+            )
+            self.assertFalse(
+                localizer.visual_recovery_supersedes_stalled_metric_pose(
+                    last_pose={"rcenter": [0.0, 0.0, 0.0]},
+                    observation=observation,
+                    route_context=context,
+                    output_rejection_reason="motion_jump_0.450m_gt_0.300m",
+                )
+            )
+            self.assertIsNone(
+                localizer.accepted_visual_route_recovery_pose(
+                    last_pose={"rcenter": [0.0, 0.0, 0.0]},
+                    current_frame={"frame_index": 10},
+                    observation=observation,
+                    supervision={},
+                    route_context=context,
+                    rotation_heading=None,
+                    rotation_heading_tracks=0,
+                    rotation_position_stabilizer=None,
+                    route_gate=None,
+                    visual_recovery=None,
+                )
+            )
+
+        self.assertTrue(
+            localizer.visual_route_position_authority_allowed({"leg_index": 3})
+        )
+        self.assertTrue(
+            localizer.visual_route_position_authority_allowed({"leg_index": 4})
+        )
+
+    def test_metric_led_first_leg_ignores_stale_visual_departure_bias(self):
+        """Regress the 13:19 live freeze after the first Point-1 pulse."""
+        start = [-3.2329557447702215, -0.0802621969998909, -0.33236579860361815]
+        end = [-0.6480244338911889, -0.0802621969998909, -0.48774887233005093]
+        context = {
+            "start": start,
+            "end": end,
+            "anchor": start,
+            "lap": 1,
+            "leg_index": 1,
+            "position_guard_locked": False,
+            "controller_translation_locked": False,
+        }
+        gate = localizer.LivePatrolRouteGate(None, None)
+        key = gate._key(context)
+        gate.last_key = key
+        gate.last_progress = 0.0
+        gate.last_publish_time = 121.0
+        gate.active_context = lambda: context
+        # This is the exact stale correction observed in Live ATLAS 13:19:17.
+        # TSolve's room center projected 5.49% forward, but applying this bias
+        # changed it to -2.83% and kept the controller at Point 1 forever.
+        gate.departure_progress_bias_key = key
+        gate.departure_progress_bias = -0.08321614853156939
+        candidate = [-3.099985088843303, 0.012884309097118268, -0.49002756384949664]
+
+        reason, observation = gate.rejection(candidate, start)
+
+        self.assertIsNone(reason)
+        self.assertIsNotNone(observation)
+        self.assertAlmostEqual(observation["unbiased_progress"], 0.0549086228601227)
+        self.assertAlmostEqual(observation["progress"], 0.0549086228601227)
+        self.assertAlmostEqual(observation["departure_progress_bias"], 0.0)
+        published = gate.constrain_published_pose(
+            {"rcenter": candidate, "time_sec": 121.1},
+            observation,
+        )
+        self.assertGreater(published["route_published_progress"], 0.0)
+
+    def test_metric_led_first_two_legs_cannot_install_departure_bias(self):
+        verified = {
+            "verified": True,
+            "translation_safe": True,
+            "progress": 0.0,
+            "matched_progress": 0.0,
+            "inliers": 500,
+            "minimum_inliers": 120,
+            "acquisition_hits": 2,
+        }
+        for leg_index in (1, 2):
+            context = {
+                "start": [0.0, 0.0, 0.0],
+                "end": [1.0, 0.0, 0.0],
+                "anchor": [0.0, 0.0, 0.0],
+                "lap": 1,
+                "leg_index": leg_index,
+                "controller_translation_locked": False,
+            }
+            gate = localizer.LivePatrolRouteGate(None, None)
+            gate.last_key = gate._key(context)
+            gate.last_progress = 0.05
+            self.assertFalse(
+                gate.reconcile_verified_departure_floor(
+                    verified,
+                    context,
+                    {"progress": 0.05, "unbiased_progress": 0.05},
+                )
+            )
+            self.assertIsNone(gate.departure_progress_bias_key)
+            self.assertEqual(gate.departure_progress_bias, 0.0)
 
     def test_verified_departure_image_repairs_only_a_small_new_leg_floor(self):
         context = {
@@ -934,7 +1133,7 @@ class LiveRoomAlignmentTests(unittest.TestCase):
             )
         )
 
-    def test_verified_route_pose_uses_recorded_heading_not_drifting_optical_yaw(self):
+    def test_verified_route_pose_uses_live_optical_heading_when_no_fused_heading_exists(self):
         pose = localizer.visual_route_pose_from_last(
             last_pose={"rcenter": [0.0, 0.0, 0.0]},
             current_frame={"frame_index": 12},
@@ -957,8 +1156,19 @@ class LiveRoomAlignmentTests(unittest.TestCase):
             rotation_heading_tracks=466,
         )
 
-        self.assertTrue(np.allclose(pose["rheading"], [-0.9982, 0.0, 0.0600]))
-        self.assertEqual(pose["rheading_source"], "recorded_patrol_leg_heading")
+        self.assertTrue(
+            np.allclose(
+                pose["rheading"],
+                localizer.normalize_room_heading([-0.8392, 0.0, 0.5437]),
+            )
+        )
+        self.assertEqual(pose["rheading_source"], "optical_flow_yaw")
+        self.assertTrue(
+            np.allclose(
+                pose["route_visual_recorded_heading"],
+                localizer.normalize_room_heading([-0.9982, 0.0, 0.0600]),
+            )
+        )
         self.assertTrue(
             np.allclose(
                 pose["rotation_heading"],
@@ -966,6 +1176,82 @@ class LiveRoomAlignmentTests(unittest.TestCase):
             )
         )
         self.assertEqual(pose["rotation_heading_tracks"], 466)
+
+    def test_visual_route_position_recovery_preserves_verified_live_heading(self):
+        live_heading = [-0.1701144442, 0.0, -0.9854243126]
+        pose = localizer.visual_route_pose_from_last(
+            last_pose={
+                "rcenter": [-3.0736, -0.0803, 1.1114],
+                "rheading": live_heading,
+                "rheading_source": "recorded_departure_image_alignment",
+            },
+            current_frame={"frame_index": 2950},
+            observation={
+                "verified": True,
+                "center": [-3.091, -0.0803, 0.98],
+                "heading": [-0.1096894391, 0.0, -0.9939659083],
+                "progress": 0.09,
+                "inliers": 138,
+                "ratio_matches": 161,
+                "anchor_name": "query_003000.jpg",
+                "source_frame": 3000,
+                "acquisition_hits": 2,
+                "minimum_inliers": 50,
+                "map_id": "map",
+                "patrol_id": "patrol",
+                "baseline_replay_id": "baseline",
+            },
+            # This is the stale optical basis seen in the failed 4->1 output.
+            rotation_heading=[-0.8852610617, 0.0, -0.4650944557],
+            rotation_heading_tracks=363,
+        )
+
+        self.assertTrue(
+            np.allclose(
+                pose["rheading"],
+                localizer.normalize_room_heading(live_heading),
+            )
+        )
+        self.assertEqual(
+            pose["rheading_source"],
+            "recorded_departure_image_alignment",
+        )
+        self.assertTrue(pose["route_visual_heading_preserved"])
+
+    def test_strong_orb_sequence_carries_render_heading_during_turn(self):
+        state = {}
+
+        def metadata(correction, heading):
+            return {
+                "route_visual_heading_required": True,
+                "route_visual_heading_leg_index": 4,
+                "route_visual_heading_map_id": "map",
+                "route_visual_heading_patrol_id": "patrol",
+                "route_visual_heading_baseline_replay_id": "baseline",
+                "route_visual_heading_verified": True,
+                "route_visual_heading_correction_deg": correction,
+                "route_visual_heading_current": heading,
+                "route_visual_heading_inliers": 90,
+                "route_visual_heading_minimum_inliers": 50,
+            }
+
+        first = localizer.stabilize_visual_route_heading_for_render(
+            state,
+            metadata(24.0, [-0.75, 0.0, -0.66]),
+            frame_index=2830,
+        )
+        second = localizer.stabilize_visual_route_heading_for_render(
+            state,
+            metadata(17.0, [-0.82, 0.0, -0.57]),
+            frame_index=2842,
+        )
+
+        self.assertFalse(first["route_visual_heading_render_consensus_verified"])
+        self.assertTrue(second["route_visual_heading_render_consensus_verified"])
+        self.assertEqual(
+            second["route_visual_heading_render_source"],
+            "recorded_departure_image_tracking_consensus",
+        )
 
     def test_visual_route_pose_reconciles_large_position_change_without_translation(self):
         pose = localizer.visual_route_pose_from_last(
@@ -1104,7 +1390,7 @@ class LiveRoomAlignmentTests(unittest.TestCase):
             context={"leg_index": 3, "controller_translation_locked": True},
             observation={
                 "verified": True,
-                "correction_deg": 25.8,
+                "correction_deg": 2.8,
                 "heading": [-0.9981982, 0.0, 0.0600028],
                 "inliers": 197,
                 "ratio_matches": 261,
@@ -1117,20 +1403,37 @@ class LiveRoomAlignmentTests(unittest.TestCase):
             diagnostic={"reason": ""},
             minimum_inliers=120,
         )
-        pose = localizer.apply_visual_route_heading_alignment(
-            {"rcenter": [1.0, 0.0, 2.0], "rheading": [0.0, 0.0, 1.0]},
+        raw_pose = {"rcenter": [1.0, 0.0, 2.0], "rheading": [0.0, 0.0, 1.0]}
+        single_pose = localizer.apply_visual_route_heading_alignment(
+            dict(raw_pose),
             metadata,
+        )
+        self.assertEqual(single_pose["rheading"], [0.0, 0.0, 1.0])
+
+        state = {}
+        for frame_index in (100, 101, 102):
+            stable_metadata = localizer.stabilize_visual_route_heading_for_render(
+                state,
+                metadata,
+                frame_index=frame_index,
+            )
+        pose = localizer.apply_visual_route_heading_alignment(
+            dict(raw_pose),
+            stable_metadata,
         )
 
         self.assertEqual(pose["rcenter"], [1.0, 0.0, 2.0])
         self.assertEqual(pose["rheading_source"], "recorded_departure_image_alignment")
         self.assertTrue(metadata["route_visual_heading_verified"])
-        self.assertAlmostEqual(metadata["route_visual_heading_correction_deg"], 25.8)
+        self.assertTrue(
+            stable_metadata["route_visual_heading_render_consensus_verified"]
+        )
+        self.assertAlmostEqual(metadata["route_visual_heading_correction_deg"], 2.8)
 
     def test_departure_heading_threshold_is_leg_specific(self):
         self.assertEqual(
             localizer.visual_route_heading_minimum_inliers(120, leg_index=1),
-            75,
+            48,
         )
         self.assertEqual(
             localizer.visual_route_heading_minimum_inliers(120, leg_index=2),
@@ -1158,7 +1461,7 @@ class LiveRoomAlignmentTests(unittest.TestCase):
         for leg_index in (1, 2, 4):
             with self.subTest(leg_index=leg_index):
                 minimum_inliers = (
-                    75 if leg_index == 1 else 30 if leg_index == 4 else 120
+                    48 if leg_index == 1 else 30 if leg_index == 4 else 120
                 )
                 metadata = localizer.visual_route_heading_metadata(
                     context={
@@ -1179,6 +1482,29 @@ class LiveRoomAlignmentTests(unittest.TestCase):
                     metadata["route_visual_heading_minimum_inliers"],
                     minimum_inliers,
                 )
+
+    def test_rejected_departure_heading_keeps_validated_bank_identity(self):
+        metadata = localizer.visual_route_heading_metadata(
+            context={"leg_index": 1, "controller_translation_locked": True},
+            observation=None,
+            diagnostic={
+                "reason": "visual_heading_inliers_below_threshold",
+                "best_inliers": 47,
+            },
+            minimum_inliers=48,
+            map_id="map_a",
+            patrol_id="patrol_a",
+            baseline_replay_id="baseline_a",
+        )
+
+        self.assertFalse(metadata["route_visual_heading_verified"])
+        self.assertEqual(metadata["route_visual_heading_inliers"], 47)
+        self.assertEqual(metadata["route_visual_heading_map_id"], "map_a")
+        self.assertEqual(metadata["route_visual_heading_patrol_id"], "patrol_a")
+        self.assertEqual(
+            metadata["route_visual_heading_baseline_replay_id"],
+            "baseline_a",
+        )
 
         for leg_index in (0,):
             with self.subTest(leg_index=leg_index):
@@ -1838,7 +2164,7 @@ class LiveRoomAlignmentTests(unittest.TestCase):
         self.assertAlmostEqual(published["route_published_progress"], 1.0)
         self.assertTrue(np.allclose(published["rcenter"], context["end"]))
 
-    def test_verified_endpoint_repairs_the_exact_1633_overrun_deadlock(self):
+    def test_leg_one_endpoint_visual_match_cannot_replace_tsolve(self):
         start = [-3.2329557447702215, -0.0802621969998909, -0.33236579860361815]
         end = [-0.6480244338911889, -0.0802621969998909, -0.48774887233005093]
         context = {
@@ -1863,7 +2189,7 @@ class LiveRoomAlignmentTests(unittest.TestCase):
         gate.last_key = gate._key(context)
         gate.last_progress = 1.0793975401231017
 
-        self.assertTrue(
+        self.assertFalse(
             localizer.visual_recovery_supersedes_stalled_metric_pose(
                 last_pose={"rcenter": [-0.21717948187335478, -0.1386030527117187, -0.25355579610795353]},
                 observation=observation,
@@ -1871,8 +2197,7 @@ class LiveRoomAlignmentTests(unittest.TestCase):
                 output_rejection_reason="route_backward_0.952_lt_1.034",
             )
         )
-        self.assertTrue(gate.reconcile_verified_endpoint_floor(observation, context))
-        self.assertAlmostEqual(gate.last_progress, 1.0)
+        self.assertAlmostEqual(gate.last_progress, 1.0793975401231017)
 
     def test_running_patrol_status_survives_the_two_second_waypoint_hover(self):
         baseline = {
@@ -2077,6 +2402,94 @@ class LiveRoomAlignmentTests(unittest.TestCase):
         self.assertTrue(
             observation["route_continuity_preserved_tracking_center"]
         )
+
+    def test_metric_led_legs_route_gate_uses_post_yaw_tsolve_room_bias(self):
+        context = {
+            "start": [0.0, 0.0, 0.0],
+            "end": [2.0, 0.0, 0.0],
+            "anchor": [0.0, 0.0, 0.0],
+            "leg_index": 1,
+            "position_guard_locked": False,
+        }
+
+        class RouteGate:
+            enabled = True
+            last_key = ("leg",)
+            last_progress = 0.0
+
+            def active_context(self):
+                return context
+
+            def rejection(self, candidate, _previous):
+                progress, cross_track = localizer.route_segment_projection_xz(
+                    candidate,
+                    context["start"],
+                    context["end"],
+                )
+                return None, {
+                    "key": self.last_key,
+                    "progress": progress,
+                    "cross_track": cross_track,
+                    "context": context,
+                }
+
+        kwargs = {
+            "case": {"time_sec": 10.1, "tracked_pool_points": 400},
+            "result": {
+                "success": True,
+                "objective": 20.0,
+                "R": np.eye(3).tolist(),
+                "t": [0.0, 0.0, 0.0],
+            },
+            "previous_center": np.asarray([0.0, 0.0, 0.0]),
+            "previous_time": 10.0,
+            "previous_pose": {"rcenter": [0.0, 0.0, 0.0]},
+            "route_gate": RouteGate(),
+            "room_transform": lambda center: center,
+            "output_center_bias": None,
+            "metric_route_room_bias": [0.18, 0.0, 0.0],
+            "max_step": 0.30,
+            "max_speed": 0.85,
+            "objective_threshold": 30.0,
+        }
+
+        reason, _accepted, _timestamp, observation = (
+            localizer.route_guarded_output_rejection(**kwargs)
+        )
+        self.assertIsNone(reason)
+        self.assertAlmostEqual(observation["progress"], 0.09)
+        self.assertEqual(
+            observation["metric_route_position_source"],
+            "tsolve_post_yaw_room_bias",
+        )
+        self.assertEqual(
+            observation["metric_route_room_bias_applied"],
+            [0.18, 0.0, 0.0],
+        )
+
+        # Preserve the established weak-tail behavior: legs 3 and 4 do not
+        # consume this metric-only handoff correction in the route gate.
+        context["leg_index"] = 3
+        reason, _accepted, _timestamp, observation = (
+            localizer.route_guarded_output_rejection(**kwargs)
+        )
+        self.assertIsNone(reason)
+        self.assertAlmostEqual(observation["progress"], 0.0)
+        self.assertNotIn("metric_route_position_source", observation)
+
+    def test_metric_route_room_bias_requires_controller_proved_yaw(self):
+        stabilizer = localizer.RotationOnlyPositionStabilizer(enabled=True)
+        stabilizer.room_bias = np.asarray([0.18, 0.0, -0.04])
+        self.assertIsNone(stabilizer.metric_route_room_bias())
+
+        stabilizer.room_bias_commanded = True
+        self.assertEqual(
+            stabilizer.metric_route_room_bias(),
+            [0.18, 0.0, -0.04],
+        )
+
+        stabilizer.position_anchor = np.asarray([0.0, 0.0, 0.0])
+        self.assertIsNone(stabilizer.metric_route_room_bias())
 
     def test_route_holds_do_not_preload_destructive_tracking_reset(self):
         streak = 0
@@ -3111,24 +3524,60 @@ class LiveRoomAlignmentTests(unittest.TestCase):
         gate = localizer.LivePatrolRouteGate(None, None)
         gate.active_context = lambda: context
         gate.last_key = gate._key(context)
-        gate.last_progress = 1.062
+        gate.last_progress = 1.09
 
         reason, observation = gate.rejection(
             [2.0, 0.0, 0.0],
-            [2.124, 0.0, 0.0],
+            [2.18, 0.0, 0.0],
         )
         self.assertIsNone(reason)
         self.assertTrue(observation["endpoint_overshoot_rollback"])
         gate.commit(observation)
         self.assertAlmostEqual(gate.last_progress, 1.0)
 
-        gate.last_progress = 1.062
+        gate.last_progress = 1.09
         context["endpoint_overshoot_correction"] = False
         reason, _observation = gate.rejection(
             [2.0, 0.0, 0.0],
-            [2.124, 0.0, 0.0],
+            [2.18, 0.0, 0.0],
         )
         self.assertTrue(str(reason).startswith("route_backward_"))
+
+    def test_endpoint_recovery_exposes_bounded_metric_overshoot(self):
+        context = {
+            "start": [0.0, 0.0, 0.0],
+            "end": [2.0, 0.0, 0.0],
+            "anchor": [0.0, 0.0, 0.0],
+            "lap": 1,
+            "leg_index": 1,
+            "position_guard_locked": False,
+            "controller_translation_locked": True,
+            "endpoint_position_recovery": True,
+            "endpoint_overshoot_correction": False,
+        }
+        gate = localizer.LivePatrolRouteGate(None, None, backward_tolerance=0.08)
+        gate.active_context = lambda: context
+        gate.last_key = gate._key(context)
+        gate.last_progress = 1.0
+        gate.last_publish_time = 0.0
+
+        reason, observation = gate.rejection(
+            [2.20, 0.0, 0.0],
+            [2.0, 0.0, 0.0],
+        )
+        self.assertIsNone(reason)
+        pose = gate.constrain_published_pose(
+            {
+                "rcenter": [2.20, 0.0, 0.0],
+                "time_sec": 1.0,
+                "held_pose": False,
+                "output_rejected": False,
+            },
+            observation,
+        )
+        self.assertGreater(pose["route_published_progress"], 1.0)
+        self.assertLessEqual(pose["route_published_progress"], 1.20)
+        self.assertGreater(pose["rcenter"][0], 2.0)
 
     def test_case_metadata_keeps_colmap_anchor_when_pool_pose_is_reduced(self):
         with tempfile.TemporaryDirectory() as td:

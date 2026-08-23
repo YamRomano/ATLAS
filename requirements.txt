@@ -5,6 +5,7 @@ scipy==1.13.1
 sympy==1.14.0
 Pillow==11.3.0
 av==15.1.0
+faiss-cpu==1.13.0
 
 # Enemy-drone detection/training. Optional if that part of the UI is unused.
 ultralytics==8.4.96
