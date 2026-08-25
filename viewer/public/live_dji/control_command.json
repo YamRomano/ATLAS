@@ -1,9 +1,9 @@
 {
-  "id": "00fbd2d14b8f4fafb4cc11915dd87b37",
+  "id": "5bc59ca42a9b4e05a10561044def4bb4",
   "command": "mission",
   "phone_ip": "192.168.54.252",
   "height_m": null,
-  "created_at": 1787489131.008117,
+  "created_at": 1787638024.3899899,
   "mission": {
     "client_safety_version": 3,
     "guided_enabled": true,
@@ -38,7 +38,7 @@
     "target_frame": "atlas_room",
     "map_id": "map_copy_20260730_114851_cfefdc",
     "map_title": "Video Map 20:07:46 Copy",
-    "replay_id": "dji_live_20260823_153626_5bec63",
+    "replay_id": "dji_live_20260824_164507_475fe8",
     "patrol_id": "patrol_ms4br5xr_4xclts",
     "patrol_title": "Patrol 1",
     "entry_index": 0,
@@ -94,9 +94,9 @@
     ],
     "route": [
       [
-        -3.751301645630515,
+        -3.955597271129805,
         -0.0802621969998909,
-        -0.42999155783728993
+        -0.2421153921595236
       ],
       [
         -3.2329557447702215,
@@ -127,9 +127,9 @@
     "route_segments": [
       [
         [
-          -3.751301645630515,
+          -3.955597271129805,
           -0.0802621969998909,
-          -0.42999155783728993
+          -0.2421153921595236
         ],
         [
           -3.2329557447702215,
@@ -212,19 +212,19 @@
         "type": "yaw",
         "title": "Entry \u00b7 Patrol yaw 1",
         "from": [
-          -3.751301645630515,
+          -3.955597271129805,
           -0.0802621969998909,
-          -0.42999155783728993
+          -0.2421153921595236
         ],
         "to": [
           -3.2329557447702215,
           -0.0802621969998909,
           -0.33236579860361815
         ],
-        "heading_deg": 10.66619464538956,
-        "reference_heading_deg": -6.855108653938315,
-        "yaw_delta_deg": 17.521303299327876,
-        "detail": "Turn 17.5 degrees to face patrol segment 1.",
+        "heading_deg": -7.11878775593823,
+        "reference_heading_deg": -9.262920797070585,
+        "yaw_delta_deg": 2.1441330411323545,
+        "detail": "Turn 2.1 degrees to face patrol segment 1.",
         "duration_s": 1.2,
         "safety": "slow-yaw",
         "patrol_stage": "entry"
@@ -233,20 +233,20 @@
         "type": "cruise",
         "title": "Entry \u00b7 Patrol cruise 1",
         "from": [
-          -3.751301645630515,
+          -3.955597271129805,
           -0.0802621969998909,
-          -0.42999155783728993
+          -0.2421153921595236
         ],
         "to": [
           -3.2329557447702215,
           -0.0802621969998909,
           -0.33236579860361815
         ],
-        "heading_deg": 10.66619464538956,
+        "heading_deg": -7.11878775593823,
         "speed_mps": 0.1,
-        "detail": "Move 0.53 map units at 0.10 m/s.",
-        "distance": 0.5274592513214837,
-        "duration_s": 5.274592513214837,
+        "detail": "Move 0.73 map units at 0.10 m/s.",
+        "distance": 0.7282553889142411,
+        "duration_s": 7.282553889142411,
         "safety": "patrol-speed",
         "patrol_stage": "entry"
       },
@@ -286,9 +286,9 @@
           -0.48774887233005093
         ],
         "heading_deg": -3.439973250879774,
-        "reference_heading_deg": -6.855108653938315,
-        "yaw_delta_deg": 3.4151354030585406,
-        "detail": "Turn 3.4 degrees to face patrol segment 1.",
+        "reference_heading_deg": -9.262920797070585,
+        "yaw_delta_deg": 5.822947546190811,
+        "detail": "Turn 5.8 degrees to face patrol segment 1.",
         "duration_s": 1.2,
         "safety": "slow-yaw",
         "patrol_stage": "loop"
@@ -711,7 +711,7 @@
       0,
       0
     ],
-    "confirmed_at": "2026-08-23T12:45:31.000Z",
+    "confirmed_at": "2026-08-25T06:07:04.383Z",
     "baseline_replay_id": "patrol_baseline_precision_20260813",
     "patrol_laps": 2,
     "route_monotonic_gate": true,

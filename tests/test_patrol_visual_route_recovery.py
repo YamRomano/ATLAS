@@ -69,10 +69,12 @@ class PatrolVisualRouteRecoveryTests(unittest.TestCase):
     def test_temporal_recovery_uses_fresh_rolling_consensus(self):
         recovery = object.__new__(PatrolVisualRouteRecovery)
         recovery.recovery_acquisition_hits = 5
+        recovery.recovery_evidence_window_frames = 15
         recovery.temporal_recovery_progress = None
         recovery.temporal_recovery_source_replay_id = None
         recovery.temporal_recovery_hits = 0
         recovery.temporal_recovery_samples = []
+        recovery.temporal_recovery_sample_indices = []
         recovery.temporal_recovery_command_ceiling = None
 
         result = None
@@ -85,6 +87,85 @@ class PatrolVisualRouteRecoveryTests(unittest.TestCase):
         self.assertIsNotNone(result)
         self.assertGreater(float(result), 0.04)
         self.assertNotAlmostEqual(float(result), 0.0015)
+
+    def test_temporal_recovery_keeps_five_strong_views_across_short_blur_gaps(self):
+        recovery = object.__new__(PatrolVisualRouteRecovery)
+        recovery.recovery_acquisition_hits = 5
+        recovery.recovery_evidence_window_frames = 15
+        recovery.temporal_recovery_progress = None
+        recovery.temporal_recovery_source_replay_id = None
+        recovery.temporal_recovery_hits = 0
+        recovery.temporal_recovery_samples = []
+        recovery.temporal_recovery_sample_indices = []
+        recovery.temporal_recovery_command_ceiling = None
+        recovery.pending_progress = None
+        recovery.pending_source_replay_id = None
+        recovery.pending_hits = 0
+        recovery.needs_acquisition = True
+        recovery.weak_endpoint_progress = None
+        recovery.weak_endpoint_hits = 0
+        recovery.rewind_candidate_progress = None
+        recovery.rewind_candidate_source_replay_id = None
+        recovery.rewind_candidate_hits = 0
+
+        strong = {
+            2003: 0.081,
+            2012: 0.088,
+            2013: 0.090,
+            2015: 0.094,
+            2017: 0.096,
+        }
+        result = None
+        for sequence_index in range(2003, 2018):
+            if sequence_index in strong:
+                result = recovery._collect_temporal_recovery_progress(
+                    proposed=strong[sequence_index],
+                    source_replay_id="recorded_4_to_1",
+                    command_progress_ceiling=0.124,
+                    sequence_index=sequence_index,
+                )
+            else:
+                retained = recovery._mark_unverified(
+                    preserve_temporal_recovery=True,
+                    sequence_index=sequence_index,
+                )
+                self.assertLess(retained, 5)
+        self.assertIsNotNone(result)
+        self.assertEqual(recovery.temporal_recovery_hits, 5)
+        self.assertAlmostEqual(float(result), 0.090)
+
+    def test_temporal_recovery_evidence_expires_outside_bounded_window(self):
+        recovery = object.__new__(PatrolVisualRouteRecovery)
+        recovery.recovery_acquisition_hits = 5
+        recovery.recovery_evidence_window_frames = 15
+        recovery.temporal_recovery_progress = None
+        recovery.temporal_recovery_source_replay_id = None
+        recovery.temporal_recovery_hits = 0
+        recovery.temporal_recovery_samples = []
+        recovery.temporal_recovery_sample_indices = []
+        recovery.temporal_recovery_command_ceiling = None
+        recovery.pending_progress = None
+        recovery.pending_source_replay_id = None
+        recovery.pending_hits = 0
+        recovery.needs_acquisition = True
+        recovery.weak_endpoint_progress = None
+        recovery.weak_endpoint_hits = 0
+        recovery.rewind_candidate_progress = None
+        recovery.rewind_candidate_source_replay_id = None
+        recovery.rewind_candidate_hits = 0
+
+        recovery._collect_temporal_recovery_progress(
+            proposed=0.08,
+            source_replay_id="recorded_4_to_1",
+            command_progress_ceiling=0.124,
+            sequence_index=100,
+        )
+        retained = recovery._mark_unverified(
+            preserve_temporal_recovery=True,
+            sequence_index=115,
+        )
+        self.assertEqual(retained, 0)
+        self.assertEqual(recovery.temporal_recovery_samples, [])
 
     def test_last_live_point_four_to_one_frames_advance_frozen_model(self):
         """Regress the 23-Aug run that stayed at 8% after real movement."""
@@ -1330,9 +1411,9 @@ class PatrolVisualRouteRecoveryTests(unittest.TestCase):
 
         self.assertIsNotNone(observation, stage)
         self.assertTrue(observation["endpoint_verified"])
-        self.assertEqual(observation["endpoint_minimum_inliers"], 75)
+        self.assertEqual(observation["endpoint_minimum_inliers"], 50)
         self.assertLess(observation["endpoint_best_inliers"], 120)
-        self.assertGreater(observation["progress"], 0.90)
+        self.assertGreaterEqual(observation["progress"], 0.90)
 
     def test_1633_point_two_frames_recover_the_verified_endpoint_after_metric_overrun(self):
         """Regress the live 1.079 floor that held 330 correct frames."""
@@ -1873,8 +1954,12 @@ class PatrolVisualRouteRecoveryTests(unittest.TestCase):
             last_observation["endpoint_safe_prearrival_progress"],
         )
         self.assertLessEqual(committed_progress, 0.90)
-        self.assertFalse(last_observation["endpoint_verified"])
-        self.assertTrue(last_observation["endpoint_guarded"])
+        # The requested Point-3 endpoint threshold is now 50, so the same
+        # landed sequence may verify arrival. It still cannot authorize
+        # translation and remains capped at the safe pre-arrival progress.
+        self.assertTrue(last_observation["endpoint_verified"])
+        self.assertFalse(last_observation["translation_safe"])
+        self.assertFalse(last_observation["endpoint_guarded"])
 
     def test_multirun_bank_tracks_the_short_independent_leg_without_freezing(self):
         """One safe metric pulse must fit the normalized short-leg window."""

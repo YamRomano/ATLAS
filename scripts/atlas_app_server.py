@@ -2501,7 +2501,7 @@ def map_coordinate_lineage(entry: dict, maps_by_id: dict[str, dict]) -> set[str]
         current = maps_by_id.get(map_id)
         if current is None:
             continue
-        for key in ("source_map_id", "localization_map_id"):
+        for key in ("source_map_id", "localization_map_id", "coordinate_frame_id"):
             parent_id = str(current.get(key) or "").strip()
             if parent_id and parent_id != map_id and parent_id not in lineage:
                 pending.append(parent_id)
@@ -5912,6 +5912,7 @@ def dji_live_atlas_job(
             live_stream_cmd.append("--disable-background-recovery")
         if cfg.get("live_direct_pnp_recovery", True):
             live_stream_cmd.append("--direct-pnp-recovery")
+        live_stream_cmd.append("--wait-for-metric-checkpoint-recovery")
         add_faiss_live_arguments(live_stream_cmd, cfg, faiss_index_dir)
         set_job(
             "drone",
@@ -7587,6 +7588,7 @@ def fleet_live_atlas_job(drone_id: str) -> None:
             live_cmd.append("--disable-background-recovery")
         if cfg.get("live_direct_pnp_recovery", True):
             live_cmd.append("--direct-pnp-recovery")
+        live_cmd.append("--wait-for-metric-checkpoint-recovery")
         add_faiss_live_arguments(live_cmd, cfg, faiss_index_dir)
         fleet_update(drone_id, stage="initial_localization")
         fleet_event(

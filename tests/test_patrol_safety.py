@@ -22,6 +22,15 @@ LOCALIZER_PATH = Path(__file__).resolve().parents[1] / "scripts" / "run_bounded_
 OVERLAY_PATH = Path(__file__).resolve().parents[1] / "viewer" / "drone_glb_overlay.js"
 APP_PATH = Path(__file__).resolve().parents[1] / "viewer" / "app.js"
 SERVER_PATH = Path(__file__).resolve().parents[1] / "scripts" / "atlas_app_server.py"
+SETUP_RUNTIME_PATH = (
+    Path(__file__).resolve().parents[1] / "scripts" / "setup_tsolve_runtime.py"
+)
+SETUP_RUNTIME_SPEC = importlib.util.spec_from_file_location(
+    "setup_tsolve_runtime", SETUP_RUNTIME_PATH
+)
+assert SETUP_RUNTIME_SPEC and SETUP_RUNTIME_SPEC.loader
+setup_tsolve_runtime = importlib.util.module_from_spec(SETUP_RUNTIME_SPEC)
+SETUP_RUNTIME_SPEC.loader.exec_module(setup_tsolve_runtime)
 GEOMETRY_LOCK_PATH = (
     Path(__file__).resolve().parents[1]
     / "viewer"
@@ -136,6 +145,10 @@ class PatrolSafetyTests(unittest.TestCase):
         self.assertEqual(committed["route_progress"], 1.0)
         self.assertTrue(committed["verified_route_endpoint_gate"])
         self.assertTrue(committed["pose"]["route_verified_endpoint_committed"])
+        self.assertTrue(committed["pose"]["route_verified_endpoint_anchor_only"])
+        self.assertTrue(committed["pose"]["metric_rebootstrap_required"])
+        self.assertFalse(committed["metric_position_valid"])
+        self.assertFalse(bridge.pose_gate_has_fresh_metric_position(committed))
         self.assertTrue(committed["pose"]["rotation_position_locked"])
         self.assertFalse(committed["pose"]["translation_allowed"])
         self.assertEqual(original["pose"]["rcenter"], [-3.1674, -0.0803, 0.2618])
@@ -186,6 +199,41 @@ class PatrolSafetyTests(unittest.TestCase):
 
         self.assertAlmostEqual(committed_cross_track, 0.0, places=9)
         self.assertEqual(committed["route_progress"], 1.0)
+
+    def test_return_pose_behind_point1_is_on_outgoing_route_line(self):
+        point_one = [-3.2329557448, -0.0802621970, -0.3323657986]
+        point_two = [-0.6480244339, -0.0802621970, -0.4877488723]
+        measured_return = [-4.4987, -0.1775, -0.2074]
+
+        progress = bridge.route_segment_progress_xz(
+            measured_return,
+            point_one,
+            point_two,
+        )
+        cross_track = bridge.route_line_cross_track_xz(
+            measured_return,
+            point_one,
+            point_two,
+        )
+        leg_length = bridge.horizontal_xz_distance(point_one, point_two)
+
+        self.assertIsNotNone(progress)
+        self.assertIsNotNone(cross_track)
+        self.assertIsNotNone(leg_length)
+        self.assertLess(progress, 0.0)
+        self.assertGreaterEqual(progress, -0.60)
+        self.assertLess(cross_track, 0.06)
+        self.assertLess(-progress * leg_length, 1.55)
+
+        lateral_mismatch = [-4.4987, -0.1775, 0.45]
+        self.assertGreater(
+            bridge.route_line_cross_track_xz(
+                lateral_mismatch,
+                point_one,
+                point_two,
+            ),
+            0.30,
+        )
 
     def test_decoded_frame_listener_distinguishes_new_frames_from_cached_reads(self):
         listener = bridge.DecodedFrameListener()
@@ -280,11 +328,97 @@ class PatrolSafetyTests(unittest.TestCase):
                 {**metric_gate, "recent_hold_fallback": True}
             )
         )
+        self.assertFalse(
+            bridge.pose_gate_has_fresh_metric_position(
+                {
+                    **metric_gate,
+                    "pose": {
+                        **metric_gate["pose"],
+                        "route_verified_endpoint_committed": True,
+                    },
+                }
+            )
+        )
+
+    def test_point1_star_metric_consensus_accepts_stable_global_pose_far_from_point1(self):
+        state = {}
+
+        def gate(instance, x, z):
+            return {
+                "ok": True,
+                "pose": {
+                    "instance_id": f"instance_{instance:06d}",
+                    "received_unix": 100.0 + instance,
+                    "rcenter": [x, -0.08, z],
+                    "center": [1.0, 2.0, 3.0],
+                    "R": [
+                        [1.0, 0.0, 0.0],
+                        [0.0, 1.0, 0.0],
+                        [0.0, 0.0, 1.0],
+                    ],
+                    "t": [-1.0, -2.0, -3.0],
+                },
+            }
+
+        # The recovered Point 1* is intentionally about two metres from the
+        # saved Point 1. Consensus is measured between current global poses,
+        # not against the patrol waypoint.
+        self.assertIsNone(
+            bridge.lap_transition_metric_consensus_gate(
+                state, gate(1, -5.11, 0.26), minimum_received_unix=100.0
+            )
+        )
+        self.assertIsNone(
+            bridge.lap_transition_metric_consensus_gate(
+                state, gate(2, -5.09, 0.27), minimum_received_unix=100.0
+            )
+        )
+        accepted = bridge.lap_transition_metric_consensus_gate(
+            state, gate(3, -5.12, 0.25), minimum_received_unix=100.0
+        )
+        self.assertIsNotNone(accepted)
+        self.assertTrue(accepted["lap_transition_metric_consensus"])
+        self.assertEqual(accepted["lap_transition_metric_consensus_hits"], 3)
+
+    def test_point1_star_metric_consensus_resets_on_inconsistent_pose(self):
+        state = {}
+
+        def gate(instance, x):
+            return {
+                "ok": True,
+                "pose": {
+                    "instance_id": f"instance_{instance:06d}",
+                    "received_unix": 200.0 + instance,
+                    "rcenter": [x, 0.0, 0.0],
+                    "center": [x, 0.0, 0.0],
+                    "R": [
+                        [1.0, 0.0, 0.0],
+                        [0.0, 1.0, 0.0],
+                        [0.0, 0.0, 1.0],
+                    ],
+                    "t": [-x, 0.0, 0.0],
+                },
+            }
+
+        bridge.lap_transition_metric_consensus_gate(
+            state, gate(1, -5.10), minimum_received_unix=200.0
+        )
+        bridge.lap_transition_metric_consensus_gate(
+            state, gate(2, -5.12), minimum_received_unix=200.0
+        )
+        self.assertIsNone(
+            bridge.lap_transition_metric_consensus_gate(
+                state, gate(3, -3.20), minimum_received_unix=200.0
+            )
+        )
+        self.assertEqual(state["hits"], 1)
 
     def test_repeated_lap_checkpoint_accepts_metric_or_verified_endpoint(self):
         source = BRIDGE_PATH.read_text(encoding="utf-8")
         self.assertIn("lap_metric_checkpoint_pending = current_lap_number > 1", source)
-        lap_start = source.index("if lap_metric_checkpoint_pending:")
+        lap_start = source.index(
+            "if lap_metric_checkpoint_pending and not dynamic_lap_reentry:"
+        )
         lap_end = source.index("turn_direction_override =", lap_start)
         checkpoint = source[lap_start:lap_end]
         self.assertIn("checkpoint_metric_ready", checkpoint)
@@ -303,9 +437,25 @@ class PatrolSafetyTests(unittest.TestCase):
         self.assertIn("lap_point_one_handoff = True", checkpoint)
         self.assertNotIn("require_metric_pose=True,", checkpoint)
 
+        departure_start = source.index(
+            "if rotation_position_untrusted:", lap_end
+        )
+        departure_end = source.index(
+            "elif alignment_angle is not None", departure_start
+        )
+        departure = source[departure_start:departure_end]
+        self.assertIn("if lap_point_one_handoff:", departure)
+        self.assertIn("endpoint_departure_gate = None", departure)
+        self.assertIn(
+            "require_metric_pose=lap_point_one_handoff", departure
+        )
+        self.assertIn(
+            "lap_start_metric_rebootstrap=(", departure
+        )
+
         endpoint_start = source.index("if visual_checkpoint_arrival:")
         endpoint_end = source.index(
-            "if (\n                            tight_point_three_candidate",
+            "if (\n                            tight_early_leg_candidate",
             endpoint_start,
         )
         endpoint_commit = source[endpoint_start:endpoint_end]
@@ -319,17 +469,105 @@ class PatrolSafetyTests(unittest.TestCase):
         )
         self.assertIn('route_context.get("require_metric_pose") is True', localizer)
         self.assertIn("lap_start_metric_center", localizer)
-        self.assertIn("lap_checkpoint_taught_consensus_recovery", localizer)
+        self.assertIn("lap_checkpoint_faiss_current_frame_tsolve", localizer)
+        self.assertIn("localize_faiss_current_frame(", localizer)
         self.assertIn("LAP CHECKPOINT CURRENT-FRAME METRIC RECOVERY", localizer)
         self.assertIn("superseded_by_new_lap_metric_checkpoint", localizer)
+        self.assertIn(
+            "superseded_by_lap_start_metric_rebootstrap", localizer
+        )
+        self.assertIn(
+            'global_reason = "lap_start_metric_rebootstrap"', localizer
+        )
+        self.assertIn(
+            'method = "lap_start_metric_rebootstrap_retry"', localizer
+        )
+        self.assertIn('"phase": "lap_start_metric_reentry"', source)
+        self.assertIn("route_line_cross_track_xz(", departure)
+        self.assertIn("segment_start = list(recovered_position)", departure)
 
         viewer = APP_PATH.read_text(encoding="utf-8")
         self.assertIn("opticalHeadingTracks >= 16", viewer)
         self.assertIn("pose.rotation_position_locked", viewer)
+        self.assertIn("!absoluteRouteHeading", viewer)
+        self.assertIn('"recorded_departure_image_alignment"', viewer)
+        self.assertIn('"recorded_departure_image_tracking_consensus"', viewer)
         self.assertNotIn(
             'pose.pose_source === "patrol_visual_route_recovery" ||',
             viewer,
         )
+
+    def test_live_jobs_enable_metric_checkpoint_recovery(self):
+        source = SERVER_PATH.read_text(encoding="utf-8")
+        live_start = source.index("def dji_live_atlas_job(")
+        live_end = source.index("def simulated_patrol_baseline_job(", live_start)
+        fleet_start = source.index("def fleet_live_atlas_job(")
+        fleet_end = source.index("def drone_video_job(", fleet_start)
+        self.assertIn(
+            'live_stream_cmd.append("--wait-for-metric-checkpoint-recovery")',
+            source[live_start:live_end],
+        )
+        self.assertIn(
+            'live_cmd.append("--wait-for-metric-checkpoint-recovery")',
+            source[fleet_start:fleet_end],
+        )
+
+    def test_repeated_lap_relocalizes_point1_star_before_guarded_point_one_entry(self):
+        bridge_source = BRIDGE_PATH.read_text(encoding="utf-8")
+        localizer_source = LOCALIZER_PATH.read_text(encoding="utf-8")
+
+        sequence_start = bridge_source.index("def mission_step_sequence(")
+        sequence_end = bridge_source.index(
+            "def patrol_loop_start_command_index(", sequence_start
+        )
+        sequence_source = bridge_source[sequence_start:sequence_end]
+        self.assertIn('"type": "lap_relocalize_entry"', sequence_source)
+        self.assertIn('"_atlas_lap_reentry": True', sequence_source)
+        self.assertIn("Point 1* to Point 1", sequence_source)
+        marker_start = bridge_source.index('if kind == "lap_relocalize_entry":')
+        marker_end = bridge_source.index("gate_attempt =", marker_start)
+        marker = bridge_source[marker_start:marker_end]
+        self.assertIn("allow_metric_discontinuity_consensus=True", marker)
+        self.assertIn('"lap_start_global_relocalization"', marker)
+        self.assertIn("lap_reentry_metric_ready = True", marker)
+        cruise_start = bridge_source.index(
+            'dynamic_lap_reentry = step.get("_atlas_lap_reentry") is True'
+        )
+        cruise_end = bridge_source.index(
+            "planned_duration = clamp_float", cruise_start
+        )
+        connector_cruise = bridge_source[cruise_start:cruise_end]
+        self.assertIn(
+            "strict_metric_arrival = bool(\n                    precise_arrival or dynamic_lap_reentry",
+            connector_cruise,
+        )
+        self.assertIn("strict_target=strict_metric_arrival", connector_cruise)
+        self.assertNotIn(
+            "taught_leg_requires_precise_arrival(taught_leg)\n                    or dynamic_lap_reentry",
+            connector_cruise,
+        )
+        self.assertIn(
+            '"lap_start_global_relocalization",',
+            localizer_source,
+        )
+
+    def test_tsolve_runtime_restores_required_harness_dependency(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            yam_code = root / "base" / "yam_code"
+            source_harness = root / "base" / "harness"
+            output_harness = root / "output" / "harness"
+            yam_code.mkdir(parents=True)
+            source_harness.mkdir(parents=True)
+            dependency = source_harness / "ysolve_template_core.py"
+            dependency.write_text("RUNTIME_DEPENDENCY = True\n", encoding="utf-8")
+
+            setup_tsolve_runtime.ensure_harness_dependencies(
+                yam_code, output_harness
+            )
+
+            restored = output_harness / "ysolve_template_core.py"
+            self.assertEqual(restored.read_text(encoding="utf-8"), dependency.read_text(encoding="utf-8"))
 
     def test_entry_arrival_finishes_inside_loop_start_gate_with_margin(self):
         hard_radius, soft_radius = bridge.mission_arrival_radii(
@@ -440,6 +678,8 @@ class PatrolSafetyTests(unittest.TestCase):
             "route_visual_endpoint_best_progress": 0.974610,
             "route_visual_endpoint_best_inliers": 96,
             "route_visual_endpoint_minimum_inliers": 75,
+            "route_visual_inliers": 96,
+            "route_visual_monitor_inliers": 96,
             "rotation_position_locked": False,
             "translation_allowed": True,
         }
@@ -453,8 +693,6 @@ class PatrolSafetyTests(unittest.TestCase):
             ("route_visual_monitor_verified", False),
             ("route_visual_endpoint_checked", False),
             ("route_visual_endpoint_candidate_progress", 0.899),
-            ("route_visual_endpoint_best_progress", 0.949),
-            ("route_visual_endpoint_best_inliers", 89),
             ("rotation_position_locked", True),
             ("translation_allowed", False),
         ):
@@ -467,12 +705,80 @@ class PatrolSafetyTests(unittest.TestCase):
                 )
         self.assertFalse(
             bridge.taught_endpoint_stale_translation_arrival_verified(
+                {
+                    **verified,
+                    "route_visual_endpoint_minimum_inliers": 50,
+                    "route_visual_inliers": 0,
+                    "route_visual_monitor_inliers": 49,
+                },
+                expected_leg_index=2,
+            )
+        )
+        self.assertTrue(
+            bridge.taught_endpoint_stale_translation_arrival_verified(
+                {
+                    **verified,
+                    "route_visual_endpoint_minimum_inliers": 50,
+                    "route_visual_inliers": 0,
+                    "route_visual_monitor_inliers": 50,
+                },
+                expected_leg_index=2,
+            )
+        )
+        self.assertFalse(
+            bridge.taught_endpoint_stale_translation_arrival_verified(
                 verified,
                 expected_leg_index=3,
             )
         )
 
-    def test_tight_metric_arrival_fuses_same_leg_visual_identity(self):
+    def test_current_point_four_candidate_is_not_vetoed_by_earlier_best_anchor(self):
+        # Exact evidence from visual_route_002226 in the landed 24-Aug lap.
+        # The endpoint was independently verified in 0.58 s, but the bridge
+        # waited 116 s because a stronger whole-leg alias sentinel remained at
+        # progress 0.772.  Current candidate evidence is the arrival authority;
+        # the earlier best anchor remains useful only as negative audit data.
+        verified = {
+            "route_visual_monitor_verified": True,
+            "route_visual_monitor_leg_index": 3,
+            "route_visual_monitor_inliers": 244,
+            "route_visual_endpoint_checked": True,
+            "route_visual_endpoint_verified": True,
+            "route_visual_endpoint_match_consensus_verified": True,
+            "route_visual_endpoint_view_geometry_verified": True,
+            "route_visual_endpoint_hits": 3,
+            "route_visual_endpoint_required_hits": 3,
+            "route_visual_endpoint_candidate_progress": 0.9509254644,
+            "route_visual_endpoint_best_progress": 0.7715599590,
+            "route_visual_endpoint_best_inliers": 303,
+            "route_visual_endpoint_minimum_inliers": 75,
+            "route_visual_inliers": 244,
+            "rotation_position_locked": False,
+            "translation_allowed": True,
+        }
+        self.assertTrue(
+            bridge.taught_endpoint_arrival_verified(
+                verified,
+                expected_leg_index=3,
+            )
+        )
+        self.assertTrue(
+            bridge.taught_endpoint_stale_translation_arrival_verified(
+                verified,
+                expected_leg_index=3,
+            )
+        )
+        self.assertFalse(
+            bridge.taught_endpoint_arrival_verified(
+                {
+                    **verified,
+                    "route_visual_endpoint_candidate_progress": 0.899,
+                },
+                expected_leg_index=3,
+            )
+        )
+
+    def test_tight_metric_arrival_uses_tsolve_on_early_legs(self):
         target = [-0.4886978074, -0.0802621970, 0.9560112231]
         pose = {
             "instance_id": "instance_002504",
@@ -502,25 +808,43 @@ class PatrolSafetyTests(unittest.TestCase):
         }
         gate = {"ok": True, "pose": pose, "processed_count": 1168}
         self.assertTrue(
-            bridge.tight_metric_visual_endpoint_arrival_candidate(
+            bridge.tight_metric_tsolve_endpoint_arrival_candidate(
                 gate,
                 target=target,
                 expected_leg_index=2,
                 command_progress_ceiling=1.0,
             )
         )
+        # This reproduces the Point-2 live deadlock: TSolve is 2.8 cm from the
+        # target while ORB fluctuates below 50 inliers. ORB is diagnostic at
+        # the endpoint and may not veto the strict metric arrival.
+        point_two_target = [-0.6480244339, -0.0802621970, -0.4877488723]
+        point_two_pose = {
+            **pose,
+            "rcenter": [-0.6200092003, -0.0802621970, -0.4894328989],
+            "route_visual_monitor_verified": False,
+            "route_visual_monitor_leg_index": 1,
+            "route_visual_monitor_inliers": 44,
+            "route_visual_monitor_progress": None,
+        }
+        self.assertTrue(
+            bridge.tight_metric_tsolve_endpoint_arrival_candidate(
+                {**gate, "pose": point_two_pose},
+                target=point_two_target,
+                expected_leg_index=1,
+                command_progress_ceiling=1.0,
+            )
+        )
         unsafe_cases = (
-            ("wrong leg", {"pose": {**pose, "route_visual_monitor_leg_index": 1}}),
-            ("weak route match", {"pose": {**pose, "route_visual_monitor_inliers": 89}}),
-            ("TSolve behind route", {"pose": {**pose, "route_visual_monitor_tsolve_progress": 0.70}}),
-            ("route disagreement", {"pose": {**pose, "route_visual_monitor_disagreement_m": 0.11}}),
             ("held pose", {"recent_hold_fallback": True}),
+            ("rotation locked", {"pose": {**pose, "rotation_position_locked": True}}),
+            ("translation unsafe", {"pose": {**pose, "translation_allowed": False}}),
         )
         for label, changes in unsafe_cases:
             changed_gate = {**gate, **changes}
             with self.subTest(label=label):
                 self.assertFalse(
-                    bridge.tight_metric_visual_endpoint_arrival_candidate(
+                    bridge.tight_metric_tsolve_endpoint_arrival_candidate(
                         changed_gate,
                         target=target,
                         expected_leg_index=2,
@@ -528,7 +852,7 @@ class PatrolSafetyTests(unittest.TestCase):
                     )
                 )
         self.assertFalse(
-            bridge.tight_metric_visual_endpoint_arrival_candidate(
+            bridge.tight_metric_tsolve_endpoint_arrival_candidate(
                 gate,
                 target=target,
                 expected_leg_index=2,
@@ -536,7 +860,7 @@ class PatrolSafetyTests(unittest.TestCase):
             )
         )
         self.assertFalse(
-            bridge.tight_metric_visual_endpoint_arrival_candidate(
+            bridge.tight_metric_tsolve_endpoint_arrival_candidate(
                 gate,
                 target=[-0.4886978074, -0.0802621970, 1.10],
                 expected_leg_index=2,
@@ -567,21 +891,58 @@ class PatrolSafetyTests(unittest.TestCase):
         )
         self.assertEqual(state, {})
 
-    def test_point_three_metric_consensus_preempts_ambiguous_endpoint_wait(self):
+    def test_tight_metric_consensus_survives_two_missing_monitor_frames(self):
+        state = {}
+        for instance_id in ("instance_1", "instance_2"):
+            self.assertFalse(
+                bridge.update_tight_endpoint_consensus(
+                    state,
+                    {"pose": {"instance_id": instance_id}},
+                    candidate=True,
+                )
+            )
+        for _ in range(2):
+            self.assertFalse(
+                bridge.update_tight_endpoint_consensus(
+                    state,
+                    {"pose": {"instance_id": "missing"}},
+                    candidate=False,
+                    observation_missing=True,
+                )
+            )
+        self.assertTrue(
+            bridge.update_tight_endpoint_consensus(
+                state,
+                {"pose": {"instance_id": "instance_3"}},
+                candidate=True,
+            )
+        )
+        self.assertEqual(state["hits"], 3)
+
+    def test_point_three_metric_consensus_is_evaluated_inside_endpoint_recovery(self):
         source = BRIDGE_PATH.read_text(encoding="utf-8")
-        candidate = source.index("tight_point_three_candidate = bool(")
+        start = source.index("def wait_for_pose_recovery(")
+        end = source.index("def continuity_guarded_pose_gate", start)
+        recovery = source[start:end]
+        self.assertIn("tight_metric_tsolve_endpoint_arrival_candidate(", recovery)
+        self.assertIn('recovered_gate["tight_metric_endpoint_arrival"]', recovery)
+        self.assertIn("maximum_metric_error=min(\n                            0.08", recovery)
+
+    def test_early_leg_metric_consensus_preempts_ambiguous_endpoint_wait(self):
+        source = BRIDGE_PATH.read_text(encoding="utf-8")
+        candidate = source.index("tight_early_leg_candidate = bool(")
         consensus_wait = source.index(
-            '"phase": "point3_metric_endpoint_consensus"', candidate
+            '"phase": "early_leg_metric_endpoint_consensus"', candidate
         )
+        arrival = source.index('"strict_radius_metric_tsolve"', consensus_wait)
         old_endpoint_wait = source.index(
-            '"phase": "taught_endpoint_verification"', consensus_wait
+            '"phase": "taught_endpoint_verification"', arrival
         )
-        arrival = source.index('"strict_radius_metric_tsolve"', old_endpoint_wait)
         self.assertLess(candidate, consensus_wait)
-        self.assertLess(consensus_wait, old_endpoint_wait)
-        self.assertLess(old_endpoint_wait, arrival)
-        self.assertIn("or tight_point_three_ready", source[candidate:consensus_wait])
-        self.assertIn("neutral_hover(drone, 0.12)", source[consensus_wait:old_endpoint_wait])
+        self.assertLess(consensus_wait, arrival)
+        self.assertLess(arrival, old_endpoint_wait)
+        self.assertIn("or tight_early_leg_ready", source[candidate:consensus_wait])
+        self.assertIn("neutral_hover(drone, 0.12)", source[consensus_wait:arrival])
 
     def test_live_pose_gate_preserves_taught_endpoint_consensus(self):
         now = time.time()
@@ -1108,13 +1469,9 @@ class PatrolSafetyTests(unittest.TestCase):
         start = source.index("        # Keep the established 1->2->3 metric path unchanged")
         end = source.index("            route_key = LivePatrolRouteGate._key", start)
         gate = source[start:end]
-        self.assertIn("route_leg_index == 4", gate)
-        self.assertIn('route_context.get("recovery_hover") is True', gate)
-        self.assertIn("or force_route_taught_recovery", gate)
-        self.assertIn("route_leg_index != 4", gate)
-        self.assertIn("or route_leg_index == 3", gate)
         self.assertIn("reference_frames_enabled", gate)
-        self.assertIn("and visual_route_needed", gate)
+        self.assertIn("visual_route_position_recovery_needed(", gate)
+        self.assertIn("and should_match_route_position", gate)
         self.assertNotIn("or current_pool is None", gate)
         self.assertNotIn("< required_tracking_points(", gate)
 
@@ -1123,6 +1480,14 @@ class PatrolSafetyTests(unittest.TestCase):
             source.index("def visual_recovery_supersedes_stalled_metric_pose(")
         ]
         self.assertIn("{1, 2, 3, 4}", reference_gate)
+        self.assertIn("def visual_route_position_recovery_needed(", reference_gate)
+        self.assertIn('route_context.get("recovery_hover") is True', reference_gate)
+        self.assertIn("or force_route_taught_recovery", reference_gate)
+        self.assertIn('int(route_context.get("leg_index") or 0) == 3', reference_gate)
+        self.assertIn(
+            'route_context.get("controller_translation_locked") is not True',
+            reference_gate,
+        )
 
     def test_controller_proven_post_yaw_offset_reaches_position_reanchor(self):
         source = LOCALIZER_PATH.read_text(encoding="utf-8")
@@ -1452,19 +1817,48 @@ class PatrolSafetyTests(unittest.TestCase):
         commands = [{"type": "gate"}, {"type": "cruise"}]
         self.assertEqual(list(bridge.mission_step_sequence(commands, False)), list(enumerate(commands)))
 
-    def test_two_laps_execute_entry_prefix_once_then_circle_twice(self):
+    def test_two_laps_run_entry_once_and_add_point1_star_connector(self):
         commands = [
             {"type": "gate"},
-            {"type": "cruise", "title": "Entry to point 1"},
+            {
+                "type": "cruise",
+                "title": "Entry to point 1",
+                "from": [-1.0, 0.0, 0.0],
+                "to": [0.0, 0.0, 0.0],
+            },
             {"type": "hover"},
             {"type": "yaw"},
-            {"type": "cruise", "title": "Point 1 to point 2"},
+            {
+                "type": "cruise",
+                "title": "Point 1 to point 2",
+                "from": [0.0, 0.0, 0.0],
+                "to": [2.0, 0.0, 0.0],
+            },
             {"type": "hover"},
         ]
         observed = list(bridge.mission_step_sequence(commands, True, 2, 4))
-        self.assertEqual([index for index, _step in observed], [0, 1, 2, 3, 4, 5, 4, 5])
+        self.assertEqual(
+            [index for index, _step in observed],
+            [0, 1, 2, 3, 4, 5, 4, 4, 4, 5],
+        )
+        self.assertEqual(
+            sum(
+                step.get("title") == "Entry to point 1"
+                for _index, step in observed
+            ),
+            1,
+        )
+        marker = observed[6][1]
+        connector = observed[7][1]
+        second_lap_cruise = observed[8][1]
+        self.assertEqual(marker["type"], "lap_relocalize_entry")
+        self.assertTrue(marker["_atlas_lap_start"])
+        self.assertTrue(connector["_atlas_lap_reentry"])
+        self.assertEqual(connector["to"], [0.0, 0.0, 0.0])
+        self.assertEqual(second_lap_cruise["_atlas_lap_number"], 2)
+        self.assertNotIn("_atlas_lap_start", second_lap_cruise)
 
-    def test_connected_entry_runs_once_and_each_lap_repeats_its_first_yaw(self):
+    def test_connected_patrol_relocalizes_point1_star_then_replays_guarded_point1_entry(self):
         reference = json.loads(FULL_PATROL_BASELINE_REFERENCE.read_text(encoding="utf-8"))
         commands = [
             {"type": "gate", "title": "Patrol gate"},
@@ -1502,6 +1896,18 @@ class PatrolSafetyTests(unittest.TestCase):
         self.assertEqual(commands[loop_start]["title"], "Loop yaw 1->2")
         observed = list(bridge.mission_step_sequence(commands, True, 2, loop_start))
         self.assertEqual(sum(step["title"] == "Entry cruise" for _index, step in observed), 1)
+        self.assertEqual(
+            sum(step.get("type") == "lap_relocalize_entry" for _index, step in observed),
+            1,
+        )
+        self.assertEqual(
+            sum(
+                step.get("_atlas_lap_reentry") is True
+                and step.get("type") == "cruise"
+                for _index, step in observed
+            ),
+            1,
+        )
         self.assertEqual(sum(step["title"] == "Loop yaw 1->2" for _index, step in observed), 2)
         self.assertEqual(
             [
@@ -1526,8 +1932,38 @@ class PatrolSafetyTests(unittest.TestCase):
         ]
         observed = list(bridge.mission_step_sequence(commands, True, 2, 0))
         self.assertEqual(
-            [(step["from_point"], step["to_point"]) for _index, step in observed],
+            [
+                (step["from_point"], step["to_point"])
+                for _index, step in observed
+                if step.get("from_point") is not None
+            ],
             [(1, 2), (2, 3), (3, 4), (4, 1)] * 2,
+        )
+        self.assertEqual(
+            sum(step.get("type") == "lap_relocalize_entry" for _index, step in observed),
+            1,
+        )
+        self.assertEqual(
+            sum(step.get("_atlas_lap_reentry") is True for _index, step in observed),
+            1,
+        )
+        loop_steps = [
+            step
+            for _index, step in observed
+            if step.get("from_point") is not None
+        ]
+        lap_one_coordinates = [
+            (step.get("from"), step.get("to"))
+            for step in loop_steps[:4]
+        ]
+        lap_two_coordinates = [
+            (step.get("from"), step.get("to"))
+            for step in loop_steps[4:8]
+        ]
+        self.assertEqual(lap_two_coordinates, lap_one_coordinates)
+        self.assertEqual(
+            lap_two_coordinates,
+            [(leg["from"], leg["to"]) for leg in reference["legs"]],
         )
 
     def test_loop_start_is_found_from_recorded_point_one_to_two_leg(self):
@@ -1717,6 +2153,53 @@ class PatrolSafetyTests(unittest.TestCase):
         self.assertIn('"bounded_endpoint_reverse_correction"', block)
         self.assertIn("endpoint_overshoot_distance > 0.40", source)
 
+    def test_endpoint_undershoot_accepts_three_cm_and_allows_one_eight_cm_retry(self):
+        self.assertFalse(
+            bridge.patrol_endpoint_undershoot_correction_allowed(
+                0.03,
+                0.03,
+                0.15,
+                endpoint_arrived=False,
+                retry_used=False,
+            )
+        )
+        self.assertFalse(
+            bridge.patrol_endpoint_undershoot_correction_allowed(
+                0.12,
+                0.12,
+                0.15,
+                endpoint_arrived=True,
+                retry_used=False,
+            )
+        )
+        self.assertTrue(
+            bridge.patrol_endpoint_undershoot_correction_allowed(
+                0.081,
+                0.081,
+                0.15,
+                endpoint_arrived=False,
+                retry_used=False,
+            )
+        )
+        self.assertFalse(
+            bridge.patrol_endpoint_undershoot_correction_allowed(
+                0.12,
+                0.12,
+                0.15,
+                endpoint_arrived=False,
+                retry_used=True,
+            )
+        )
+        source = BRIDGE_PATH.read_text(encoding="utf-8")
+        arrival = source.index("# Arrival always wins over correction.")
+        correction = source.index(
+            "patrol_endpoint_undershoot_correction_allowed(", arrival
+        )
+        self.assertLess(arrival, correction)
+        self.assertIn("endpoint_undershoot_retry_used = True", source)
+        smooth_gate = source[source.index("used_smooth_cruise = bool("):]
+        self.assertIn("and not active_endpoint_undershoot_correction", smooth_gate)
+
     def test_patrol_recovery_never_authorizes_stationary_test_pulses(self):
         source = BRIDGE_PATH.read_text(encoding="utf-8")
         recovery_start = source.index("def wait_for_pose_recovery(")
@@ -1746,6 +2229,9 @@ class PatrolSafetyTests(unittest.TestCase):
         self.assertIn("now - last_progress_observation > cruise_pose_watchdog_seconds", helper)
         self.assertIn("fresh frames arrived but the published ATLAS position", helper)
         self.assertIn("maximum_pose_step=max_pose_step", helper)
+        self.assertIn("command_seconds = max(0.45, min(0.55", helper)
+        self.assertIn("minimum_improvement=0.010", helper)
+        self.assertIn('sent["observed_model_progress"]', helper)
         self.assertIn("and not used_smooth_cruise", source)
 
         server = SERVER_PATH.read_text(encoding="utf-8")
@@ -1754,6 +2240,8 @@ class PatrolSafetyTests(unittest.TestCase):
         self.assertIn('"cruise_pose_watchdog_seconds": 0.65', server)
         self.assertIn('"max_forward_rc": 0.022', server)
         self.assertIn("bounded_cruise_window = min(", source)
+        self.assertIn("max(requested_cruise_window, 0.45)", source)
+        self.assertIn("0.55,", source)
         self.assertNotIn(
             'mission["cruise_window_seconds"] = max(',
             source,
@@ -1781,6 +2269,38 @@ class PatrolSafetyTests(unittest.TestCase):
         source = BRIDGE_PATH.read_text(encoding="utf-8")
         self.assertIn("endpoint_heading=(", source)
         self.assertIn("if endpoint_alignment_pending", source)
+
+    def test_zero_target_vector_is_arrival_only_after_required_endpoint_evidence(self):
+        self.assertTrue(
+            bridge.patrol_zero_direction_arrival_allowed(
+                0.0,
+                0.15,
+                precise_arrival=True,
+                endpoint_ready=True,
+            )
+        )
+        self.assertFalse(
+            bridge.patrol_zero_direction_arrival_allowed(
+                0.0,
+                0.15,
+                precise_arrival=True,
+                endpoint_ready=False,
+            )
+        )
+        self.assertTrue(
+            bridge.patrol_zero_direction_arrival_allowed(
+                0.0,
+                0.15,
+                precise_arrival=False,
+                endpoint_ready=False,
+            )
+        )
+        source = BRIDGE_PATH.read_text(encoding="utf-8")
+        self.assertIn("exact_position_endpoint_verified", source)
+        self.assertIn(
+            "accepting the zero remaining direction as arrival",
+            source,
+        )
 
     def test_unverified_single_pulse_margin_preserves_all_saved_patrol_points(self):
         manifest_path = (
@@ -3648,7 +4168,10 @@ class PatrolSafetyTests(unittest.TestCase):
     def test_point_four_handoff_rotates_while_locked_before_translation_release(self):
         source = BRIDGE_PATH.read_text(encoding="utf-8")
         start = source.index("if point_four_handoff:")
-        end = source.index("if lap_metric_checkpoint_pending:", start)
+        end = source.index(
+            "if lap_metric_checkpoint_pending and not dynamic_lap_reentry:",
+            start,
+        )
         handoff = source[start:end]
         self.assertIn("prior_verified_endpoint_arrival_record(", handoff)
         self.assertIn("prior_point_four_visual_ready", handoff)
@@ -4157,7 +4680,7 @@ class PatrolSafetyTests(unittest.TestCase):
             "point_four_handoff = is_point_four_to_one_leg(taught_leg)"
         )
         checkpoint_end = source.index(
-            "if lap_metric_checkpoint_pending:",
+            "if lap_metric_checkpoint_pending and not dynamic_lap_reentry:",
             checkpoint_start,
         )
         checkpoint = source[checkpoint_start:checkpoint_end]
@@ -4642,6 +5165,10 @@ class PatrolSafetyTests(unittest.TestCase):
         self.assertEqual(config["live_output_objective_threshold"], 30.0)
         self.assertEqual(config["live_global_recovery_after_failures"], 3)
         self.assertEqual(config["live_background_recovery_timeout_seconds"], 20.0)
+        self.assertIn(
+            '"faiss_ivf_current_frame_live_recovery"',
+            localizer_source,
+        )
         self.assertIn("31.127 at a 30.0 gate", localizer_source)
         self.assertIn("def output_rejection_requires_tracking_reset(", localizer_source)
         self.assertGreaterEqual(
@@ -4692,6 +5219,57 @@ class PatrolSafetyTests(unittest.TestCase):
         self.assertIn("BACKGROUND RECOVERY DISCARDED AFTER TURN:", source)
         self.assertIn("max_sequential_catchup_frames = 12 if interactive_recovery", source)
         self.assertIn('"direct_catchup": True', source)
+
+    def test_point_four_route_bank_gets_bounded_priority_before_full_map_recovery(self):
+        source = LOCALIZER_PATH.read_text(encoding="utf-8")
+        self.assertIn("route_visual_recovery_grace_frames = 30", source)
+        self.assertIn("retained_route_hits > 0", source)
+        recovery_due = source.index("        recovery_global_due = bool(")
+        recovery_schedule = source.index(
+            "        if recovery_global_due and pending_global is None:",
+            recovery_due,
+        )
+        recovery_gate = source[recovery_due:recovery_schedule]
+        self.assertIn(
+            "and not route_visual_recovery_window_active",
+            recovery_gate,
+        )
+
+    def test_newest_frame_faiss_recovery_has_one_owner_and_private_sqlite(self):
+        source = LOCALIZER_PATH.read_text(encoding="utf-8")
+        self.assertIn("self.faiss_current_frame_lock = threading.Lock()", source)
+        self.assertIn("with self.faiss_current_frame_lock:", source)
+        self.assertIn('call_id = f"{frame_idx:06d}_{uuid.uuid4().hex}"', source)
+        self.assertIn('self.work_dir / "faiss_recovery_calls" / call_id', source)
+        self.assertIn('database = call_dir / "query.db"', source)
+        self.assertIn("shutil.rmtree(call_dir, ignore_errors=True)", source)
+        self.assertNotIn(
+            'database = self.work_dir / f"checkpoint_faiss_{frame_idx:06d}.db"',
+            source,
+        )
+
+        scheduler_start = source.index("    def schedule_background_global_recovery(")
+        scheduler_end = source.index("    def append_global_recovery_pose(", scheduler_start)
+        scheduler = source[scheduler_start:scheduler_end]
+        deadline_start = scheduler.index("elif pending_age > pending_limit:")
+        deadline_end = scheduler.index("        center =", deadline_start)
+        deadline = scheduler[deadline_start:deadline_end]
+        self.assertIn('pending_global["deadline_exceeded"] = True', deadline)
+        self.assertIn("return False", deadline)
+        self.assertNotIn("pending_global = None", deadline)
+
+        checkpoint_start = source.index(
+            "        if (\n"
+            "            absolute_metric_rebootstrap\n"
+            "            and must_global"
+        )
+        checkpoint_end = source.index(
+            "            checkpoint_stage:", checkpoint_start
+        )
+        self.assertIn(
+            "and pending_global is None",
+            source[checkpoint_start:checkpoint_end],
+        )
 
     def test_yaw_recovery_cannot_overwrite_next_translation_phase(self):
         source = LOCALIZER_PATH.read_text(encoding="utf-8")
@@ -5013,9 +5591,10 @@ class PatrolSafetyTests(unittest.TestCase):
         self.assertIn('session_control_trace_path = session_root / "control_trace.jsonl"', source)
         self.assertIn('"command_payload": command_payload', source)
         self.assertIn('{**control_progress, "event": "progress"}', source)
-        self.assertIn('"runtime_fingerprints": {', source)
-        self.assertIn('"run_bounded_tsolve_video_stream.py": file_sha256(', source)
-        self.assertIn('"patrol_visual_route_recovery.py": file_sha256(', source)
+        self.assertIn('"runtime_fingerprints": current_runtime_fingerprints()', source)
+        self.assertIn("startup_runtime_fingerprints", source)
+        self.assertIn("runtime_fingerprint_changes(", source)
+        self.assertIn("restart the live bridge before flight", source)
         self.assertIn('"pulse_trace": []', source)
         self.assertIn('"recorded_unix": time.time()', source)
 
@@ -5029,6 +5608,20 @@ class PatrolSafetyTests(unittest.TestCase):
             changed = bridge.file_sha256(path)
         self.assertEqual(first, second)
         self.assertNotEqual(first, changed)
+
+    def test_runtime_fingerprint_change_detection_is_fail_closed(self):
+        expected = {"bridge": "aaa", "config": "bbb"}
+        self.assertEqual(
+            bridge.runtime_fingerprint_changes(expected, dict(expected)),
+            [],
+        )
+        self.assertEqual(
+            bridge.runtime_fingerprint_changes(
+                expected,
+                {"bridge": "aaa", "config": "changed"},
+            ),
+            ["config"],
+        )
 
     def test_drone_stop_signal_remains_set_until_worker_cleanup(self):
         source = SERVER_PATH.read_text(encoding="utf-8")

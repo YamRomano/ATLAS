@@ -62,6 +62,12 @@ class PatrolImportTests(unittest.TestCase):
                     "title": "Other Room",
                     "patrols": [],
                 },
+                {
+                    "id": "independently_aligned_map",
+                    "title": "Armour Map",
+                    "coordinate_frame_id": "source_map",
+                    "patrols": [],
+                },
             ],
         }
         server.MAP_MANIFEST.write_text(json.dumps(self.library, indent=2), encoding="utf-8")
@@ -99,6 +105,18 @@ class PatrolImportTests(unittest.TestCase):
     def test_unrelated_coordinate_frames_are_blocked(self):
         with self.assertRaisesRegex(RuntimeError, "different map coordinate frame"):
             server.import_map_patrol("unrelated_map", "source_map", "patrol_lab_1")
+
+    def test_independent_map_can_share_coordinates_without_inheriting_localization(self):
+        target, imported = server.import_map_patrol(
+            "independently_aligned_map",
+            "source_map",
+            "patrol_lab_1",
+        )
+
+        self.assertEqual(imported["id"], "patrol_lab_1")
+        self.assertEqual(target["coordinate_frame_id"], "source_map")
+        self.assertNotIn("source_map_id", target)
+        self.assertNotIn("localization_map_id", target)
 
     def test_active_recovery_banks_include_full_loop_but_exclude_backups(self):
         asset_dir = Path(self.temporary.name) / "map_assets"

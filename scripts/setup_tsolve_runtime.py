@@ -13,6 +13,21 @@ def copy_files(src: Path, dst: Path) -> None:
             shutil.copy2(p, dst / p.name)
 
 
+def ensure_harness_dependencies(base_yam_code_dir: Path, harness: Path) -> None:
+    """Copy the TSolve harness helper when the selected drop-in omits it."""
+    dependency_name = "ysolve_template_core.py"
+    dependency = harness / dependency_name
+    if dependency.exists():
+        return
+    source = base_yam_code_dir.parent / "harness" / dependency_name
+    if not source.is_file():
+        raise FileNotFoundError(
+            f"missing required TSolve harness dependency: {source}"
+        )
+    harness.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(source, dependency)
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--base-yam-code-dir", required=True, type=Path)
@@ -36,6 +51,7 @@ def main() -> None:
 
     copy_files(args.dropin_patch_dir / "yam_code", yam_code)
     copy_files(args.dropin_patch_dir / "harness", harness)
+    ensure_harness_dependencies(args.base_yam_code_dir, harness)
 
     print("TSolve runtime:")
     print("  yam_code:", yam_code)

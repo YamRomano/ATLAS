@@ -29,6 +29,34 @@ class MapMeshOverlayTests(unittest.TestCase):
         self.assertTrue(audit["visual_only"])
         self.assertTrue((ROOT / "viewer" / layer["url"]).is_file())
 
+    def test_armour_map_reuses_mesh_without_inheriting_reference_localization(self):
+        registry = json.loads((ROOT / "viewer/public/map_visual_layers.json").read_text())
+        armour_layer = next(
+            layer
+            for layer in registry["layers"]
+            if layer["root_map_id"] == "video_map_20260823_191301_f1572f"
+        )
+        baseline_layer = next(
+            layer
+            for layer in registry["layers"]
+            if layer["root_map_id"] == "map_copy_20260730_114851_cfefdc"
+        )
+        self.assertEqual(armour_layer["url"], baseline_layer["url"])
+        self.assertTrue(armour_layer["alignment"]["registration_audit"]["shared_asset"])
+
+        manifest = json.loads((ROOT / "viewer/public/maps/manifest.json").read_text())
+        armour_map = next(
+            entry
+            for entry in manifest["maps"]
+            if entry["id"] == "video_map_20260823_191301_f1572f"
+        )
+        self.assertIsNone(armour_map["source_map_id"])
+        self.assertIsNone(armour_map["localization_map_id"])
+        self.assertEqual(
+            armour_map["coordinate_frame_id"],
+            "map_copy_20260730_114851_cfefdc",
+        )
+
     def test_main_viewer_uses_physical_room_registration_plus_visual_anchor(self):
         registry = json.loads((ROOT / "viewer/public/map_visual_layers.json").read_text())
         alignment = registry["layers"][0]["alignment"]

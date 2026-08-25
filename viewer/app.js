@@ -2450,6 +2450,13 @@ function correctedLivePose(pose) {
     ? pose.rotation_heading.slice(0, 3).map(Number)
     : null;
   const opticalHeadingTracks = Number(pose.rotation_heading_tracks || 0);
+  const backendHeadingSource = String(
+    pose.rheading_source || pose.rheadingSource || ""
+  );
+  const absoluteRouteHeading = new Set([
+    "recorded_departure_image_alignment",
+    "recorded_departure_image_tracking_consensus",
+  ]).has(backendHeadingSource);
   const currentFrameOpticalHeading = Boolean(
     opticalHeading?.length === 3 &&
     opticalHeading.every(Number.isFinite) &&
@@ -2457,7 +2464,8 @@ function correctedLivePose(pose) {
   );
   if (
     currentFrameOpticalHeading &&
-    pose.rotation_position_locked
+    pose.rotation_position_locked &&
+    !absoluteRouteHeading
   ) {
     corrected.rheadingRaw = corrected.rheading;
     corrected.rheading = opticalHeading;
@@ -5260,7 +5268,7 @@ function mapCoordinateLineageIds(entry) {
     lineage.add(mapId);
     const map = mapsById.get(mapId);
     if (!map) continue;
-    for (const key of ["source_map_id", "localization_map_id"]) {
+    for (const key of ["source_map_id", "localization_map_id", "coordinate_frame_id"]) {
       const parentId = String(map?.[key] || "");
       if (parentId && parentId !== mapId && !lineage.has(parentId)) pending.push(parentId);
     }

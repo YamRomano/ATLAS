@@ -1,7 +1,6 @@
 {
-  "status": "ready",
-  "message": "Enemy-drone detector loaded.",
-  "model": "/Users/yamromano/Documents/PythonF4/PythonF4/drone_phase1_replay_demo_20260706/viewer/public/enemy_drones/training_runs/enemy_yolo_20260802_112232_a73069/best.pt",
+  "status": "disabled",
+  "message": "Enemy detection is disabled by the operator.",
   "detections": [],
-  "updated_at": 1787489092.7638311
+  "updated_at": 1787638523.294753
 }
