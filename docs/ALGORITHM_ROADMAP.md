@@ -182,7 +182,7 @@ entry point.
 
 | File | Responsibility | Main algorithms |
 | --- | --- | --- |
-| [`scripts/run_bounded_tsolve_video_stream.py`](../scripts/run_bounded_tsolve_video_stream.py) | End-to-end live/replay localization loop | LK correspondence tracking, flow-derived yaw hint, rotation-only position stabilization, direct fixed-map PnP recovery, bounded COLMAP registration, PnP case selection, TSolve calls, route/time/jump acceptance gates, trusted-state hold and recovery |
+| [`scripts/run_bounded_tsolve_video_stream.py`](../scripts/run_bounded_tsolve_video_stream.py) | End-to-end live/replay localization loop | In-process OpenCV SIFT, direct all-map Faiss IVF retrieval, LK correspondence tracking, flow-derived yaw hint, rotation-only position stabilization, geometric match verification, TSolve calls, route/time/jump acceptance gates, trusted-state hold and recovery |
 | [`scripts/run_live_tsolve_existing_map_stream.py`](../scripts/run_live_tsolve_existing_map_stream.py) | Lower-level existing-map localization and TSolve adapter | Reference camera selection by distance/heading, case export, `live_fast` solver profile, quality-triggered full fallback |
 
 Important objects and functions in the main localizer:
@@ -195,8 +195,9 @@ Important objects and functions in the main localizer:
   median horizontal flow and the calibrated focal length.
 - `RotationOnlyPositionStabilizer`: allows orientation to update while holding
   the last trusted center during verified turn-only commands.
-- `GlobalRelocalizer`: runs direct PnP or bounded COLMAP registration away from
-  the frame-critical path and rejects discontinuous recovery results.
+- `GlobalRelocalizer`: extracts the current query with OpenCV SIFT, converts it
+  to COLMAP-compatible RootSIFT, searches the persistent Faiss index directly,
+  and rejects geometrically invalid or discontinuous recovery results.
 - `LivePatrolRouteGate`: checks route identity, active leg, corridor, progress,
   turn state, and command displacement budget before accepting a candidate.
 

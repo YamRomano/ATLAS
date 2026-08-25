@@ -5,12 +5,10 @@ The index contains every SIFT descriptor observation in the registered COLMAP
 model that is attached to a 3D point.  Untriangulated database descriptors are
 intentionally excluded because they cannot create a PnP/TSolve correspondence.
 
-At runtime OpenCV SIFT descriptors from the current frame search the complete
-map index. ANN neighbors are grouped by 3D point before the ratio test, made
-one-to-one, and geometrically checked against registered source images. The
-accepted output is only a 2D-to-3D correspondence pool: TSolve remains the
-live pose solver. The older database-backed PnP entry point remains available
-for offline compatibility, but it is not used by the live pipeline.
+At runtime the current query descriptors search the complete map index.  ANN
+neighbors are grouped by 3D point before the ratio test, made one-to-one, and
+then verified by calibrated PnP RANSAC.  Faiss similarity alone never produces
+an accepted pose.
 """
 from __future__ import annotations
 
@@ -21,6 +19,7 @@ import os
 import shutil
 import sqlite3
 import tempfile
+import threading
 import time
 from pathlib import Path
 from typing import Any
@@ -33,6 +32,88 @@ from colmap_io import CAMERA_MODEL_BY_ID, Camera, read_images_model, read_points
 
 INDEX_FORMAT_VERSION = 1
 DESCRIPTOR_DIMENSION = 128
+
+
+def opencv_sift_to_colmap_descriptors(descriptors: np.ndarray) -> np.ndarray:
+    """Convert OpenCV SIFT rows to COLMAP's default uint8 RootSIFT format.
+
+    OpenCV returns the conventional L2-normalized SIFT histogram scaled by
+    512. COLMAP's default ``l1_root`` normalization instead L1-normalizes the
+    non-negative histogram, takes its square root, scales by 512, and stores
+    uint8 values. The persistent Faiss map index contains that COLMAP format,
+    so query descriptors must use the same representation.
+    """
+    rows = np.asarray(descriptors, dtype=np.float32)
+    if rows.ndim != 2 or rows.shape[1] != DESCRIPTOR_DIMENSION:
+        raise ValueError(
+            f"Expected SIFT descriptors with shape (N, {DESCRIPTOR_DIMENSION}), "
+            f"got {rows.shape}"
+        )
+    if len(rows) == 0:
+        return np.empty((0, DESCRIPTOR_DIMENSION), dtype=np.uint8)
+    if not np.all(np.isfinite(rows)):
+        raise ValueError("OpenCV SIFT descriptors contain non-finite values")
+    nonnegative = np.maximum(rows, 0.0)
+    l1 = np.sum(nonnegative, axis=1, keepdims=True)
+    rooted = np.sqrt(nonnegative / np.maximum(l1, np.finfo(np.float32).eps))
+    return np.clip(np.rint(rooted * 512.0), 0.0, 255.0).astype(np.uint8)
+
+
+class OpenCVSiftFeatureExtractor:
+    """Reusable in-process query extractor compatible with a COLMAP SIFT map."""
+
+    def __init__(
+        self,
+        *,
+        max_num_features: int = 1024,
+        max_image_size: int = 1200,
+    ) -> None:
+        self.max_num_features = max(64, int(max_num_features))
+        self.max_image_size = int(max_image_size)
+        # COLMAP's CPU defaults are 3 octave layers, edge threshold 10, sigma
+        # 1.6 and peak threshold 0.0066667. OpenCV divides contrastThreshold by
+        # nOctaveLayers internally, hence 0.02 / 3 gives the same threshold.
+        self._sift = cv2.SIFT_create(
+            nfeatures=self.max_num_features,
+            nOctaveLayers=3,
+            contrastThreshold=0.02,
+            edgeThreshold=10.0,
+            sigma=1.6,
+        )
+        self._lock = threading.Lock()
+
+    def extract(self, gray: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        image = np.asarray(gray)
+        if image.ndim == 3:
+            image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        if image.ndim != 2 or image.size == 0:
+            raise ValueError("OpenCV SIFT requires a non-empty grayscale image")
+        if image.dtype != np.uint8:
+            image = np.clip(image, 0, 255).astype(np.uint8)
+
+        height, width = image.shape
+        scale = 1.0
+        if self.max_image_size > 0 and max(width, height) > self.max_image_size:
+            scale = float(self.max_image_size) / float(max(width, height))
+            image = cv2.resize(
+                image,
+                (max(1, int(round(width * scale))), max(1, int(round(height * scale)))),
+                interpolation=cv2.INTER_AREA,
+            )
+        # A periodic recovery may still be finishing when a stopped checkpoint
+        # requests a current-frame solve. OpenCV does not promise that one SIFT
+        # instance is re-entrant, so serialize only the extraction call.
+        with self._lock:
+            keypoints, descriptors = self._sift.detectAndCompute(image, None)
+        if descriptors is None or not keypoints:
+            return (
+                np.empty((0, 2), dtype=np.float32),
+                np.empty((0, DESCRIPTOR_DIMENSION), dtype=np.uint8),
+            )
+        xy = np.asarray([keypoint.pt for keypoint in keypoints], dtype=np.float32)
+        if scale != 1.0:
+            xy /= np.float32(scale)
+        return xy, opencv_sift_to_colmap_descriptors(descriptors)
 
 
 def require_faiss():
@@ -399,75 +480,6 @@ def _query_features(
     return image_id, camera, keypoints[:usable, :2].copy(), descriptors[:usable].copy()
 
 
-def opencv_sift_features(
-    image_path: Path,
-    *,
-    max_features: int = 2400,
-    n_octave_layers: int = 3,
-    contrast_threshold: float = 0.02,
-    edge_threshold: float = 12.0,
-    sigma: float = 1.6,
-) -> tuple[np.ndarray, np.ndarray, int, int]:
-    """Extract COLMAP-compatible 128-D SIFT directly from a live frame.
-
-    COLMAP stores its normalized SIFT descriptor as uint8 values on the usual
-    approximately-512 L2 scale. OpenCV returns the same descriptor convention
-    as float32, so no RootSIFT or unit normalization may be inserted here: the
-    persistent map index was trained on the raw COLMAP descriptor scale.
-    """
-    gray = cv2.imread(str(image_path), cv2.IMREAD_GRAYSCALE)
-    if gray is None or gray.ndim != 2:
-        raise RuntimeError("opencv_sift_frame_unreadable")
-    detector = cv2.SIFT_create(
-        nfeatures=max(64, int(max_features)),
-        nOctaveLayers=max(1, int(n_octave_layers)),
-        contrastThreshold=max(1.0e-5, float(contrast_threshold)),
-        edgeThreshold=max(1.0, float(edge_threshold)),
-        sigma=max(0.1, float(sigma)),
-    )
-    keypoints, descriptors = detector.detectAndCompute(gray, None)
-    if not keypoints or descriptors is None:
-        raise RuntimeError("opencv_sift_no_features")
-    descriptors = np.ascontiguousarray(descriptors, dtype=np.float32)
-    if descriptors.ndim != 2 or descriptors.shape[1] != DESCRIPTOR_DIMENSION:
-        raise RuntimeError("opencv_sift_descriptor_shape_invalid")
-    xy = np.asarray([keypoint.pt for keypoint in keypoints], dtype=np.float32)
-    usable = min(len(xy), len(descriptors))
-    if usable <= 0:
-        raise RuntimeError("opencv_sift_no_usable_features")
-    height, width = gray.shape
-    return xy[:usable], descriptors[:usable], int(width), int(height)
-
-
-def calibrated_frame_camera(
-    *,
-    model: str,
-    params: str | list[float] | np.ndarray,
-    width: int,
-    height: int,
-) -> Camera:
-    if isinstance(params, str):
-        values = [float(value.strip()) for value in params.split(",") if value.strip()]
-    else:
-        values = np.asarray(params, dtype=np.float64).reshape(-1).astype(float).tolist()
-    model_name = str(model or "").strip().upper()
-    expected = next(
-        (count for name, count in CAMERA_MODEL_BY_ID.values() if name == model_name),
-        None,
-    )
-    if expected is None or len(values) != int(expected):
-        raise RuntimeError(
-            f"opencv_sift_camera_invalid:{model_name}:{len(values)}_params"
-        )
-    return Camera(
-        camera_id=-1,
-        model=model_name,
-        width=int(width),
-        height=int(height),
-        params=values,
-    )
-
-
 def unique_point_matches(
     *,
     distances: np.ndarray,
@@ -621,420 +633,6 @@ def _spread(xy: np.ndarray, width: int, height: int) -> dict[str, Any]:
     }
 
 
-def fixed_center_orientation_pool(
-    *,
-    image_name: str,
-    image_id: int,
-    camera: Camera,
-    keypoints: np.ndarray,
-    matches: list[dict[str, Any]],
-    map_points: dict[int, Any],
-    min_points: int,
-    expected_center: np.ndarray,
-    max_angle_degrees: float = 1.5,
-    sample_count: int = 16000,
-) -> dict[str, Any]:
-    """Filter all-map SIFT matches at a controller-proved fixed position.
-
-    At a verified patrol waypoint the aircraft is neutrally hovering and its
-    metric center from the preceding lap is already known.  Translation is
-    therefore not an unknown during correspondence verification: a correct
-    3D point and image feature must produce world/camera rays related by one
-    rotation.  Robustly estimate only that rotation to reject repeated-room
-    aliases, then return the inlier 2D->3D set to TSolve.  This function never
-    calls OpenCV PnP and its temporary rotation is not the published pose.
-    """
-    usable = [match for match in matches if int(match["point3d_id"]) in map_points]
-    required = max(8, int(min_points))
-    if len(usable) < required:
-        return {
-            "accepted": False,
-            "reason": "faiss_fixed_center_too_few_unique_2d3d",
-            "faiss_unique_matches": int(len(usable)),
-        }
-    xy = np.asarray(
-        [keypoints[int(match["query_index"]), :2] for match in usable],
-        dtype=np.float64,
-    )
-    pids = np.asarray([int(match["point3d_id"]) for match in usable], dtype=np.int64)
-    p3d = np.asarray([map_points[int(point_id)].xyz for point_id in pids], dtype=np.float64)
-    finite = np.all(np.isfinite(p3d), axis=1) & (np.max(np.abs(p3d), axis=1) < 1.0e6)
-    xy = xy[finite]
-    pids = pids[finite]
-    p3d = p3d[finite]
-    usable = [match for match, keep in zip(usable, finite) if bool(keep)]
-    if len(usable) < required:
-        return {
-            "accepted": False,
-            "reason": "faiss_fixed_center_too_few_finite_2d3d",
-            "faiss_unique_matches": int(len(usable)),
-        }
-
-    center = np.asarray(expected_center, dtype=np.float64).reshape(3)
-    K = np.asarray(camera.K(), dtype=np.float64)
-    normalized_xy = cv2.undistortPoints(
-        xy.reshape(-1, 1, 2),
-        K,
-        _distortion(camera),
-    ).reshape(-1, 2)
-    camera_rays = np.column_stack(
-        [normalized_xy, np.ones(len(normalized_xy), dtype=np.float64)]
-    )
-    world_rays = p3d - center.reshape(1, 3)
-    world_norms = np.linalg.norm(world_rays, axis=1)
-    camera_norms = np.linalg.norm(camera_rays, axis=1)
-    ray_valid = (
-        np.all(np.isfinite(world_rays), axis=1)
-        & np.all(np.isfinite(camera_rays), axis=1)
-        & (world_norms > 1.0e-9)
-        & (camera_norms > 1.0e-9)
-    )
-    xy = xy[ray_valid]
-    pids = pids[ray_valid]
-    p3d = p3d[ray_valid]
-    usable = [match for match, keep in zip(usable, ray_valid) if bool(keep)]
-    world = world_rays[ray_valid] / world_norms[ray_valid, None]
-    camera_rays = camera_rays[ray_valid] / camera_norms[ray_valid, None]
-    if len(world) < required:
-        return {
-            "accepted": False,
-            "reason": "faiss_fixed_center_too_few_valid_rays",
-            "faiss_unique_matches": int(len(world)),
-        }
-
-    cosine_threshold = math.cos(math.radians(max(0.1, float(max_angle_degrees))))
-    rng = np.random.default_rng(20260823)
-    best_rotation: np.ndarray | None = None
-    best_indices = np.empty((0,), dtype=np.int64)
-    best_rank: tuple[int, int, int, float] | None = None
-
-    def fixed_spread_rank(indices: np.ndarray) -> tuple[int, int, float]:
-        candidate_spread = _spread(xy[indices], camera.width, camera.height)
-        occupied = int(candidate_spread.get("occupied_grid_cells") or 0)
-        span_x = float(candidate_spread.get("span_x_fraction") or 0.0)
-        span_y = float(candidate_spread.get("span_y_fraction") or 0.0)
-        spread_ok = int(occupied >= 2 and span_x >= 0.20 and span_y >= 0.15)
-        return spread_ok, occupied, span_x + span_y
-
-    remaining = max(1, int(sample_count))
-    while remaining > 0:
-        batch_count = min(128, remaining)
-        remaining -= batch_count
-        samples = np.argpartition(
-            rng.random((batch_count, len(world))),
-            kth=2,
-            axis=1,
-        )[:, :3]
-        covariance = np.einsum(
-            "bni,bnj->bij",
-            world[samples],
-            camera_rays[samples],
-        )
-        try:
-            left, _singular, right_t = np.linalg.svd(covariance)
-        except np.linalg.LinAlgError:
-            continue
-        rotations = np.matmul(
-            right_t.transpose(0, 2, 1),
-            left.transpose(0, 2, 1),
-        )
-        reflected = np.linalg.det(rotations) < 0.0
-        if np.any(reflected):
-            right_t[reflected, -1, :] *= -1.0
-            rotations[reflected] = np.matmul(
-                right_t[reflected].transpose(0, 2, 1),
-                left[reflected].transpose(0, 2, 1),
-            )
-        predicted = np.einsum("bij,nj->bni", rotations, world)
-        agreement = np.einsum("bni,ni->bn", predicted, camera_rays)
-        counts = np.sum(agreement >= cosine_threshold, axis=1)
-        # Repeated wall texture can produce the numerically largest consensus
-        # in one small image patch. Keep the strongest spatially constraining
-        # hypothesis instead of discovering only after RANSAC that the winner
-        # cannot constrain translation for TSolve.
-        top_count = min(8, batch_count)
-        top = np.argpartition(counts, -top_count)[-top_count:]
-        for candidate_index in top:
-            candidate_indices = np.flatnonzero(
-                agreement[int(candidate_index)] >= cosine_threshold
-            ).astype(np.int64)
-            spread_ok, occupied, total_span = fixed_spread_rank(
-                candidate_indices
-            )
-            candidate_rank = (
-                int(spread_ok and len(candidate_indices) >= required),
-                int(len(candidate_indices)),
-                occupied,
-                total_span,
-            )
-            if best_rank is None or candidate_rank > best_rank:
-                best_rank = candidate_rank
-                best_rotation = rotations[int(candidate_index)].copy()
-                best_indices = candidate_indices
-
-    if best_rotation is None or len(best_indices) < required:
-        return {
-            "accepted": False,
-            "reason": "faiss_fixed_center_no_orientation_consensus",
-            "faiss_unique_matches": int(len(world)),
-            "faiss_fixed_center_inliers": int(len(best_indices)),
-        }
-
-    for _ in range(3):
-        covariance = world[best_indices].T @ camera_rays[best_indices]
-        try:
-            left, _singular, right_t = np.linalg.svd(covariance)
-        except np.linalg.LinAlgError:
-            break
-        refined = right_t.T @ left.T
-        if float(np.linalg.det(refined)) < 0.0:
-            right_t[-1, :] *= -1.0
-            refined = right_t.T @ left.T
-        best_rotation = refined
-        agreement = np.sum((world @ best_rotation.T) * camera_rays, axis=1)
-        updated = np.flatnonzero(agreement >= cosine_threshold).astype(np.int64)
-        if np.array_equal(updated, best_indices):
-            break
-        best_indices = updated
-
-    spread = _spread(xy[best_indices], camera.width, camera.height)
-    fixed_center_spread_ok = bool(
-        int(spread.get("occupied_grid_cells") or 0) >= 2
-        and float(spread.get("span_x_fraction") or 0.0) >= 0.20
-        and float(spread.get("span_y_fraction") or 0.0) >= 0.15
-    )
-    spread["fixed_center_ok"] = fixed_center_spread_ok
-    agreement = np.sum(
-        (world[best_indices] @ best_rotation.T) * camera_rays[best_indices],
-        axis=1,
-    )
-    angular_errors = np.degrees(np.arccos(np.clip(agreement, -1.0, 1.0)))
-    median_error = (
-        float(np.median(angular_errors)) if len(angular_errors) else float("inf")
-    )
-    if len(best_indices) < required:
-        reason = "faiss_fixed_center_refined_below_minimum"
-    elif not fixed_center_spread_ok:
-        reason = "faiss_fixed_center_low_spatial_concentration"
-    elif not math.isfinite(median_error) or median_error > 1.0:
-        reason = "faiss_fixed_center_angular_error_too_high"
-    else:
-        reason = ""
-    if reason:
-        return {
-            "accepted": False,
-            "reason": reason,
-            "faiss_unique_matches": int(len(world)),
-            "faiss_fixed_center_inliers": int(len(best_indices)),
-            "faiss_fixed_center_median_angle_degrees": median_error,
-            "correspondence_spread": spread,
-        }
-
-    source_ids = {
-        int(usable[index]["source_image_id"]) for index in best_indices
-    }
-    translation = -best_rotation @ center
-    return {
-        "accepted": True,
-        "image_name": image_name,
-        "xy": xy[best_indices].astype(np.float32),
-        "p3d": p3d[best_indices],
-        "point3d_ids": pids[best_indices],
-        "K": K,
-        "colmap_image_id": int(image_id),
-        "colmap_camera_id": int(camera.camera_id),
-        "colmap_registered_points": int(len(best_indices)),
-        "valid_2d3d": int(len(best_indices)),
-        "faiss_unique_matches": int(len(world)),
-        "faiss_fixed_center_inliers": int(len(best_indices)),
-        "faiss_source_images": int(len(source_ids)),
-        "faiss_fixed_center_median_angle_degrees": median_error,
-        "faiss_fixed_center_hypotheses": int(sample_count),
-        "correspondence_spread": spread,
-        # This exact center is controller/previous-lap evidence used to select
-        # correspondences. TSolve remains the only final R,t estimator.
-        "colmap_qvec_world_to_camera": _rotmat_to_qvec(best_rotation).tolist(),
-        "colmap_tvec_world_to_camera": translation.astype(float).tolist(),
-        "pose_prior_center": center.astype(float).tolist(),
-        "trusted_recovery": True,
-        "tsolve_only_correspondences": True,
-        "fixed_center_position_lock": True,
-    }
-
-
-def source_geometry_tsolve_pool(
-    *,
-    image_name: str,
-    image_id: int,
-    camera: Camera,
-    keypoints: np.ndarray,
-    matches: list[dict[str, Any]],
-    neighbor_ids: np.ndarray,
-    point3d_ids: np.ndarray,
-    source_image_ids: np.ndarray,
-    source_feature_indices: np.ndarray,
-    map_images: dict[int, Any],
-    map_points: dict[int, Any],
-    min_points: int,
-    max_source_hypotheses: int = 24,
-) -> dict[str, Any]:
-    """Verify ANN matches in 2D-to-2D source views, then hand them to TSolve.
-
-    This is the position-unknown live path. A correct 3D point is normally
-    observed in several nearby registered map images. For each source image we
-    use its stored COLMAP feature coordinate and the current OpenCV SIFT
-    coordinate to estimate a fundamental-matrix consensus. Candidates must be
-    supported by several independent source views. This rejects descriptor
-    aliases without estimating a camera pose and never calls PnP; TSolve is the
-    only component that turns the resulting 2D-to-3D pool into R,t.
-    """
-    usable = [match for match in matches if int(match["point3d_id"]) in map_points]
-    required = max(8, int(min_points))
-    if len(usable) < required:
-        return {
-            "accepted": False,
-            "reason": "faiss_tsolve_too_few_unique_2d3d",
-            "faiss_unique_matches": int(len(usable)),
-        }
-
-    groups: dict[int, dict[int, np.ndarray]] = {}
-    match_by_query = {int(match["query_index"]): match for match in usable}
-    neighbors = np.asarray(neighbor_ids)
-    for match in usable:
-        query_index = int(match["query_index"])
-        point_id = int(match["point3d_id"])
-        if query_index < 0 or query_index >= len(neighbors):
-            continue
-        for vector_id_raw in neighbors[query_index]:
-            vector_id = int(vector_id_raw)
-            if (
-                vector_id < 0
-                or vector_id >= len(point3d_ids)
-                or int(point3d_ids[vector_id]) != point_id
-            ):
-                continue
-            source_id = int(source_image_ids[vector_id])
-            feature_index = int(source_feature_indices[vector_id])
-            source_image = map_images.get(source_id)
-            if (
-                source_image is None
-                or feature_index < 0
-                or feature_index >= len(source_image.xys)
-                or feature_index >= len(source_image.point3d_ids)
-                or int(source_image.point3d_ids[feature_index]) != point_id
-            ):
-                continue
-            groups.setdefault(source_id, {})[query_index] = np.asarray(
-                source_image.xys[feature_index], dtype=np.float32
-            )
-
-    ranked_groups = sorted(
-        groups.items(),
-        key=lambda row: (-len(row[1]), int(row[0])),
-    )[: max(1, int(max_source_hypotheses))]
-    votes: dict[int, int] = {}
-    successful_sources = 0
-    source_inliers: dict[int, int] = {}
-    method = getattr(cv2, "USAC_MAGSAC", cv2.FM_RANSAC)
-    for source_id, query_to_source in ranked_groups:
-        rows = list(query_to_source.items())
-        if len(rows) < 8:
-            continue
-        source_xy = np.asarray([row[1] for row in rows], dtype=np.float32)
-        query_xy = np.asarray(
-            [keypoints[int(row[0]), :2] for row in rows], dtype=np.float32
-        )
-        try:
-            _fundamental, mask = cv2.findFundamentalMat(
-                source_xy,
-                query_xy,
-                method,
-                1.5,
-                0.999,
-                2000,
-            )
-        except cv2.error:
-            continue
-        if mask is None:
-            continue
-        inliers = np.flatnonzero(np.asarray(mask).reshape(-1) > 0)
-        if len(inliers) < 8 or float(len(inliers)) / float(len(rows)) < 0.55:
-            continue
-        successful_sources += 1
-        source_inliers[int(source_id)] = int(len(inliers))
-        for local_index in inliers:
-            query_index = int(rows[int(local_index)][0])
-            votes[query_index] = votes.get(query_index, 0) + 1
-
-    vote_threshold = 3 if successful_sources >= 6 else (2 if successful_sources >= 3 else 1)
-    selected_matches = [
-        match_by_query[query_index]
-        for query_index, count in votes.items()
-        if count >= vote_threshold and query_index in match_by_query
-    ]
-    selected_matches.sort(key=lambda row: int(row["query_index"]))
-    if len(selected_matches) < required:
-        return {
-            "accepted": False,
-            "reason": "faiss_tsolve_source_geometry_below_minimum",
-            "faiss_unique_matches": int(len(usable)),
-            "faiss_source_geometry_inliers": int(len(selected_matches)),
-            "faiss_source_geometry_hypotheses": int(successful_sources),
-            "faiss_source_vote_threshold": int(vote_threshold),
-        }
-
-    xy = np.asarray(
-        [keypoints[int(match["query_index"]), :2] for match in selected_matches],
-        dtype=np.float32,
-    )
-    pids = np.asarray(
-        [int(match["point3d_id"]) for match in selected_matches], dtype=np.int64
-    )
-    p3d = np.asarray([map_points[int(point_id)].xyz for point_id in pids], dtype=np.float64)
-    finite = np.all(np.isfinite(p3d), axis=1) & (np.max(np.abs(p3d), axis=1) < 1.0e6)
-    xy = xy[finite]
-    pids = pids[finite]
-    p3d = p3d[finite]
-    if len(xy) < required:
-        return {
-            "accepted": False,
-            "reason": "faiss_tsolve_source_geometry_nonfinite",
-            "faiss_unique_matches": int(len(usable)),
-            "faiss_source_geometry_inliers": int(len(xy)),
-        }
-    spread = _spread(xy, camera.width, camera.height)
-    if not bool(spread.get("ok")):
-        return {
-            "accepted": False,
-            "reason": "faiss_tsolve_source_geometry_low_spread",
-            "faiss_unique_matches": int(len(usable)),
-            "faiss_source_geometry_inliers": int(len(xy)),
-            "correspondence_spread": spread,
-        }
-    return {
-        "accepted": True,
-        "image_name": image_name,
-        "xy": xy,
-        "p3d": p3d,
-        "point3d_ids": pids,
-        "K": np.asarray(camera.K(), dtype=np.float64),
-        "colmap_image_id": int(image_id),
-        "colmap_camera_id": int(camera.camera_id),
-        "colmap_registered_points": int(len(xy)),
-        "valid_2d3d": int(len(xy)),
-        "faiss_unique_matches": int(len(usable)),
-        "faiss_source_images": int(successful_sources),
-        "faiss_source_geometry_inliers": int(len(xy)),
-        "faiss_source_geometry_hypotheses": int(successful_sources),
-        "faiss_source_vote_threshold": int(vote_threshold),
-        "faiss_source_inliers": source_inliers,
-        "correspondence_spread": spread,
-        "trusted_recovery": True,
-        "tsolve_only_correspondences": True,
-        "ann_geometric_verification": "multi_source_fundamental_consensus",
-    }
-
-
 def verified_pnp_pool(
     *,
     image_name: str,
@@ -1046,19 +644,7 @@ def verified_pnp_pool(
     min_points: int,
     expected_center: np.ndarray | None,
     reprojection_error: float,
-    position_locked: bool = False,
 ) -> dict[str, Any]:
-    if bool(position_locked) and expected_center is not None:
-        return fixed_center_orientation_pool(
-            image_name=image_name,
-            image_id=image_id,
-            camera=camera,
-            keypoints=keypoints,
-            matches=matches,
-            map_points=map_points,
-            min_points=min_points,
-            expected_center=np.asarray(expected_center, dtype=np.float64),
-        )
     usable = [match for match in matches if int(match["point3d_id"]) in map_points]
     required = max(8, int(min_points))
     if len(usable) < required:
@@ -1248,16 +834,11 @@ class FaissIVF3DRelocalizer:
         self,
         index_dir: Path,
         *,
-        nprobe: int = 8,
-        top_k: int = 48,
-        ratio: float = 0.86,
+        nprobe: int = 32,
+        top_k: int = 32,
+        ratio: float = 0.80,
         min_points: int = 40,
         reprojection_error: float = 6.0,
-        opencv_sift_max_features: int = 2400,
-        opencv_sift_n_octave_layers: int = 3,
-        opencv_sift_contrast_threshold: float = 0.02,
-        opencv_sift_edge_threshold: float = 12.0,
-        opencv_sift_sigma: float = 1.6,
     ) -> None:
         faiss = require_faiss()
         self.index_dir = index_dir.resolve()
@@ -1289,130 +870,6 @@ class FaissIVF3DRelocalizer:
         self.ratio = min(0.99, max(0.1, float(ratio)))
         self.min_points = max(8, int(min_points))
         self.reprojection_error = max(1.0, float(reprojection_error))
-        self.opencv_sift_max_features = max(64, int(opencv_sift_max_features))
-        self.opencv_sift_n_octave_layers = max(1, int(opencv_sift_n_octave_layers))
-        self.opencv_sift_contrast_threshold = max(
-            1.0e-5, float(opencv_sift_contrast_threshold)
-        )
-        self.opencv_sift_edge_threshold = max(1.0, float(opencv_sift_edge_threshold))
-        self.opencv_sift_sigma = max(0.1, float(opencv_sift_sigma))
-
-    def localize_frame(
-        self,
-        *,
-        image_path: Path,
-        image_name: str,
-        camera_model: str,
-        camera_params: str | list[float] | np.ndarray,
-        map_images: dict[int, Any],
-        map_points: dict[int, Any],
-        expected_center: np.ndarray | None,
-        position_locked: bool = False,
-    ) -> tuple[dict[str, Any] | None, dict[str, Any]]:
-        """OpenCV-SIFT -> Faiss-IVF -> TSolve-correspondence live path."""
-        started = time.perf_counter()
-        diagnostic: dict[str, Any] = {
-            "feature_extract_ms": 0.0,
-            "search_ms": 0.0,
-            "match_filter_ms": 0.0,
-            "geometric_verification_ms": 0.0,
-            "pnp_ms": 0.0,
-            "reason": "",
-            "feature_backend": "opencv_sift",
-            "ann_backend": "faiss_ivf_sq8_l2",
-            "pose_backend": "tsolve_only",
-            "pnp_ransac_used": False,
-        }
-        try:
-            feature_started = time.perf_counter()
-            keypoints, descriptors, width, height = opencv_sift_features(
-                image_path,
-                max_features=self.opencv_sift_max_features,
-                n_octave_layers=self.opencv_sift_n_octave_layers,
-                contrast_threshold=self.opencv_sift_contrast_threshold,
-                edge_threshold=self.opencv_sift_edge_threshold,
-                sigma=self.opencv_sift_sigma,
-            )
-            diagnostic["feature_extract_ms"] = 1000.0 * (
-                time.perf_counter() - feature_started
-            )
-            camera = calibrated_frame_camera(
-                model=camera_model,
-                params=camera_params,
-                width=width,
-                height=height,
-            )
-            search_started = time.perf_counter()
-            distances, neighbors = self.index.search(descriptors, self.top_k)
-            diagnostic["search_ms"] = 1000.0 * (time.perf_counter() - search_started)
-            filter_started = time.perf_counter()
-            matches = unique_point_matches(
-                distances=distances,
-                neighbor_ids=neighbors,
-                point3d_ids=self.point3d_ids,
-                source_image_ids=self.source_image_ids,
-                ratio=self.ratio,
-            )
-            diagnostic["match_filter_ms"] = 1000.0 * (
-                time.perf_counter() - filter_started
-            )
-            verify_started = time.perf_counter()
-            if bool(position_locked) and expected_center is not None:
-                pool = fixed_center_orientation_pool(
-                    image_name=image_name,
-                    image_id=-1,
-                    camera=camera,
-                    keypoints=keypoints,
-                    matches=matches,
-                    map_points=map_points,
-                    min_points=self.min_points,
-                    expected_center=np.asarray(expected_center, dtype=np.float64),
-                    sample_count=8000,
-                )
-                verification_profile = "fixed_center_rotation_consensus_to_tsolve"
-            else:
-                pool = source_geometry_tsolve_pool(
-                    image_name=image_name,
-                    image_id=-1,
-                    camera=camera,
-                    keypoints=keypoints,
-                    matches=matches,
-                    neighbor_ids=neighbors,
-                    point3d_ids=self.point3d_ids,
-                    source_image_ids=self.source_image_ids,
-                    source_feature_indices=self.source_feature_indices,
-                    map_images=map_images,
-                    map_points=map_points,
-                    min_points=self.min_points,
-                )
-                verification_profile = "multi_source_2d_geometry_to_tsolve"
-            diagnostic["geometric_verification_ms"] = 1000.0 * (
-                time.perf_counter() - verify_started
-            )
-            diagnostic["verification_profile"] = verification_profile
-            diagnostic["query_descriptors"] = int(len(descriptors))
-            diagnostic["unique_2d3d_candidates"] = int(len(matches))
-            diagnostic["index_vectors"] = int(self.index.ntotal)
-            diagnostic["nprobe"] = int(self.index.nprobe)
-            diagnostic["top_k"] = int(self.top_k)
-            diagnostic["ratio"] = float(self.ratio)
-            diagnostic["total_ms"] = 1000.0 * (time.perf_counter() - started)
-            if not pool.get("accepted"):
-                diagnostic["reason"] = str(
-                    pool.get("reason") or "faiss_tsolve_relocalization_failed"
-                )
-                diagnostic.update(
-                    {key: value for key, value in pool.items() if key != "accepted"}
-                )
-                return None, diagnostic
-            pool["faiss_query_descriptors"] = int(len(descriptors))
-            pool["faiss_index_vectors"] = int(self.index.ntotal)
-            pool["localization_method"] = "opencv_sift_faiss_ivf_to_tsolve"
-            return pool, diagnostic
-        except (RuntimeError, ValueError, cv2.error) as exc:
-            diagnostic["reason"] = f"faiss_tsolve_relocalization_error:{exc}"
-            diagnostic["total_ms"] = 1000.0 * (time.perf_counter() - started)
-            return None, diagnostic
 
     def localize(
         self,
@@ -1421,26 +878,73 @@ class FaissIVF3DRelocalizer:
         image_name: str,
         map_points: dict[int, Any],
         expected_center: np.ndarray | None,
-        position_locked: bool = False,
     ) -> tuple[dict[str, Any] | None, dict[str, Any]]:
         started = time.perf_counter()
-        diagnostic: dict[str, Any] = {
-            "feature_read_ms": 0.0,
-            "search_ms": 0.0,
-            "pnp_ms": 0.0,
-            "reason": "",
-        }
         try:
             read_started = time.perf_counter()
             image_id, camera, keypoints, descriptors = _query_features(
                 database_path, image_name
             )
-            diagnostic["feature_read_ms"] = 1000.0 * (time.perf_counter() - read_started)
-            search_started = time.perf_counter()
-            distances, neighbors = self.index.search(
-                np.ascontiguousarray(descriptors, dtype=np.float32),
-                self.top_k,
+            feature_read_ms = 1000.0 * (time.perf_counter() - read_started)
+            pool, diagnostic = self.localize_features(
+                image_name=image_name,
+                image_id=image_id,
+                camera=camera,
+                keypoints=keypoints,
+                descriptors=descriptors,
+                map_points=map_points,
+                expected_center=expected_center,
             )
+            diagnostic["feature_read_ms"] = feature_read_ms
+            diagnostic["total_ms"] = 1000.0 * (time.perf_counter() - started)
+            return pool, diagnostic
+        except (RuntimeError, sqlite3.Error, ValueError, cv2.error) as exc:
+            return None, {
+                "feature_read_ms": 0.0,
+                "search_ms": 0.0,
+                "match_filter_ms": 0.0,
+                "pnp_ms": 0.0,
+                "reason": f"faiss_relocalization_error:{exc}",
+                "total_ms": 1000.0 * (time.perf_counter() - started),
+            }
+
+    def localize_features(
+        self,
+        *,
+        image_name: str,
+        image_id: int,
+        camera: Camera,
+        keypoints: np.ndarray,
+        descriptors: np.ndarray,
+        map_points: dict[int, Any],
+        expected_center: np.ndarray | None,
+    ) -> tuple[dict[str, Any] | None, dict[str, Any]]:
+        """Search already-extracted query features without a COLMAP database."""
+        started = time.perf_counter()
+        diagnostic: dict[str, Any] = {
+            "feature_read_ms": 0.0,
+            "search_ms": 0.0,
+            "match_filter_ms": 0.0,
+            "pnp_ms": 0.0,
+            "reason": "",
+        }
+        try:
+            xy = np.asarray(keypoints, dtype=np.float32)
+            rows = np.asarray(descriptors)
+            if xy.ndim != 2 or xy.shape[1] < 2:
+                raise ValueError(f"Invalid query keypoint shape: {xy.shape}")
+            if rows.ndim != 2 or rows.shape[1] != DESCRIPTOR_DIMENSION:
+                raise ValueError(f"Invalid query descriptor shape: {rows.shape}")
+            usable = min(len(xy), len(rows))
+            if usable <= 0:
+                raise ValueError("No query SIFT features")
+            xy = np.ascontiguousarray(xy[:usable, :2], dtype=np.float32)
+            rows = np.ascontiguousarray(rows[:usable], dtype=np.float32)
+            if not np.all(np.isfinite(xy)) or not np.all(np.isfinite(rows)):
+                raise ValueError("Query SIFT features contain non-finite values")
+
+            search_started = time.perf_counter()
+            distances, neighbors = self.index.search(rows, self.top_k)
             diagnostic["search_ms"] = 1000.0 * (time.perf_counter() - search_started)
             filter_started = time.perf_counter()
             matches = unique_point_matches(
@@ -1458,25 +962,15 @@ class FaissIVF3DRelocalizer:
                 image_name=image_name,
                 image_id=image_id,
                 camera=camera,
-                keypoints=keypoints,
+                keypoints=xy,
                 matches=matches,
                 map_points=map_points,
                 min_points=self.min_points,
                 expected_center=expected_center,
                 reprojection_error=self.reprojection_error,
-                position_locked=position_locked,
             )
-            verification_ms = 1000.0 * (time.perf_counter() - pnp_started)
-            diagnostic["pnp_ms"] = 0.0 if position_locked else verification_ms
-            diagnostic["fixed_center_verification_ms"] = (
-                verification_ms if position_locked else 0.0
-            )
-            diagnostic["verification_profile"] = (
-                "fixed_center_rotation_consensus_to_tsolve"
-                if position_locked
-                else "pnp_ransac"
-            )
-            diagnostic["query_descriptors"] = int(len(descriptors))
+            diagnostic["pnp_ms"] = 1000.0 * (time.perf_counter() - pnp_started)
+            diagnostic["query_descriptors"] = int(usable)
             diagnostic["unique_2d3d_candidates"] = int(len(matches))
             diagnostic["index_vectors"] = int(self.index.ntotal)
             diagnostic["total_ms"] = 1000.0 * (time.perf_counter() - started)
@@ -1484,10 +978,10 @@ class FaissIVF3DRelocalizer:
                 diagnostic["reason"] = str(pool.get("reason") or "faiss_relocalization_failed")
                 diagnostic.update({key: value for key, value in pool.items() if key != "accepted"})
                 return None, diagnostic
-            pool["faiss_query_descriptors"] = int(len(descriptors))
+            pool["faiss_query_descriptors"] = int(usable)
             pool["faiss_index_vectors"] = int(self.index.ntotal)
             return pool, diagnostic
-        except (RuntimeError, sqlite3.Error, ValueError, cv2.error) as exc:
+        except (RuntimeError, ValueError, cv2.error) as exc:
             diagnostic["reason"] = f"faiss_relocalization_error:{exc}"
             diagnostic["total_ms"] = 1000.0 * (time.perf_counter() - started)
             return None, diagnostic

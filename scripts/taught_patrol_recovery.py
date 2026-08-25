@@ -112,7 +112,7 @@ def select_anchor_match_window(
     matches: list[dict[str, Any]],
     *,
     anchor_names: list[str],
-    radius: int = 12,
+    radius: int = 4,
     minimum_points: int = 8,
     minimum_anchors: int = 3,
 ) -> tuple[list[dict[str, Any]], list[int]]:
@@ -235,9 +235,6 @@ def consensus_candidate_cluster(
 
 
 class TaughtPatrolRecovery:
-    ANN_NEIGHBORS = 64
-    ANN_POINT_OBSERVATIONS = 12
-
     def __init__(self, bank_path: Path):
         self.bank_path = Path(bank_path)
         with np.load(self.bank_path, allow_pickle=False) as bank:
@@ -245,12 +242,10 @@ class TaughtPatrolRecovery:
             self.p3d = np.asarray(bank["p3d"], dtype=np.float64)
             self.point3d_ids = np.asarray(bank["point3d_ids"], dtype=np.int64)
             self.anchor_ids = np.asarray(bank["anchor_ids"], dtype=np.int32)
-            self.anchor_names = [
-                str(value) for value in bank["anchor_names"].tolist()
-            ]
+            self.anchor_names = [str(value) for value in bank["anchor_names"].tolist()]
         self.sift = cv2.SIFT_create(nfeatures=1024, contrastThreshold=0.015)
+        self.matcher = cv2.BFMatcher(cv2.NORM_L2)
         self.max_anchors: int | None = None
-        self._rebuild_ann_index()
 
     @classmethod
     def empty_online(cls, *, max_anchors: int = 60) -> "TaughtPatrolRecovery":
@@ -263,44 +258,13 @@ class TaughtPatrolRecovery:
         recovery.anchor_ids = np.empty((0,), dtype=np.int32)
         recovery.anchor_names = []
         recovery.sift = cv2.SIFT_create(nfeatures=1024, contrastThreshold=0.015)
+        recovery.matcher = cv2.BFMatcher(cv2.NORM_L2)
         recovery.max_anchors = max(4, int(max_anchors))
-        recovery._rebuild_ann_index()
         return recovery
 
-    def _ann_source_rows(self) -> np.ndarray:
-        """Keep a bounded, temporally spread set of observations per 3D point."""
-        if len(self.point3d_ids) == 0:
-            return np.empty((0,), dtype=np.int64)
-        rows: list[int] = []
-        for point_id in np.unique(self.point3d_ids):
-            point_rows = np.flatnonzero(self.point3d_ids == int(point_id))
-            if len(point_rows) > self.ANN_POINT_OBSERVATIONS:
-                selected = np.linspace(
-                    0,
-                    len(point_rows) - 1,
-                    self.ANN_POINT_OBSERVATIONS,
-                    dtype=int,
-                )
-                point_rows = point_rows[selected]
-            rows.extend(int(value) for value in point_rows)
-        return np.asarray(sorted(rows), dtype=np.int64)
-
-    def _rebuild_ann_index(self) -> None:
-        faiss = _require_faiss()
-        self._ann_rows = self._ann_source_rows()
-        self.ann_index = faiss.IndexHNSWFlat(128, 24)
-        self.ann_index.hnsw.efConstruction = 80
-        self.ann_index.hnsw.efSearch = 64
-        if len(self._ann_rows):
-            self.ann_index.add(
-                np.ascontiguousarray(
-                    self.descriptors[self._ann_rows], dtype=np.float32
-                )
-            )
-
-    def _prune_online_anchors(self) -> bool:
+    def _prune_online_anchors(self) -> None:
         if self.max_anchors is None or len(self.anchor_names) <= self.max_anchors:
-            return False
+            return
         remove_count = len(self.anchor_names) - self.max_anchors
         keep_rows = self.anchor_ids >= remove_count
         self.descriptors = self.descriptors[keep_rows]
@@ -308,7 +272,6 @@ class TaughtPatrolRecovery:
         self.point3d_ids = self.point3d_ids[keep_rows]
         self.anchor_ids = self.anchor_ids[keep_rows] - remove_count
         self.anchor_names = self.anchor_names[remove_count:]
-        return True
 
     def save(self, out_path: Path) -> None:
         """Atomically persist the current static and learned anchor set."""
@@ -377,7 +340,6 @@ class TaughtPatrolRecovery:
         )
         point_rows = np.asarray([world_xyz[index] for index, _ in selected_points], dtype=np.float64)
         id_rows = np.asarray([point_ids[index] for index, _ in selected_points], dtype=np.int64)
-        first_new_row = len(self.descriptors)
         self.descriptors = np.concatenate([self.descriptors, descriptor_rows], axis=0)
         self.p3d = np.concatenate([self.p3d, point_rows], axis=0)
         self.point3d_ids = np.concatenate([self.point3d_ids, id_rows], axis=0)
@@ -385,16 +347,7 @@ class TaughtPatrolRecovery:
             [self.anchor_ids, np.full(len(selected_points), anchor_id, dtype=np.int32)], axis=0
         )
         self.anchor_names.append(name)
-        if self._prune_online_anchors():
-            self._rebuild_ann_index()
-        else:
-            new_rows = np.arange(
-                first_new_row,
-                first_new_row + len(descriptor_rows),
-                dtype=np.int64,
-            )
-            self.ann_index.add(np.ascontiguousarray(descriptor_rows, dtype=np.float32))
-            self._ann_rows = np.concatenate([self._ann_rows, new_rows])
+        self._prune_online_anchors()
         return len(selected_points)
 
     def recover(
@@ -404,108 +357,135 @@ class TaughtPatrolRecovery:
         K: np.ndarray,
         last_center: np.ndarray,
         max_step: float = 0.85,
-        feature_cache: dict[str, Any] | None = None,
     ) -> tuple[dict[str, Any] | None, dict[str, Any]]:
-        started = time.perf_counter()
-        feature_started = time.perf_counter()
-        cached = feature_cache.get("sift") if feature_cache is not None else None
-        if cached is None:
-            keypoints, query_descriptors = self.sift.detectAndCompute(
-                np.asarray(gray), None
-            )
-            if feature_cache is not None:
-                feature_cache["sift"] = (keypoints, query_descriptors)
-        else:
-            keypoints, query_descriptors = cached
-        feature_ms = 1000.0 * (time.perf_counter() - feature_started)
+        started = cv2.getTickCount()
+        keypoints, query_descriptors = self.sift.detectAndCompute(np.asarray(gray), None)
         if query_descriptors is None or len(keypoints) < 8:
-            return None, {
-                "reason": "taught_recovery_query_features_missing",
-                "feature_extract_ms": feature_ms,
-            }
-        if int(self.ann_index.ntotal) <= 0:
-            return None, {
-                "reason": "taught_recovery_ann_bank_empty",
-                "feature_extract_ms": feature_ms,
-            }
+            return None, {"reason": "taught_recovery_query_features_missing"}
 
         expected = np.asarray(last_center, dtype=float).reshape(3)
         camera = np.asarray(K, dtype=float).reshape(3, 3)
-        search_started = time.perf_counter()
-        neighbor_count = min(self.ANN_NEIGHBORS, int(self.ann_index.ntotal))
-        ann_distances, ann_neighbors = self.ann_index.search(
-            np.ascontiguousarray(query_descriptors, dtype=np.float32),
-            neighbor_count,
-        )
-        search_ms = 1000.0 * (time.perf_counter() - search_started)
-        filter_started = time.perf_counter()
-        matches = unique_ann_point_matches(
-            distances=ann_distances,
-            neighbor_ids=ann_neighbors,
-            ann_rows=self._ann_rows,
-            point3d_ids=self.point3d_ids,
-            anchor_ids=self.anchor_ids,
-        )
-        selected, contributing_anchors = select_anchor_match_window(
-            matches,
-            anchor_names=self.anchor_names,
-        )
-        filter_ms = 1000.0 * (time.perf_counter() - filter_started)
-        elapsed_ms = 1000.0 * (time.perf_counter() - started)
-        if not selected:
+        candidates: list[dict[str, Any]] = []
+
+        for anchor_id, anchor_name in enumerate(self.anchor_names):
+            rows = np.flatnonzero(self.anchor_ids == anchor_id)
+            if len(rows) < 8:
+                continue
+            pairs = self.matcher.knnMatch(self.descriptors[rows], query_descriptors, k=2)
+            matches = [pair[0] for pair in pairs if len(pair) == 2 and pair[0].distance < 0.78 * pair[1].distance]
+            selected: list[tuple[Any, int]] = []
+            used_points: set[int] = set()
+            used_query_features: set[int] = set()
+            for match in sorted(matches, key=lambda item: float(item.distance)):
+                source_row = int(rows[int(match.queryIdx)])
+                point_id = int(self.point3d_ids[source_row])
+                query_feature = int(match.trainIdx)
+                if point_id in used_points or query_feature in used_query_features:
+                    continue
+                used_points.add(point_id)
+                used_query_features.add(query_feature)
+                selected.append((match, source_row))
+            if len(selected) < 8:
+                continue
+            xyz = np.float32([self.p3d[row] for _, row in selected])
+            xy = np.float32([keypoints[match.trainIdx].pt for match, _ in selected])
+            ok, rvec, tvec, inlier_rows = cv2.solvePnPRansac(
+                xyz,
+                xy,
+                camera,
+                None,
+                flags=cv2.SOLVEPNP_EPNP,
+                iterationsCount=400,
+                reprojectionError=8.0,
+                confidence=0.999,
+            )
+            if not ok or inlier_rows is None or len(inlier_rows) < 8:
+                continue
+            rotation, _ = cv2.Rodrigues(rvec)
+            translation = np.asarray(tvec, dtype=float).reshape(3)
+            center = -rotation.T @ translation
+            center_step = float(np.linalg.norm(center - expected))
+            if not np.all(np.isfinite(center)) or center_step > float(max_step):
+                continue
+            inlier_indices = np.asarray(inlier_rows, dtype=int).reshape(-1)
+            candidates.append(
+                {
+                    "anchor_name": anchor_name,
+                    "inliers": int(len(inlier_indices)),
+                    "center": center,
+                    "center_step": center_step,
+                    "R": rotation,
+                    "t": translation,
+                    "xy": xy[inlier_indices],
+                    "p3d": xyz[inlier_indices],
+                    "point3d_ids": np.asarray(
+                        [self.point3d_ids[row] for _, row in selected], dtype=np.int64
+                    )[inlier_indices],
+                }
+            )
+
+        cluster = consensus_candidate_cluster(candidates)
+        elapsed_ms = 1000.0 * (cv2.getTickCount() - started) / cv2.getTickFrequency()
+        if not cluster:
             return None, {
-                "reason": "taught_recovery_no_ann_consensus",
-                "query_features": int(len(query_descriptors)),
-                "unique_matches": int(len(matches)),
-                "ann_vectors": int(self.ann_index.ntotal),
-                "feature_extract_ms": feature_ms,
-                "ann_search_ms": search_ms,
-                "match_filter_ms": filter_ms,
+                "reason": "taught_recovery_no_consensus",
+                "candidate_count": len(candidates),
                 "total_ms": elapsed_ms,
             }
-
-        selected = sorted(selected, key=lambda item: int(item["query_index"]))
-        source_rows = np.asarray(
-            [int(item["source_row"]) for item in selected], dtype=np.int64
+        median_center = np.median(np.asarray([item["center"] for item in cluster]), axis=0)
+        winner = min(
+            cluster,
+            key=lambda item: (
+                -int(item["inliers"]),
+                float(np.linalg.norm(np.asarray(item["center"]) - median_center)),
+            ),
         )
-        query_rows = np.asarray(
-            [int(item["query_index"]) for item in selected], dtype=np.int64
-        )
-        anchor_name = self.anchor_names[contributing_anchors[0]]
+        rotation = np.asarray(winner["R"], dtype=float)
+        translation = np.asarray(winner["t"], dtype=float).reshape(3)
+        # Consecutive taught views observe overlapping but not identical map
+        # points. Merge all consensus inliers so TSolve receives a well-spread
+        # 40-point case instead of a fragile 10-18 point minimal set.
+        merged_xy: list[np.ndarray] = []
+        merged_p3d: list[np.ndarray] = []
+        merged_ids: list[int] = []
+        used_points: set[int] = set()
+        used_pixels: set[tuple[int, int]] = set()
+        for candidate in sorted(cluster, key=lambda item: -int(item["inliers"])):
+            for xy, xyz, point_id in zip(
+                candidate["xy"], candidate["p3d"], candidate["point3d_ids"]
+            ):
+                pid = int(point_id)
+                pixel = (int(round(float(xy[0]))), int(round(float(xy[1]))))
+                if pid in used_points or pixel in used_pixels:
+                    continue
+                used_points.add(pid)
+                used_pixels.add(pixel)
+                merged_xy.append(np.asarray(xy, dtype=np.float32))
+                merged_p3d.append(np.asarray(xyz, dtype=np.float64))
+                merged_ids.append(pid)
         pool = {
             "accepted": True,
-            "xy": np.asarray(
-                [keypoints[index].pt for index in query_rows], dtype=np.float32
-            ),
-            "p3d": np.asarray(self.p3d[source_rows], dtype=np.float64),
-            "point3d_ids": np.asarray(
-                self.point3d_ids[source_rows], dtype=np.int64
-            ),
+            "xy": np.asarray(merged_xy, dtype=np.float32),
+            "p3d": np.asarray(merged_p3d, dtype=np.float64),
+            "point3d_ids": np.asarray(merged_ids, dtype=np.int64),
             "K": camera,
-            "colmap_registered_points": int(len(selected)),
-            # This is a TSolve prior, not an estimated pose.  In particular,
-            # no OpenCV PnP result is placed in the pool.
-            "pose_prior_center": expected.astype(float).tolist(),
+            "colmap_registered_points": len(merged_ids),
+            "colmap_qvec_world_to_camera": rotmat_to_qvec(rotation),
+            "colmap_tvec_world_to_camera": translation.tolist(),
+            "pose_prior_center": np.asarray(winner["center"], dtype=float).tolist(),
+            "pose_prior_R": rotation.tolist(),
             "trusted_recovery": True,
             "recovery_max_step": float(max_step),
-            "tsolve_only_correspondences": True,
-            "taught_anchor_name": anchor_name,
-            "taught_consensus_count": len(contributing_anchors),
+            "taught_anchor_name": winner["anchor_name"],
+            "taught_consensus_count": len(cluster),
         }
         return pool, {
             "reason": "",
-            "query_features": int(len(query_descriptors)),
-            "unique_matches": int(len(matches)),
-            "matched_points": int(len(selected)),
-            "inliers": int(len(selected)),
-            "consensus_count": len(contributing_anchors),
-            "anchor_name": anchor_name,
-            "solver": "tsolve",
-            "pnp_hypotheses": 0,
-            "ann_vectors": int(self.ann_index.ntotal),
-            "feature_extract_ms": feature_ms,
-            "ann_search_ms": search_ms,
-            "match_filter_ms": filter_ms,
+            "candidate_count": len(candidates),
+            "consensus_count": len(cluster),
+            "inliers": int(winner["inliers"]),
+            "center_step": float(winner["center_step"]),
+            "anchor_name": winner["anchor_name"],
             "total_ms": elapsed_ms,
         }
 

@@ -2501,7 +2501,7 @@ def map_coordinate_lineage(entry: dict, maps_by_id: dict[str, dict]) -> set[str]
         current = maps_by_id.get(map_id)
         if current is None:
             continue
-        for key in ("source_map_id", "localization_map_id"):
+        for key in ("source_map_id", "localization_map_id", "coordinate_frame_id"):
             parent_id = str(current.get(key) or "").strip()
             if parent_id and parent_id != map_id and parent_id not in lineage:
                 pending.append(parent_id)
@@ -4827,16 +4827,11 @@ def add_faiss_live_arguments(
     cmd.extend(
         [
             "--faiss-index-dir", index_dir,
-            "--faiss-nprobe", cfg.get("live_faiss_nprobe", 8),
-            "--faiss-top-k", cfg.get("live_faiss_top_k", 48),
-            "--faiss-ratio", cfg.get("live_faiss_ratio", 0.86),
+            "--faiss-nprobe", cfg.get("live_faiss_nprobe", 32),
+            "--faiss-top-k", cfg.get("live_faiss_top_k", 32),
+            "--faiss-ratio", cfg.get("live_faiss_ratio", 0.80),
             "--faiss-min-points", cfg.get("live_faiss_min_points", 40),
             "--faiss-reprojection-error", cfg.get("live_faiss_reprojection_error", 6.0),
-            "--opencv-sift-max-features", cfg.get("live_opencv_sift_max_features", 2400),
-            "--opencv-sift-n-octave-layers", cfg.get("live_opencv_sift_n_octave_layers", 3),
-            "--opencv-sift-contrast-threshold", cfg.get("live_opencv_sift_contrast_threshold", 0.02),
-            "--opencv-sift-edge-threshold", cfg.get("live_opencv_sift_edge_threshold", 12.0),
-            "--opencv-sift-sigma", cfg.get("live_opencv_sift_sigma", 1.6),
         ]
     )
 
@@ -5899,11 +5894,6 @@ def dji_live_atlas_job(
                     cfg.get("live_patrol_turn_max_position_drift", 0.75),
                 ]
             )
-            # A repeated patrol lap must close the metric loop at Point 1.
-            # The bridge requests this only at the verified Point-1 handoff;
-            # the localizer then runs a current-frame TSolve rebootstrap before
-            # the first Point-1->2 command of the next lap.
-            live_stream_cmd.append("--wait-for-metric-checkpoint-recovery")
             if live_patrol_lock.get("visual_recovery_path"):
                 live_stream_cmd.extend(
                     [
@@ -5922,6 +5912,7 @@ def dji_live_atlas_job(
             live_stream_cmd.append("--disable-background-recovery")
         if cfg.get("live_direct_pnp_recovery", True):
             live_stream_cmd.append("--direct-pnp-recovery")
+        live_stream_cmd.append("--wait-for-metric-checkpoint-recovery")
         add_faiss_live_arguments(live_stream_cmd, cfg, faiss_index_dir)
         set_job(
             "drone",
@@ -6461,7 +6452,7 @@ def localized_recorded_patrol_job(
 
     Unlike ``simulated_patrol_baseline_job``, this never copies a baseline
     pose.  The baseline supplies only the source-frame interval and camera
-    images; COLMAP bootstrap, optical flow and TSolve create a new pose stream.
+    images; OpenCV SIFT/Faiss bootstrap, optical flow and TSolve create a new pose stream.
     """
     mark_drone_job_worker_started()
     monitor_stop = threading.Event()
@@ -7579,7 +7570,6 @@ def fleet_live_atlas_job(drone_id: str) -> None:
                     cfg.get("live_patrol_turn_max_position_drift", 0.75),
                 ]
             )
-            live_cmd.append("--wait-for-metric-checkpoint-recovery")
             if live_patrol_lock.get("visual_recovery_path"):
                 live_cmd.extend(
                     [
@@ -7598,6 +7588,7 @@ def fleet_live_atlas_job(drone_id: str) -> None:
             live_cmd.append("--disable-background-recovery")
         if cfg.get("live_direct_pnp_recovery", True):
             live_cmd.append("--direct-pnp-recovery")
+        live_cmd.append("--wait-for-metric-checkpoint-recovery")
         add_faiss_live_arguments(live_cmd, cfg, faiss_index_dir)
         fleet_update(drone_id, stage="initial_localization")
         fleet_event(
@@ -8402,10 +8393,10 @@ def drone_video_job(
             )
             stream_mode_message = (
                 "Running buffered Camera Path localization ahead of video playback: "
-                f"first-frame COLMAP bootstrap, optical-flow tracking at up to {1.0 / max(0.01, replay_pace_scale):.1f}x, "
+                f"first-frame OpenCV SIFT/Faiss bootstrap, optical-flow tracking at up to {1.0 / max(0.01, replay_pace_scale):.1f}x, "
                 "with trusted-pose holds while map recovery runs at weak frames."
                 if not publish_to_map
-                else "Running bounded simulated-live TSolve: first-frame COLMAP bootstrap, then optical-flow tracking."
+                else "Running bounded simulated-live TSolve: first-frame OpenCV SIFT/Faiss bootstrap, then optical-flow tracking."
             )
             extra_stream_args = [
                 "--track-pool-size",

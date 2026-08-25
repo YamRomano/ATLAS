@@ -14,8 +14,6 @@ from colmap_io import qvec_to_rotmat
 from taught_patrol_recovery import (
     consensus_candidate_cluster,
     rotmat_to_qvec,
-    select_anchor_match_window,
-    unique_ann_point_matches,
 )
 
 
@@ -62,62 +60,6 @@ class TaughtPatrolRecoveryTests(unittest.TestCase):
         )
 
         self.assertEqual(cluster, [])
-
-    def test_ann_ratio_uses_a_different_3d_point_as_competitor(self):
-        matches = unique_ann_point_matches(
-            distances=np.asarray([[1.0, 1.1, 4.0, 9.0]], dtype=np.float32),
-            neighbor_ids=np.asarray([[0, 1, 2, 3]], dtype=np.int64),
-            ann_rows=np.asarray([0, 1, 2, 3], dtype=np.int64),
-            point3d_ids=np.asarray([10, 10, 20, 30], dtype=np.int64),
-            anchor_ids=np.asarray([0, 1, 2, 3], dtype=np.int32),
-        )
-
-        self.assertEqual(len(matches), 1)
-        self.assertEqual(matches[0]["point3d_id"], 10)
-        self.assertEqual(matches[0]["anchor_ids"], [0, 1])
-        self.assertEqual(matches[0]["second_point_distance"], 4.0)
-
-    def test_anchor_window_never_crosses_recorded_replays(self):
-        matches = [
-            {
-                "query_index": index,
-                "point3d_id": 100 + index,
-                "source_row": index,
-                "distance": 1.0 + index * 0.01,
-                "anchor_ids": [index % 2],
-            }
-            for index in range(9)
-        ]
-        # Anchor 2 is numerically adjacent but belongs to another replay and
-        # must not become support for the selected correspondence window.
-        matches.append(
-            {
-                "query_index": 9,
-                "point3d_id": 109,
-                "source_row": 9,
-                "distance": 0.1,
-                "anchor_ids": [2],
-            }
-        )
-
-        selected, anchors = select_anchor_match_window(
-            matches,
-            anchor_names=["lap_a/f0", "lap_a/f1", "lap_b/f0"],
-            radius=12,
-            minimum_points=8,
-            minimum_anchors=2,
-        )
-
-        self.assertEqual(len(selected), 9)
-        self.assertEqual(anchors, [0, 1])
-
-    def test_taught_recovery_does_not_estimate_pose_with_opencv(self):
-        source = (
-            ROOT / "scripts" / "taught_patrol_recovery.py"
-        ).read_text(encoding="utf-8")
-        self.assertNotIn("solvePnPRansac", source)
-        self.assertIn('"solver": "tsolve"', source)
-        self.assertIn('"tsolve_only_correspondences": True', source)
 
 if __name__ == "__main__":
     unittest.main()

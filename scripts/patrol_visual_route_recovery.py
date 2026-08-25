@@ -913,6 +913,7 @@ class PatrolVisualRouteRecovery:
         forward_window: float = 0.24,
         acquisition_hits: int = 2,
         recovery_acquisition_hits: int = 5,
+        recovery_evidence_window_frames: int = 15,
         max_position_step: float = 0.18,
         endpoint_guard_progress: float = 0.84,
         endpoint_required_hits: int = 3,
@@ -985,8 +986,9 @@ class PatrolVisualRouteRecovery:
         )
         self.minimum_inliers = max(16, int(minimum_inliers))
         # Normal flight retains the strict 120-inlier gate.  During a neutral
-        # recovery hover, five consecutive command-bounded observations may
-        # use this lower floor.  This is deliberately separate from heading
+        # recovery hover, five command-bounded observations inside one short
+        # rolling window may use this lower floor. This is deliberately
+        # separate from heading
         # and normal-cruise acquisition: the 13:22:38 Point-2 -> Point-3 live
         # frames carried 90-115 correct inliers after real motion, but could
         # never produce two adjacent >=120 frames and therefore froze forever.
@@ -1004,6 +1006,15 @@ class PatrolVisualRouteRecovery:
         self.recovery_acquisition_hits = max(
             self.acquisition_hits,
             int(recovery_acquisition_hits),
+        )
+        # Live Point-4 recovery alternates strong 50-56-inlier views with
+        # occasional 40-49-inlier blur frames even while the aircraft is
+        # motionless. Requiring perfect adjacency discarded valid evidence
+        # for 80 seconds. Keep the same five-observation proof, but require it
+        # inside at most 15 incoming frames (about 1.5 seconds at 10 FPS).
+        self.recovery_evidence_window_frames = max(
+            self.recovery_acquisition_hits,
+            min(30, int(recovery_evidence_window_frames)),
         )
         self.max_position_step = max(0.05, min(0.22, float(max_position_step)))
         self.endpoint_guard_progress = max(
@@ -1031,6 +1042,7 @@ class PatrolVisualRouteRecovery:
         self.temporal_recovery_source_replay_id: str | None = None
         self.temporal_recovery_hits = 0
         self.temporal_recovery_samples: list[float] = []
+        self.temporal_recovery_sample_indices: list[int] = []
         self.temporal_recovery_command_ceiling: float | None = None
         self.endpoint_candidate_progress: float | None = None
         self.endpoint_hits = 0
@@ -1155,6 +1167,7 @@ class PatrolVisualRouteRecovery:
         self.temporal_recovery_source_replay_id = None
         self.temporal_recovery_hits = 0
         self.temporal_recovery_samples = []
+        self.temporal_recovery_sample_indices = []
         self.temporal_recovery_command_ceiling = None
         self.endpoint_candidate_progress = None
         self.endpoint_hits = 0
@@ -1166,7 +1179,59 @@ class PatrolVisualRouteRecovery:
         self.rewind_candidate_source_replay_id = None
         self.rewind_candidate_hits = 0
 
-    def _mark_unverified(self) -> None:
+    def _clear_temporal_recovery_evidence(self) -> None:
+        self.temporal_recovery_progress = None
+        self.temporal_recovery_source_replay_id = None
+        self.temporal_recovery_hits = 0
+        self.temporal_recovery_samples = []
+        self.temporal_recovery_sample_indices = []
+        self.temporal_recovery_command_ceiling = None
+
+    def _expire_temporal_recovery_evidence(
+        self,
+        sequence_index: int | None,
+    ) -> int:
+        """Keep only strong recovery observations in the bounded live window."""
+        samples = list(getattr(self, "temporal_recovery_samples", []))
+        indices = list(
+            getattr(self, "temporal_recovery_sample_indices", [])
+        )
+        if len(samples) != len(indices):
+            self._clear_temporal_recovery_evidence()
+            return 0
+        if sequence_index is not None:
+            current = int(sequence_index)
+            window = max(
+                int(getattr(self, "recovery_acquisition_hits", 5)),
+                int(getattr(self, "recovery_evidence_window_frames", 15)),
+            )
+            first_allowed = current - window + 1
+            retained = [
+                (sample, index)
+                for sample, index in zip(samples, indices)
+                if first_allowed <= int(index) <= current
+            ]
+            samples = [float(sample) for sample, _ in retained]
+            indices = [int(index) for _, index in retained]
+        self.temporal_recovery_samples = samples
+        self.temporal_recovery_sample_indices = indices
+        self.temporal_recovery_hits = len(samples)
+        self.temporal_recovery_progress = (
+            float(np.median(np.asarray(samples, dtype=np.float64)))
+            if samples
+            else None
+        )
+        if not samples:
+            self.temporal_recovery_source_replay_id = None
+            self.temporal_recovery_command_ceiling = None
+        return self.temporal_recovery_hits
+
+    def _mark_unverified(
+        self,
+        *,
+        preserve_temporal_recovery: bool = False,
+        sequence_index: int | None = None,
+    ) -> int:
         """Require a fresh multi-frame lock before translation can resume."""
         self.pending_progress = None
         self.pending_source_replay_id = None
@@ -1174,14 +1239,17 @@ class PatrolVisualRouteRecovery:
         self.needs_acquisition = True
         self.weak_endpoint_progress = None
         self.weak_endpoint_hits = 0
-        self.temporal_recovery_progress = None
-        self.temporal_recovery_source_replay_id = None
-        self.temporal_recovery_hits = 0
-        self.temporal_recovery_samples = []
-        self.temporal_recovery_command_ceiling = None
+        if preserve_temporal_recovery:
+            retained_hits = self._expire_temporal_recovery_evidence(
+                sequence_index
+            )
+        else:
+            self._clear_temporal_recovery_evidence()
+            retained_hits = 0
         self.rewind_candidate_progress = None
         self.rewind_candidate_source_replay_id = None
         self.rewind_candidate_hits = 0
+        return retained_hits
 
     def _collect_temporal_recovery_progress(
         self,
@@ -1189,13 +1257,14 @@ class PatrolVisualRouteRecovery:
         proposed: float,
         source_replay_id: str,
         command_progress_ceiling: float | None,
+        sequence_index: int | None = None,
     ) -> float | None:
         """Collect fresh rolling consensus without latching its first frame.
 
         The former accumulator kept ``min(first, every_later_match)``. One
         conservative departure match therefore pinned progress forever even
         as later live frames moved through the saved 4->1 sequence. Keep only
-        the latest consecutive window and use its median. A source change, a
+        the latest bounded rolling window and use its median. A source change, a
         command-envelope change, or an implausible discontinuity starts a new
         acquisition.
         """
@@ -1219,6 +1288,16 @@ class PatrolVisualRouteRecovery:
                 and abs(ceiling - self.temporal_recovery_command_ceiling) > 1.0e-6
             )
         )
+        sample_indices = list(
+            getattr(self, "temporal_recovery_sample_indices", [])
+        )
+        if sequence_index is None:
+            current_sequence_index = (
+                int(sample_indices[-1]) + 1 if sample_indices else 0
+            )
+        else:
+            current_sequence_index = int(sequence_index)
+        self._expire_temporal_recovery_evidence(current_sequence_index)
         previous_sample = (
             self.temporal_recovery_samples[-1]
             if self.temporal_recovery_samples
@@ -1233,13 +1312,19 @@ class PatrolVisualRouteRecovery:
             )
         )
         if sequence_changed:
-            self.temporal_recovery_samples = []
+            self._clear_temporal_recovery_evidence()
         self.temporal_recovery_source_replay_id = source_replay_id
         self.temporal_recovery_command_ceiling = ceiling
         self.temporal_recovery_samples.append(value)
+        self.temporal_recovery_sample_indices.append(current_sequence_index)
         self.temporal_recovery_samples = self.temporal_recovery_samples[
             -self.recovery_acquisition_hits :
         ]
+        self.temporal_recovery_sample_indices = (
+            self.temporal_recovery_sample_indices[
+                -self.recovery_acquisition_hits :
+            ]
+        )
         self.temporal_recovery_hits = len(self.temporal_recovery_samples)
         self.temporal_recovery_progress = float(
             np.median(np.asarray(self.temporal_recovery_samples, dtype=np.float64))
@@ -1974,11 +2059,7 @@ class PatrolVisualRouteRecovery:
             self.last_sequence_index = None
             self.weak_endpoint_progress = None
             self.weak_endpoint_hits = 0
-            self.temporal_recovery_progress = None
-            self.temporal_recovery_source_replay_id = None
-            self.temporal_recovery_hits = 0
-            self.temporal_recovery_samples = []
-            self.temporal_recovery_command_ceiling = None
+            self._clear_temporal_recovery_evidence()
             # Endpoint consensus cannot be combined across a source whose
             # route coverage just proved incomplete.
             self.endpoint_candidate_progress = None
@@ -2124,8 +2205,16 @@ class PatrolVisualRouteRecovery:
         started = cv2.getTickCount()
         query_keypoints, query_descriptors = self._extract_query_features(gray)
         if query_descriptors is None or len(query_keypoints) < 120:
-            self._mark_unverified()
-            return None, {"reason": "visual_route_query_features_missing"}
+            retained_hits = self._mark_unverified(
+                preserve_temporal_recovery=recovery_hover,
+                sequence_index=sequence_index,
+            )
+            return None, {
+                "reason": "visual_route_query_features_missing",
+                "acquisition_hits": retained_hits,
+                "required_hits": self.recovery_acquisition_hits,
+                "temporal_recovery_evidence_retained": retained_hits > 0,
+            }
 
         # Tail-only endpoint recovery is deliberately independent from the
         # local route-progress window.  The real aircraft may have consumed
@@ -2289,7 +2378,8 @@ class PatrolVisualRouteRecovery:
             # Normal route and endpoint decisions retain their 60+ geometric
             # floor. A separately audited weak departure sector may lower the
             # neutral-hover temporal-recovery floor; that result is still
-            # command-bounded and requires five consecutive frames.
+            # command-bounded and requires five strong observations inside
+            # the bounded recovery evidence window.
             minimum_geometric_inliers=(
                 min(60, effective_recovery_minimum_inliers)
                 if recovery_hover
@@ -2302,10 +2392,16 @@ class PatrolVisualRouteRecovery:
         )
         elapsed_ms = 1000.0 * (cv2.getTickCount() - started) / cv2.getTickFrequency()
         if not candidates:
-            self._mark_unverified()
+            retained_hits = self._mark_unverified(
+                preserve_temporal_recovery=recovery_hover,
+                sequence_index=sequence_index,
+            )
             return None, {
                 "reason": "visual_route_no_candidates",
                 "released_source_replay_id": released_source_replay_id,
+                "acquisition_hits": retained_hits,
+                "required_hits": self.recovery_acquisition_hits,
+                "temporal_recovery_evidence_retained": retained_hits > 0,
                 "total_ms": elapsed_ms,
             }
         candidates.sort(key=geometric_candidate_rank, reverse=True)
@@ -2344,7 +2440,10 @@ class PatrolVisualRouteRecovery:
                 or int(winner["inliers"])
                 < effective_recovery_minimum_inliers
             ):
-                self._mark_unverified()
+                retained_hits = self._mark_unverified(
+                    preserve_temporal_recovery=recovery_hover,
+                    sequence_index=sequence_index,
+                )
                 return None, {
                     "reason": "visual_route_inliers_below_threshold",
                     "best_inliers": int(winner["inliers"]),
@@ -2365,14 +2464,13 @@ class PatrolVisualRouteRecovery:
                     "endpoint_only_best_anchor": (
                         (endpoint_only_metadata or {}).get("endpoint_best_anchor")
                     ),
+                    "acquisition_hits": retained_hits,
+                    "required_hits": self.recovery_acquisition_hits,
+                    "temporal_recovery_evidence_retained": retained_hits > 0,
                     "total_ms": elapsed_ms,
                 }
             if weak_endpoint is not None:
-                self.temporal_recovery_progress = None
-                self.temporal_recovery_source_replay_id = None
-                self.temporal_recovery_hits = 0
-                self.temporal_recovery_samples = []
-                self.temporal_recovery_command_ceiling = None
+                self._clear_temporal_recovery_evidence()
                 if (
                     self.weak_endpoint_progress is None
                     or abs(float(weak_endpoint) - self.weak_endpoint_progress) > 0.08
@@ -2454,17 +2552,24 @@ class PatrolVisualRouteRecovery:
                             )
                             command_window_recovery = True
                 if proposed is None:
-                    self._mark_unverified()
+                    retained_hits = self._mark_unverified(
+                        preserve_temporal_recovery=True,
+                        sequence_index=sequence_index,
+                    )
                     return None, {
                         "reason": "visual_route_temporal_recovery_consensus_missing",
                         "best_inliers": int(winner["inliers"]),
                         "minimum_inliers": effective_recovery_minimum_inliers,
+                        "acquisition_hits": retained_hits,
+                        "required_hits": self.recovery_acquisition_hits,
+                        "temporal_recovery_evidence_retained": retained_hits > 0,
                         "total_ms": elapsed_ms,
                     }
                 temporal_consensus = self._collect_temporal_recovery_progress(
                     proposed=float(proposed),
                     source_replay_id=winner_source_replay_id,
                     command_progress_ceiling=command_progress_ceiling,
+                    sequence_index=sequence_index,
                 )
                 if temporal_consensus is None:
                     return None, {
@@ -2506,11 +2611,7 @@ class PatrolVisualRouteRecovery:
         else:
             self.weak_endpoint_progress = None
             self.weak_endpoint_hits = 0
-            self.temporal_recovery_progress = None
-            self.temporal_recovery_source_replay_id = None
-            self.temporal_recovery_hits = 0
-            self.temporal_recovery_samples = []
-            self.temporal_recovery_command_ceiling = None
+            self._clear_temporal_recovery_evidence()
             # A fixed 0.12 normalized window is smaller than one safe 18 cm
             # correction on the short Point-2 -> Point-3 leg.  A real forward
             # pulse could therefore move from progress 0.785 to 0.908 while

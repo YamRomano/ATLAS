@@ -36,6 +36,7 @@ PROGRESS_FIELDS = {
     "recovery_phase",
     "route_visual_recovery_allowed",
     "require_metric_pose",
+    "lap_start_metric_rebootstrap",
     "metric_position_recovery_allowed",
     "post_translation_progress_recovery",
     "physical_translation_active",

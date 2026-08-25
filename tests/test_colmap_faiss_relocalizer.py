@@ -12,10 +12,11 @@ import numpy as np
 
 from colmap_faiss_relocalizer import (
     FaissIVF3DRelocalizer,
+    OpenCVSiftFeatureExtractor,
     _rotmat_to_qvec,
     build_faiss_index,
     index_is_current,
-    source_geometry_tsolve_pool,
+    opencv_sift_to_colmap_descriptors,
     unique_point_matches,
 )
 from colmap_io import Camera, qvec_to_rotmat
@@ -26,6 +27,40 @@ def _blob(array: np.ndarray) -> bytes:
 
 
 class FaissRelocalizerTest(unittest.TestCase):
+    def test_opencv_descriptors_are_converted_to_colmap_rootsift(self) -> None:
+        source = np.vstack(
+            [
+                np.arange(1, 129, dtype=np.float32),
+                np.full((128,), 7.0, dtype=np.float32),
+                np.zeros((128,), dtype=np.float32),
+            ]
+        )
+        converted = opencv_sift_to_colmap_descriptors(source)
+        self.assertEqual(converted.shape, (3, 128))
+        self.assertEqual(converted.dtype, np.uint8)
+        np.testing.assert_allclose(
+            np.linalg.norm(converted[:2].astype(np.float32), axis=1),
+            np.full((2,), 512.0),
+            atol=3.0,
+        )
+        self.assertFalse(np.any(converted[2]))
+
+    def test_in_process_extractor_rescales_keypoints_to_original_image(self) -> None:
+        rng = np.random.default_rng(2903)
+        gray = rng.integers(0, 256, size=(600, 1000), dtype=np.uint8)
+        extractor = OpenCVSiftFeatureExtractor(
+            max_num_features=128,
+            max_image_size=400,
+        )
+        keypoints, descriptors = extractor.extract(gray)
+        self.assertGreater(len(keypoints), 40)
+        self.assertLessEqual(len(keypoints), 128)
+        self.assertEqual(keypoints.shape, (len(descriptors), 2))
+        self.assertEqual(descriptors.shape[1], 128)
+        self.assertEqual(descriptors.dtype, np.uint8)
+        self.assertTrue(np.all((keypoints[:, 0] >= 0) & (keypoints[:, 0] < 1000)))
+        self.assertTrue(np.all((keypoints[:, 1] >= 0) & (keypoints[:, 1] < 600)))
+
     def test_ratio_test_compares_different_3d_points(self) -> None:
         matches = unique_point_matches(
             distances=np.array([[1.0, 2.0, 9.0], [1.5, 4.0, 16.0]], dtype=np.float32),
@@ -40,96 +75,6 @@ class FaissRelocalizerTest(unittest.TestCase):
         rotation, _ = cv2.Rodrigues(np.array([0.31, -0.47, 1.08], dtype=np.float64))
         restored = qvec_to_rotmat(_rotmat_to_qvec(rotation))
         np.testing.assert_allclose(restored, rotation, atol=1.0e-10)
-
-    def test_source_geometry_returns_tsolve_pool_without_pnp_pose(self) -> None:
-        rng = np.random.default_rng(20260823)
-        count = 72
-        point_ids = np.arange(1, count + 1, dtype=np.int64)
-        p3d = np.column_stack(
-            [
-                rng.uniform(-1.4, 1.4, count),
-                rng.uniform(-0.8, 0.8, count),
-                rng.uniform(3.5, 7.0, count),
-            ]
-        )
-        focal, width, height = 820.0, 1200, 675
-
-        def project(rotation: np.ndarray, center: np.ndarray) -> np.ndarray:
-            camera_points = (rotation @ (p3d - center).T).T
-            return np.column_stack(
-                [
-                    focal * camera_points[:, 0] / camera_points[:, 2] + width / 2.0,
-                    focal * camera_points[:, 1] / camera_points[:, 2] + height / 2.0,
-                ]
-            ).astype(np.float32)
-
-        query_xy = project(np.eye(3), np.zeros(3))
-        map_images: dict[int, SimpleNamespace] = {}
-        source_count = 8
-        vector_point_ids: list[int] = []
-        vector_source_ids: list[int] = []
-        vector_feature_indices: list[int] = []
-        neighbor_ids = np.empty((count, source_count), dtype=np.int64)
-        for source_offset in range(source_count):
-            angle = 0.025 * (source_offset - 3.5)
-            rotation, _ = cv2.Rodrigues(
-                np.array([0.01 * source_offset, angle, -0.006 * source_offset])
-            )
-            center = np.array(
-                [0.05 * (source_offset - 3.5), 0.015 * source_offset, 0.025 * source_offset]
-            )
-            source_id = 100 + source_offset
-            map_images[source_id] = SimpleNamespace(
-                xys=project(rotation, center),
-                point3d_ids=point_ids.copy(),
-            )
-            for feature_index, point_id in enumerate(point_ids):
-                vector_id = len(vector_point_ids)
-                vector_point_ids.append(int(point_id))
-                vector_source_ids.append(source_id)
-                vector_feature_indices.append(feature_index)
-                neighbor_ids[feature_index, source_offset] = vector_id
-
-        matches = [
-            {
-                "query_index": index,
-                "point3d_id": int(point_id),
-                "vector_id": int(neighbor_ids[index, 0]),
-                "source_image_id": 100,
-                "distance": 1.0,
-                "second_point_distance": 4.0,
-            }
-            for index, point_id in enumerate(point_ids)
-        ]
-        map_points = {
-            int(point_id): SimpleNamespace(xyz=point.copy())
-            for point_id, point in zip(point_ids, p3d)
-        }
-        pool = source_geometry_tsolve_pool(
-            image_name="query.jpg",
-            image_id=-1,
-            camera=Camera(
-                camera_id=-1,
-                model="SIMPLE_PINHOLE",
-                width=width,
-                height=height,
-                params=[focal, width / 2.0, height / 2.0],
-            ),
-            keypoints=query_xy,
-            matches=matches,
-            neighbor_ids=neighbor_ids,
-            point3d_ids=np.asarray(vector_point_ids, dtype=np.int64),
-            source_image_ids=np.asarray(vector_source_ids, dtype=np.int32),
-            source_feature_indices=np.asarray(vector_feature_indices, dtype=np.int32),
-            map_images=map_images,
-            map_points=map_points,
-            min_points=40,
-        )
-        self.assertTrue(pool["accepted"], pool)
-        self.assertGreaterEqual(pool["valid_2d3d"], 40)
-        self.assertTrue(pool["tsolve_only_correspondences"])
-        self.assertNotIn("colmap_qvec_world_to_camera", pool)
-        self.assertNotIn("colmap_tvec_world_to_camera", pool)
 
     def test_build_and_localize_synthetic_colmap_map(self) -> None:
         try:
@@ -272,6 +217,26 @@ class FaissRelocalizerTest(unittest.TestCase):
                 np.asarray(pool["colmap_qvec_world_to_camera"])
             ).T @ np.asarray(pool["colmap_tvec_world_to_camera"])
             np.testing.assert_allclose(recovered_center, np.zeros(3), atol=1.0e-4)
+
+            direct_pool, direct_diagnostic = relocalizer.localize_features(
+                image_name="direct-query.jpg",
+                image_id=7,
+                camera=Camera(
+                    camera_id=1,
+                    model="SIMPLE_PINHOLE",
+                    width=width,
+                    height=height,
+                    params=[focal, width / 2.0, height / 2.0],
+                ),
+                keypoints=xy,
+                descriptors=query_descriptors,
+                map_points=map_points,
+                expected_center=np.zeros(3, dtype=np.float64),
+            )
+            self.assertIsNotNone(direct_pool, direct_diagnostic)
+            assert direct_pool is not None
+            self.assertGreaterEqual(direct_pool["faiss_pnp_inliers"], 100)
+            self.assertEqual(direct_diagnostic["feature_read_ms"], 0.0)
 
 
 if __name__ == "__main__":

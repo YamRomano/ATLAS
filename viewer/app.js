@@ -5260,7 +5260,7 @@ function mapCoordinateLineageIds(entry) {
     lineage.add(mapId);
     const map = mapsById.get(mapId);
     if (!map) continue;
-    for (const key of ["source_map_id", "localization_map_id"]) {
+    for (const key of ["source_map_id", "localization_map_id", "coordinate_frame_id"]) {
       const parentId = String(map?.[key] || "");
       if (parentId && parentId !== mapId && !lineage.has(parentId)) pending.push(parentId);
     }

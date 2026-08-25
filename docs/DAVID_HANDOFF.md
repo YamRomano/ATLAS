@@ -10,8 +10,8 @@ diagnostics, UI work, and continuing the physical DJI Mini 3 Pro integration.
   `scripts/atlas_app_server.py`).
 - The live DJI bridge and guarded patrol controller
   (`scripts/atlas_dji_live_bridge.py`).
-- The bounded live localizer, COLMAP registration path, optical-flow tracker,
-  and TSolve input/output path.
+- The bounded live localizer, in-process OpenCV SIFT/direct Faiss recovery,
+  optical-flow tracker, and TSolve input/output path.
 - Taught-route and multi-run visual route-recovery logic.
 - The current safety gates, patrol audit tools, and regression tests.
 - The current enemy-drone detector UI and the trained Neo detector weights.

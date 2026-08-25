@@ -48,12 +48,16 @@ class CameraPathLabTests(unittest.TestCase):
             "max_sequential_catchup_frames = 12 if interactive_recovery",
             source,
         )
-        self.assertIn('stage["registration_profile"] = "robust_initial_anchor"', source)
-        self.assertIn('stage["registration_profile"] = "fast_fixed_map_recovery"', source)
+        self.assertIn(
+            '"registration_profile": "opencv_sift_faiss_ivf_direct"',
+            source,
+        )
+        self.assertIn("self.query_extractor.extract(current_gray)", source)
+        self.assertIn("self.faiss_relocalizer.localize_features(", source)
         self.assertIn("--calibrate-output-to-first-global-anchor", source)
         self.assertIn("OUTPUT ANCHOR CALIBRATED", source)
         self.assertIn("if last_center is None:", source)
-        self.assertIn('"--Mapper.fix_existing_images"', source)
+        self.assertNotIn('"--Mapper.fix_existing_images"', source)
 
     def test_camera_path_lab_never_reuses_precomputed_poses(self):
         source = SERVER_PATH.read_text(encoding="utf-8")

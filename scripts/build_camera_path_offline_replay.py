@@ -2,7 +2,7 @@
 """Build and validate a complete Camera Path replay against a fixed ATLAS map.
 
 This is deliberately separate from the simulated-live UI job.  It processes a
-finite video offline, permits synchronous fixed-map COLMAP recovery, and only
+finite video offline, permits synchronous fixed-map SIFT/Faiss recovery, and only
 publishes a replay after absolute-anchor and continuity validation passes.  It
 never edits the selected map, its COLMAP model, patrols, or safety barriers.
 """
@@ -485,6 +485,12 @@ def main() -> None:
             log_path,
         )
 
+    faiss_spec = atlas.faiss_index_command(cfg, map_artifacts)
+    if faiss_spec is None:
+        raise RuntimeError("Direct OpenCV SIFT localization requires the Faiss map index.")
+    faiss_index_dir, faiss_build_cmd = faiss_spec
+    run_logged(faiss_build_cmd, log_path)
+
     resume_args: list[object] = []
     if args.resume_existing:
         if not partial_path.is_file():
@@ -555,6 +561,10 @@ def main() -> None:
             cfg["max_image_size"],
             "--query-camera-model",
             cfg["query_camera_model"],
+            "--query-camera-params",
+            cfg.get("query_camera_params", ""),
+            "--sift-max-num-features",
+            cfg.get("live_sift_max_num_features", 1024),
             "--min-points",
             cfg["min_query_correspondences"],
             "--max-points",
@@ -624,6 +634,7 @@ def main() -> None:
             "--room-alignment-json",
             json.dumps(map_entry.get("room_alignment") or {}),
         ]
+    atlas.add_faiss_live_arguments(command, cfg, faiss_index_dir)
     command.extend(resume_args)
     run_logged(command, log_path)
 

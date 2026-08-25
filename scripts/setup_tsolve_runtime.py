@@ -14,15 +14,7 @@ def copy_files(src: Path, dst: Path) -> None:
 
 
 def ensure_harness_dependencies(base_yam_code_dir: Path, harness: Path) -> None:
-    """Complete the generated harness with its non-patch runtime modules.
-
-    The drop-in harness imports ``ysolve_template_core`` but that module lives
-    beside the base Yam ``yam_code`` directory, not in the drop-in patch.  A
-    runtime assembled only from the reduced vendored harness therefore passed
-    file-copy setup and then crashed on its first import, which made the app
-    tear down an otherwise healthy DJI bridge.  Copy only the missing base
-    dependency so patch files and explicit harness overrides keep precedence.
-    """
+    """Copy the TSolve harness helper when the selected drop-in omits it."""
     dependency_name = "ysolve_template_core.py"
     dependency = harness / dependency_name
     if dependency.exists():
@@ -30,8 +22,7 @@ def ensure_harness_dependencies(base_yam_code_dir: Path, harness: Path) -> None:
     source = base_yam_code_dir.parent / "harness" / dependency_name
     if not source.is_file():
         raise FileNotFoundError(
-            "TSolve runtime requires ysolve_template_core.py; expected it at "
-            f"{source} or in the configured base harness"
+            f"missing required TSolve harness dependency: {source}"
         )
     harness.mkdir(parents=True, exist_ok=True)
     shutil.copy2(source, dependency)
