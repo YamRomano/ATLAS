@@ -3,9 +3,9 @@
   "id": "c4f4933023864c239b4251d8c7c1e544",
   "command": "mission",
   "status": "running",
-  "message": "Hovering with physical movement locked while ATLAS releases the stale turn anchor and relocalizes online (45.5s): waiting for progress-independent taught-endpoint image consensus",
+  "message": "Hovering with physical movement locked while ATLAS releases the stale turn anchor and relocalizes online (82.4s): waiting for progress-independent taught-endpoint image consensus",
   "started_at": 1787641716.930308,
-  "updated_at": 1787642128.0411048,
+  "updated_at": 1787642164.973788,
   "progress": {
     "map_id": "map_copy_20260730_114851_cfefdc",
     "patrol_id": "patrol_ms4br5xr_4xclts",
@@ -38,8 +38,8 @@
     "recovery_phase": "taught_endpoint_verification",
     "pose_gate": {
       "ok": false,
-      "reason": "latest TSolve pose is stale (14.89s > 2.50s)",
-      "age_seconds": 14.885745286941528
+      "reason": "latest TSolve pose is stale (51.82s > 2.50s)",
+      "age_seconds": 51.81842613220215
     },
     "continuous_relocalization": true,
     "require_metric_pose": false,
@@ -47,16 +47,16 @@
     "metric_position_recovery_allowed": false,
     "endpoint_position_recovery_allowed": true,
     "post_translation_progress_recovery": false,
-    "recovery_elapsed_seconds": 45.49009791699996,
+    "recovery_elapsed_seconds": 82.42278033299999,
     "route_visual_recovery_allowed": true,
     "rotation_release_requested": true,
     "body_forward_gain": 0.0,
     "body_lateral_gain": 0.0,
-    "message": "Hovering with physical movement locked while ATLAS releases the stale turn anchor and relocalizes online (45.5s): waiting for progress-independent taught-endpoint image consensus",
+    "message": "Hovering with physical movement locked while ATLAS releases the stale turn anchor and relocalizes online (82.4s): waiting for progress-independent taught-endpoint image consensus",
     "executed_pulses": 278,
     "executed_steps": 15,
     "skipped_steps": 7,
-    "elapsed_seconds": 407.2276496887207,
-    "updated_at": 1787642128.0411038
+    "elapsed_seconds": 444.16033267974854,
+    "updated_at": 1787642164.9737868
   }
 }
