@@ -2450,13 +2450,6 @@ function correctedLivePose(pose) {
     ? pose.rotation_heading.slice(0, 3).map(Number)
     : null;
   const opticalHeadingTracks = Number(pose.rotation_heading_tracks || 0);
-  const backendHeadingSource = String(
-    pose.rheading_source || pose.rheadingSource || ""
-  );
-  const absoluteRouteHeading = new Set([
-    "recorded_departure_image_alignment",
-    "recorded_departure_image_tracking_consensus",
-  ]).has(backendHeadingSource);
   const currentFrameOpticalHeading = Boolean(
     opticalHeading?.length === 3 &&
     opticalHeading.every(Number.isFinite) &&
@@ -2464,8 +2457,7 @@ function correctedLivePose(pose) {
   );
   if (
     currentFrameOpticalHeading &&
-    pose.rotation_position_locked &&
-    !absoluteRouteHeading
+    pose.rotation_position_locked
   ) {
     corrected.rheadingRaw = corrected.rheading;
     corrected.rheading = opticalHeading;

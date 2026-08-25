@@ -199,38 +199,6 @@ def file_sha256(path: Path) -> str | None:
         return None
 
 
-def runtime_fingerprint_paths(root: Path = ROOT) -> dict[str, Path]:
-    """Return the flight-critical sources that must stay fixed per session."""
-    root = Path(root)
-    return {
-        "atlas_dji_live_bridge.py": Path(__file__).resolve(),
-        "atlas_app_server.py": root / "scripts" / "atlas_app_server.py",
-        "run_bounded_tsolve_video_stream.py": (
-            root / "scripts" / "run_bounded_tsolve_video_stream.py"
-        ),
-        "patrol_visual_route_recovery.py": (
-            root / "scripts" / "patrol_visual_route_recovery.py"
-        ),
-        "config.json": root / "config.json",
-    }
-
-
-def current_runtime_fingerprints(root: Path = ROOT) -> dict[str, str | None]:
-    return {
-        name: file_sha256(path)
-        for name, path in runtime_fingerprint_paths(root).items()
-    }
-
-
-def runtime_fingerprint_changes(
-    expected: dict[str, Any],
-    current: dict[str, Any],
-) -> list[str]:
-    """List flight-critical files changed after this bridge was started."""
-    names = sorted(set(expected) | set(current))
-    return [name for name in names if expected.get(name) != current.get(name)]
-
-
 def enemy_detection_control_enabled(path: Path) -> bool:
     """Fail closed: live inference runs only after an explicit operator opt-in."""
     try:
@@ -429,7 +397,7 @@ def stabilized_pose_safety_issue(
             monitor_minimum = max(
                 (
                     50
-                    if temporal_monitor and monitor_leg in {1, 2, 4}
+                    if temporal_monitor and monitor_leg == 4
                     else (90 if temporal_monitor else 120)
                 ),
                 int(pose.get("route_visual_monitor_minimum_inliers") or 0),
@@ -458,7 +426,7 @@ def stabilized_pose_safety_issue(
             minimum = max(
                 (
                     50
-                    if temporal_recovery and pose_leg in {1, 2, 4}
+                    if temporal_recovery and pose_leg == 4
                     else (90 if temporal_recovery else 120)
                 ),
                 int(pose.get("route_visual_minimum_inliers") or 0),
@@ -736,19 +704,6 @@ def latest_tsolve_pose_gate(
             "center": pose.get("center"),
             "R": pose.get("R"),
             "t": pose.get("t"),
-            "objective": pose.get("objective"),
-            "colmap_reference": pose.get("colmap_reference"),
-            "lap_start_absolute_metric_position": pose.get(
-                "lap_start_absolute_metric_position"
-            ),
-            "stopped_global_absolute_metric_position": pose.get(
-                "stopped_global_absolute_metric_position"
-            ),
-            # Neutral-hover rebootstrap keeps rendering rate-limited while
-            # exposing the independently measured room center to the
-            # controller's three-frame consensus. It is never used by the
-            # ordinary adjacent-frame tracking gate.
-            "route_raw_rcenter": pose.get("route_raw_rcenter"),
             "rotation_raw_rcenter": pose.get("rotation_raw_rcenter"),
             "rotation_position_anchor": pose.get("rotation_position_anchor"),
             "rotation_position_locked": bool(pose.get("rotation_position_locked")),
@@ -2172,21 +2127,7 @@ def taught_endpoint_arrival_verified(
     *,
     expected_leg_index: int | None,
 ) -> bool:
-    """Require progress-independent baseline evidence at a taught waypoint.
-
-    ``route_visual_endpoint_best_*`` describes the strongest anchor found by
-    the whole-leg alias audit.  That anchor is intentionally allowed to be an
-    earlier sentinel: its job is to expose repeated-room ambiguity.  Once the
-    endpoint matcher has independently produced a three-frame, geometry-
-    verified *current* candidate, the earlier sentinel must not veto that
-    candidate merely because it has a few more inliers.  The 24-Aug live lap
-    demonstrated the deadlock directly: current progress was 0.951 with 244
-    inliers, while the whole-leg best anchor remained at 0.772 for 116 s.
-
-    Prefer the current candidate and its current-frame route/monitor inliers.
-    Older recorded poses predate those fields, so retain the historical best-
-    anchor fallback only when no current candidate is present.
-    """
+    """Require progress-independent baseline evidence at a taught waypoint."""
     if (
         not isinstance(pose, dict)
         or pose.get("route_visual_endpoint_verified") is not True
@@ -2200,50 +2141,19 @@ def taught_endpoint_arrival_verified(
         required_hits = max(
             2, int(pose.get("route_visual_endpoint_required_hits") or 0)
         )
-        candidate_progress_raw = pose.get(
-            "route_visual_endpoint_candidate_progress"
-        )
-        candidate_progress = (
-            float(candidate_progress_raw)
-            if candidate_progress_raw is not None
-            else None
-        )
-        best_progress_raw = pose.get("route_visual_endpoint_best_progress")
-        best_progress = (
-            float(best_progress_raw)
-            if best_progress_raw is not None
-            else float("-inf")
-        )
+        best_progress = float(pose.get("route_visual_endpoint_best_progress"))
         best_inliers = int(pose.get("route_visual_endpoint_best_inliers") or 0)
-        current_inliers = max(
-            int(pose.get("route_visual_inliers") or 0),
-            int(pose.get("route_visual_monitor_inliers") or 0),
-        )
-        if current_inliers <= 0:
-            current_inliers = best_inliers
         minimum_inliers = max(
-            50 if expected_leg in {1, 2, 4} else 72,
-            int(pose.get("route_visual_endpoint_minimum_inliers") or 0),
+            72, int(pose.get("route_visual_endpoint_minimum_inliers") or 0)
         )
     except (TypeError, ValueError):
         return False
-    evidence_progress = (
-        candidate_progress
-        if candidate_progress is not None and math.isfinite(candidate_progress)
-        else best_progress
-    )
-    evidence_inliers = (
-        current_inliers
-        if candidate_progress is not None and math.isfinite(candidate_progress)
-        else best_inliers
-    )
     return bool(
         expected_leg in {1, 2, 3, 4}
         and observed_leg == expected_leg
         and hits >= required_hits
-        and math.isfinite(evidence_progress)
-        and evidence_progress >= 0.90
-        and evidence_inliers >= minimum_inliers
+        and best_progress >= 0.90
+        and best_inliers >= minimum_inliers
     )
 
 
@@ -2279,31 +2189,24 @@ def taught_endpoint_stale_translation_arrival_verified(
         candidate_progress = float(
             pose.get("route_visual_endpoint_candidate_progress")
         )
-        current_inliers = max(
-            int(pose.get("route_visual_inliers") or 0),
-            int(pose.get("route_visual_monitor_inliers") or 0),
-        )
-        if current_inliers <= 0:
-            # Compatibility for archived endpoint events produced before the
-            # current-frame inlier fields were persisted.
-            current_inliers = int(
-                pose.get("route_visual_endpoint_best_inliers") or 0
-            )
-        expected_leg = int(expected_leg_index or 0)
+        best_progress = float(pose.get("route_visual_endpoint_best_progress"))
+        best_inliers = int(pose.get("route_visual_endpoint_best_inliers") or 0)
         minimum_inliers = max(
-            50 if expected_leg in {1, 2, 4} else 90,
+            90,
             int(pose.get("route_visual_endpoint_minimum_inliers") or 0),
         )
     except (TypeError, ValueError):
         return False
     return bool(
         math.isfinite(candidate_progress)
+        and math.isfinite(best_progress)
         and candidate_progress >= 0.90
-        and current_inliers >= minimum_inliers
+        and best_progress >= 0.95
+        and best_inliers >= minimum_inliers
     )
 
 
-def tight_metric_tsolve_endpoint_arrival_candidate(
+def tight_metric_visual_endpoint_arrival_candidate(
     gate: dict[str, Any] | None,
     *,
     target: list[float] | None,
@@ -2311,18 +2214,20 @@ def tight_metric_tsolve_endpoint_arrival_candidate(
     command_progress_ceiling: float | None,
     maximum_metric_error: float = 0.15,
 ) -> bool:
-    """Use fresh metric TSolve as endpoint authority on Point 1 -> 2 -> 3.
+    """Use fresh metric position as Point-3 authority with ORB as a monitor.
 
-    ORB remains a route monitor while either early leg is moving, but an
-    intermittent recorded-image match must not veto a metric arrival after
-    the complete bounded command budget has been consumed. Three distinct
-    fresh TSolve frames inside the strict arrival radius are required by the
-    caller before the checkpoint is committed.
+    The recorded Point-3 endpoint images contain repeated room structure and
+    can alternate between several progress values even while TSolve remains
+    stable inside the strict arrival radius.  That ambiguity must not freeze
+    the aircraft after the controller has consumed the complete 2->3 command
+    budget.  A fresh metric pose may therefore finish only leg 2, and only
+    when the ordinary route monitor still identifies that same leg strongly.
 
-    This deliberately does not apply to the later 3 -> 4 -> 1 tail, whose
-    endpoint handling and recorded-view recovery remain unchanged.
+    Endpoint-image *progress* is deliberately not consumed here.  Its strong
+    descriptor support is secondary evidence that the camera remains on the
+    taught route, not the metric arrival authority.
     """
-    if int(expected_leg_index or 0) not in {1, 2}:
+    if int(expected_leg_index or 0) != 2:
         return False
     if not pose_gate_has_fresh_metric_position(gate):
         return False
@@ -2337,6 +2242,15 @@ def tight_metric_tsolve_endpoint_arrival_candidate(
         return False
     try:
         ceiling = float(command_progress_ceiling)
+        observed_leg = int(pose.get("route_visual_monitor_leg_index") or 0)
+        route_inliers = int(pose.get("route_visual_monitor_inliers") or 0)
+        route_progress = float(pose.get("route_visual_monitor_progress"))
+        tsolve_progress = float(
+            pose.get("route_visual_monitor_tsolve_progress")
+        )
+        route_disagreement = float(
+            pose.get("route_visual_monitor_disagreement_m")
+        )
     except (TypeError, ValueError):
         return False
     position = pose_gate_position(gate)
@@ -2346,6 +2260,15 @@ def tight_metric_tsolve_endpoint_arrival_candidate(
         and ceiling >= 1.0 - 1e-6
         and error is not None
         and error <= max(0.02, min(0.15, float(maximum_metric_error)))
+        and pose.get("route_visual_monitor_verified") is True
+        and observed_leg == 2
+        and route_inliers >= 90
+        and math.isfinite(route_progress)
+        and route_progress >= 0.88
+        and math.isfinite(tsolve_progress)
+        and tsolve_progress >= 0.88
+        and math.isfinite(route_disagreement)
+        and route_disagreement <= 0.10
     )
 
 
@@ -2355,19 +2278,9 @@ def update_tight_endpoint_consensus(
     *,
     candidate: bool,
     required_hits: int = 3,
-    observation_missing: bool = False,
-    maximum_missing_frames: int = 2,
 ) -> bool:
-    """Require distinct localized frames before accepting a metric endpoint."""
+    """Require distinct localized frames before accepting metric Point 3."""
     if not candidate:
-        if observation_missing and int(state.get("hits") or 0) > 0:
-            state["missing_frames"] = int(state.get("missing_frames") or 0) + 1
-            if int(state["missing_frames"]) <= max(
-                0, int(maximum_missing_frames)
-            ):
-                return int(state.get("hits") or 0) >= max(
-                    3, int(required_hits)
-                )
         state.clear()
         return False
     pose = gate.get("pose") if isinstance(gate, dict) else None
@@ -2378,7 +2291,6 @@ def update_tight_endpoint_consensus(
     if state.get("last_instance_id") != instance_id:
         state["last_instance_id"] = instance_id
         state["hits"] = int(state.get("hits") or 0) + 1
-    state["missing_frames"] = 0
     return int(state.get("hits") or 0) >= max(3, int(required_hits))
 
 
@@ -2565,7 +2477,7 @@ def verified_route_endpoint_pose_gate(
     epoch_unix: float,
     reason: str,
 ) -> dict[str, Any] | None:
-    """Commit a visually verified stationary endpoint as a non-metric anchor.
+    """Commit a visually verified stationary endpoint to route pose state.
 
     The endpoint matcher and the metric pose stream are independent.  When the
     former has repeatedly proved that the aircraft reached a taught waypoint,
@@ -2574,9 +2486,7 @@ def verified_route_endpoint_pose_gate(
     translation-locked controller-owned anchor used by the Point-4 handoff and
     explicitly completes the old leg.  It still cannot authorize translation;
     a post-epoch camera observation and the next leg's heading gates are
-    required before another horizontal command.  The explicit anchor-only
-    flags prevent the retained historical R/t from being mistaken for a new
-    metric measurement after ``rcenter`` is moved to the visual checkpoint.
+    required before another horizontal command.
     """
     anchored_gate = verified_route_anchor_pose_gate(
         gate,
@@ -2592,8 +2502,6 @@ def verified_route_endpoint_pose_gate(
         {
             "route_verified_endpoint_committed": True,
             "route_verified_endpoint_progress": 1.0,
-            "route_verified_endpoint_anchor_only": True,
-            "metric_rebootstrap_required": True,
         }
     )
     anchored_gate.update(
@@ -2601,7 +2509,6 @@ def verified_route_endpoint_pose_gate(
             "pose": pose,
             "route_progress": 1.0,
             "verified_route_endpoint_gate": True,
-            "metric_position_valid": False,
         }
     )
     return anchored_gate
@@ -2622,16 +2529,6 @@ def pose_gate_has_fresh_metric_position(gate: dict[str, Any] | None) -> bool:
         return False
     pose = gate.get("pose")
     if not isinstance(pose, dict):
-        return False
-    # A visually verified endpoint is a safe stationary route anchor, not a
-    # new metric measurement.  The wrapper preserves the old R/t for heading
-    # continuity while replacing rcenter for rendering; without this explicit
-    # rejection it could masquerade as a fresh TSolve pose at the next lap.
-    if (
-        pose.get("route_verified_endpoint_committed") is True
-        or pose.get("route_verified_endpoint_anchor_only") is True
-        or gate.get("metric_position_valid") is False
-    ):
         return False
     if pose.get("pose_source") in {
         "patrol_visual_route_recovery",
@@ -2656,93 +2553,6 @@ def pose_gate_has_fresh_metric_position(gate: dict[str, Any] | None) -> bool:
     except (TypeError, ValueError):
         return False
     return len(rotation_values) == 9 and all(math.isfinite(value) for value in rotation_values)
-
-
-def lap_transition_metric_consensus_gate(
-    state: dict[str, Any],
-    gate: dict[str, Any] | None,
-    *,
-    minimum_received_unix: float,
-    required_frames: int = 3,
-    maximum_spread_m: float = 0.30,
-) -> dict[str, Any] | None:
-    """Accept a stopped Point-1* global pose without assuming it is Point 1.
-
-    The taught 4->1 image bank ends at Point 1*, which is not the saved patrol
-    Point 1.  Continuity against the saved Point-1 coordinate therefore
-    rejects a valid global correction.  During this explicit neutral-hover
-    transition, use independent newest-frame metric poses instead: three
-    distinct observations must agree with one another before the controller
-    may use their location as the start of the guarded Point-1 entry.
-    """
-    if not pose_gate_has_fresh_metric_position(gate):
-        return None
-    assert isinstance(gate, dict)
-    pose = gate.get("pose")
-    if not isinstance(pose, dict):
-        return None
-    try:
-        received_unix = float(pose.get("received_unix"))
-    except (TypeError, ValueError):
-        return None
-    if (
-        not math.isfinite(received_unix)
-        or received_unix < float(minimum_received_unix)
-    ):
-        return None
-    position = pose_gate_position(gate)
-    instance_id = str(pose.get("instance_id") or "")
-    if position is None or not instance_id:
-        return None
-    if state.get("last_instance_id") == instance_id:
-        return (
-            dict(state["accepted_gate"])
-            if isinstance(state.get("accepted_gate"), dict)
-            else None
-        )
-
-    required = max(3, int(required_frames))
-    spread_limit = max(0.05, float(maximum_spread_m))
-    observations = [
-        item
-        for item in (state.get("observations") or [])
-        if isinstance(item, dict) and vector3(item.get("position")) is not None
-    ]
-    if any(
-        (horizontal_xz_distance(position, vector3(item.get("position"))) or 0.0)
-        > spread_limit
-        for item in observations
-    ):
-        observations = []
-    observations.append(
-        {
-            "instance_id": instance_id,
-            "received_unix": received_unix,
-            "position": list(position),
-        }
-    )
-    observations = observations[-required:]
-    state["observations"] = observations
-    state["last_instance_id"] = instance_id
-    state["hits"] = len(observations)
-    state["maximum_spread_m"] = spread_limit
-    if len(observations) < required:
-        state.pop("accepted_gate", None)
-        return None
-
-    consensus_gate = dict(gate)
-    consensus_gate.update(
-        {
-            "lap_transition_metric_consensus": True,
-            "lap_transition_metric_consensus_hits": len(observations),
-            "lap_transition_metric_consensus_maximum_spread_m": spread_limit,
-            "lap_transition_metric_consensus_positions": [
-                list(item["position"]) for item in observations
-            ],
-        }
-    )
-    state["accepted_gate"] = consensus_gate
-    return consensus_gate
 
 
 def pose_gate_rotation_locked(gate: dict[str, Any] | None) -> bool:
@@ -3174,7 +2984,7 @@ def patrol_visual_translation_resume_ready(pose: dict[str, Any] | None) -> bool:
         minimum = max(
             (
                 50
-                if temporal_recovery and leg_index in {1, 2, 4}
+                if temporal_recovery and leg_index == 4
                 else (90 if temporal_recovery else 120)
             ),
             int(pose.get("route_visual_minimum_inliers") or 0),
@@ -3389,11 +3199,10 @@ def mission_step_sequence(
 
     Browser patrol plans include a current-position -> point-1 entry leg before
     the closed point-1 -> ... -> point-1 loop.  That entry runs only once.
-    The taught 4 -> 1 image bank can end at a visually verified Point 1* that
-    is physically different from the saved patrol Point 1.  Before every later
-    lap, emit a stopped global relocalization checkpoint and a guarded dynamic
-    Point-1 entry.  Only after reaching saved Point 1 does the ordinary 1 -> 2
-    loop body begin.
+    At every later lap, the first loop cruise preserves the verified 4 -> 1
+    endpoint as a yaw-only anchor, turns toward Point 2, and performs the fresh
+    metric relocalization only after the heading is aligned.  Horizontal RC
+    remains locked until that post-turn metric checkpoint succeeds.
     """
     if not patrol_loop:
         return iter(enumerate(commands))
@@ -3403,54 +3212,12 @@ def mission_step_sequence(
     prefix = tuple(enumerate(commands[:start]))
     loop_body = tuple((index, commands[index]) for index in range(start, len(commands)))
 
-    def repeated_lap_entry_geometry() -> tuple[int, list[float], list[float]] | None:
-        for command_index, command in loop_body:
-            if not isinstance(command, dict):
-                continue
-            if str(command.get("type") or "").strip().lower() != "cruise":
-                continue
-            point_one = vector3(command.get("from"))
-            point_two = vector3(command.get("to"))
-            if point_one is None or point_two is None:
-                continue
-            try:
-                identified_first_leg = (
-                    int(command.get("from_point")) == 1
-                    and int(command.get("to_point")) == 2
-                )
-            except (TypeError, ValueError):
-                identified_first_leg = False
-            if identified_first_leg or point_one != point_two:
-                return command_index, point_one, point_two
-        return None
-
     def marked_loop(lap_number: int):
-        entry_geometry = repeated_lap_entry_geometry()
-        if lap_number > 1 and entry_geometry is not None:
-            command_index, point_one, point_two = entry_geometry
-            yield command_index, {
-                "type": "lap_relocalize_entry",
-                "title": f"Lap {lap_number} localize at Point 1*",
-                "_atlas_lap_number": lap_number,
-                "_atlas_lap_start": True,
-                "point1": list(point_one),
-                "point2": list(point_two),
-            }
-            yield command_index, {
-                "type": "cruise",
-                "title": f"Lap {lap_number} Point 1* to Point 1",
-                "from": list(point_one),
-                "to": list(point_one),
-                "speed_mps": 0.10,
-                "patrol_stage": "entry",
-                "_atlas_lap_number": lap_number,
-                "_atlas_lap_reentry": True,
-            }
         for offset, (index, command) in enumerate(loop_body):
             if isinstance(command, dict):
                 command = dict(command)
                 command["_atlas_lap_number"] = lap_number
-                if offset == 0 and not (lap_number > 1 and entry_geometry is not None):
+                if offset == 0:
                     command["_atlas_lap_start"] = True
             yield index, command
 
@@ -5185,7 +4952,7 @@ def execute_guarded_mission_packet(
         source_gate: dict[str, Any] | None,
         endpoint: list[float],
     ) -> dict[str, Any] | None:
-        """Record proved 4->1 arrival as a locked visual, non-metric anchor."""
+        """Atomically make a proved 4->1 arrival the next lap's pose truth."""
         nonlocal last_pose_gate, active_route_progress
         nonlocal active_route_command_progress_ceiling
         nonlocal active_route_translation_locked, active_route_position_anchor
@@ -5261,17 +5028,12 @@ def execute_guarded_mission_packet(
         allow_visual_stationary_retry: bool = False,
         require_metric_pose: bool = False,
         lap_start_metric_rebootstrap: bool = False,
-        allow_metric_discontinuity_consensus: bool = False,
-        allow_stopped_global_rebootstrap: bool = False,
     ) -> dict[str, Any] | None:
         nonlocal abort_reason, last_pose_gate, active_route_progress
         nonlocal total_pose_recovery_pause_seconds
         nonlocal active_route_translation_locked, active_route_position_anchor
         nonlocal yaw_position_anchor
         nonlocal pose_recovery_active
-        nonlocal active_route_command_progress_ceiling
-        nonlocal active_route_pose_epoch, active_route_pose_epoch_unix
-        nonlocal active_route_pose_epoch_reason
         wait_seconds = pose_recovery_seconds if timeout is None else max(0.1, float(timeout))
         recovery_started = time.monotonic()
         deadline = recovery_started + wait_seconds
@@ -5281,16 +5043,6 @@ def execute_guarded_mission_packet(
         endpoint_metric_correction_hits = 0
         endpoint_metric_correction_instance: str | None = None
         endpoint_metric_correction_progress: float | None = None
-        # Point 3 has a reliable metric TSolve endpoint but ambiguous repeated
-        # whiteboard imagery.  Keep its three-frame metric/ORB-leg consensus
-        # inside this recovery loop.  Previously the outer cruise loop could
-        # see the same evidence, enter recovery one frame later, and then wait
-        # only for the ambiguous endpoint-image progress for 90 seconds.
-        endpoint_tight_metric_state: dict[str, Any] = {}
-        lap_transition_metric_state: dict[str, Any] = {}
-        stopped_metric_state: dict[str, Any] = {}
-        lap_transition_started_unix = time.time()
-        stopped_rebase_committed = False
 
         # This function issues neutral hover only.  A yaw pulse may have left
         # both route-lock variables and the cruise loop's navigation anchor
@@ -5324,14 +5076,6 @@ def execute_guarded_mission_packet(
                     abort_reason = "emergency hover requested"
                     return None
                 elapsed = time.monotonic() - recovery_started
-                stopped_metric_rebootstrap = bool(
-                    allow_stopped_global_rebootstrap
-                    and not stopped_rebase_committed
-                    # Give ordinary optical/TSolve continuity one short chance
-                    # to recover a transient delayed frame before paying for
-                    # current-frame global SIFT/Faiss registration.
-                    and elapsed >= 0.75
-                )
                 publish_progress(
                     {
                         "phase": "pose_recovery",
@@ -5341,12 +5085,6 @@ def execute_guarded_mission_packet(
                         "require_metric_pose": require_metric_pose,
                         "lap_start_metric_rebootstrap": bool(
                             lap_start_metric_rebootstrap
-                        ),
-                        "lap_transition_metric_consensus": bool(
-                            allow_metric_discontinuity_consensus
-                        ),
-                        "stopped_metric_rebootstrap": (
-                            stopped_metric_rebootstrap
                         ),
                         # A metric checkpoint is a neutral hover, not a yaw
                         # command.  Permit the localizer to publish the newly
@@ -5398,194 +5136,7 @@ def execute_guarded_mission_packet(
                     }
                 )
                 neutral_hover(drone, GUIDED_RECOVERY_HOVER_SECONDS)
-                if allow_metric_discontinuity_consensus:
-                    raw_metric_gate = latest_tsolve_pose_gate(
-                        pose_stream_path,
-                        pose_max_age,
-                        allow_rotation_frozen=False,
-                    )
-                    if raw_metric_gate.get("ok"):
-                        raw_metric_gate = {
-                            **raw_metric_gate,
-                            "pose_offset_room": initial_pose_offset_room,
-                        }
-                    consensus_gate = lap_transition_metric_consensus_gate(
-                        lap_transition_metric_state,
-                        raw_metric_gate,
-                        minimum_received_unix=lap_transition_started_unix,
-                    )
-                    if consensus_gate is not None:
-                        gate = consensus_gate
-                    else:
-                        gate = {
-                            **raw_metric_gate,
-                            "ok": False,
-                            "reason": (
-                                "waiting for three mutually consistent newest-frame "
-                                "global TSolve poses at Point 1* "
-                                f"({int(lap_transition_metric_state.get('hits') or 0)}/3)"
-                                if raw_metric_gate.get("ok")
-                                else str(
-                                    raw_metric_gate.get("reason")
-                                    or "waiting for Point-1* global TSolve pose"
-                                )
-                            ),
-                            "lap_transition_metric_consensus_hits": int(
-                                lap_transition_metric_state.get("hits") or 0
-                            ),
-                        }
-                elif stopped_metric_rebootstrap:
-                    raw_metric_gate = latest_tsolve_pose_gate(
-                        pose_stream_path,
-                        pose_max_age,
-                        allow_rotation_frozen=False,
-                    )
-                    raw_pose = (
-                        dict(raw_metric_gate.get("pose") or {})
-                        if isinstance(raw_metric_gate, dict)
-                        else {}
-                    )
-                    raw_room_position = vector3(raw_pose.get("route_raw_rcenter"))
-                    if (
-                        raw_metric_gate.get("ok")
-                        and raw_pose.get(
-                            "stopped_global_absolute_metric_position"
-                        )
-                        is True
-                        and raw_room_position is not None
-                    ):
-                        raw_pose["rcenter"] = list(raw_room_position)
-                        raw_pose["stopped_global_consensus_uses_raw_center"] = True
-                        raw_metric_gate = {
-                            **raw_metric_gate,
-                            "pose": raw_pose,
-                            "pose_offset_room": initial_pose_offset_room,
-                        }
-                    else:
-                        raw_metric_gate = {
-                            **raw_metric_gate,
-                            "ok": False,
-                            "reason": str(
-                                raw_metric_gate.get("reason")
-                                or "waiting for a newest-frame stopped global metric pose"
-                            ),
-                        }
-                    consensus_gate = lap_transition_metric_consensus_gate(
-                        stopped_metric_state,
-                        raw_metric_gate,
-                        minimum_received_unix=lap_transition_started_unix,
-                        required_frames=3,
-                        maximum_spread_m=0.08,
-                    )
-                    if consensus_gate is None:
-                        gate = {
-                            **raw_metric_gate,
-                            "ok": False,
-                            "reason": (
-                                "waiting for three mutually consistent newest-frame "
-                                "global TSolve poses during stopped recovery "
-                                f"({int(stopped_metric_state.get('hits') or 0)}/3)"
-                            ),
-                            "stopped_metric_consensus_hits": int(
-                                stopped_metric_state.get("hits") or 0
-                            ),
-                        }
-                    else:
-                        recovered_position = pose_gate_position(consensus_gate)
-                        recovered_progress = route_segment_progress_xz(
-                            recovered_position,
-                            active_route_segment_start,
-                            active_route_segment_end,
-                        )
-                        recovered_cross_track = route_line_cross_track_xz(
-                            recovered_position,
-                            active_route_segment_start,
-                            active_route_segment_end,
-                        )
-                        route_consistent = bool(
-                            recovered_position is not None
-                            and recovered_progress is not None
-                            and recovered_cross_track is not None
-                            and -0.08 <= float(recovered_progress) <= 1.20
-                            and float(recovered_cross_track)
-                            <= min(0.30, float(route_gate_max_cross_track))
-                        )
-                        if not route_consistent:
-                            stopped_metric_state.clear()
-                            gate = {
-                                **consensus_gate,
-                                "ok": False,
-                                "reason": (
-                                    "stopped global consensus is outside the active "
-                                    "route corridor; retaining the last trusted pose"
-                                ),
-                                "stopped_global_route_progress": recovered_progress,
-                                "stopped_global_cross_track_m": recovered_cross_track,
-                            }
-                        else:
-                            active_route_pose_epoch += 1
-                            active_route_pose_epoch_unix = time.time()
-                            active_route_pose_epoch_reason = (
-                                "stopped_global_relocalization"
-                            )
-                            active_route_progress = float(recovered_progress)
-                            active_route_command_progress_ceiling = max(
-                                float(active_route_command_progress_ceiling or 0.0),
-                                min(1.0, float(recovered_progress)),
-                            )
-                            active_route_position_anchor = list(recovered_position)
-                            last_pose_gate = {
-                                **consensus_gate,
-                                "route_progress": float(recovered_progress),
-                                "route_pose_epoch": active_route_pose_epoch,
-                                "route_pose_epoch_unix": active_route_pose_epoch_unix,
-                                "route_pose_epoch_reason": (
-                                    active_route_pose_epoch_reason
-                                ),
-                                "stopped_global_relocalization_committed": True,
-                            }
-                            last_pose = dict(last_pose_gate.get("pose") or {})
-                            last_pose.update(
-                                {
-                                    "route_pose_epoch": active_route_pose_epoch,
-                                    "route_pose_epoch_unix": (
-                                        active_route_pose_epoch_unix
-                                    ),
-                                    "route_pose_epoch_reason": (
-                                        active_route_pose_epoch_reason
-                                    ),
-                                }
-                            )
-                            last_pose_gate["pose"] = last_pose
-                            recovery_display_anchor = list(recovered_position)
-                            stopped_rebase_committed = True
-                            stopped_metric_state.clear()
-                            last_reason = (
-                                "stopped global pose consensus committed; waiting "
-                                "for one post-epoch camera pose before resuming"
-                            )
-                            publish_progress(
-                                {
-                                    "phase": "stopped_global_relocalization_committed",
-                                    "translation_locked": True,
-                                    "position_anchor": list(recovered_position),
-                                    "route_progress": float(recovered_progress),
-                                    "route_pose_epoch": active_route_pose_epoch,
-                                    "route_pose_epoch_unix": (
-                                        active_route_pose_epoch_unix
-                                    ),
-                                    "route_pose_epoch_reason": (
-                                        active_route_pose_epoch_reason
-                                    ),
-                                    "message": last_reason,
-                                }
-                            )
-                            # Do not resume from the same images that created
-                            # the new anchor. The next loop requires a camera
-                            # observation captured after this epoch.
-                            continue
-                else:
-                    gate = continuity_guarded_pose_gate()
+                gate = continuity_guarded_pose_gate()
                 last_recovery_gate = gate
                 candidate_position = pose_gate_position(gate)
                 candidate_distance = horizontal_xz_distance(
@@ -5597,51 +5148,8 @@ def execute_guarded_mission_packet(
                     and translation_arrival_radius is not None
                     and candidate_distance <= float(translation_arrival_radius)
                 )
-                tight_metric_endpoint_candidate = bool(
-                    require_endpoint_verified
-                    and int(endpoint_leg_index or 0) in {1, 2}
-                    and tight_metric_tsolve_endpoint_arrival_candidate(
-                        gate,
-                        target=translation_target,
-                        expected_leg_index=endpoint_leg_index,
-                        command_progress_ceiling=(
-                            active_route_command_progress_ceiling
-                        ),
-                        # The user-selected indoor metric endpoint tolerance is
-                        # 8 cm. Three distinct fresh TSolve frames remain
-                        # mandatory; ORB is diagnostic at the endpoint.
-                        maximum_metric_error=min(
-                            0.08,
-                            float(translation_arrival_radius or 0.08),
-                        ),
-                    )
-                )
-                endpoint_candidate_pose = (
-                    gate.get("pose") if isinstance(gate, dict) else None
-                )
-                endpoint_observation_missing = bool(
-                    isinstance(endpoint_candidate_pose, dict)
-                    and endpoint_candidate_pose.get(
-                        "route_visual_monitor_progress"
-                    )
-                    is None
-                    and int(
-                        endpoint_candidate_pose.get(
-                            "route_visual_monitor_leg_index"
-                        )
-                        or 0
-                    )
-                    == 0
-                )
-                tight_metric_endpoint_ready = update_tight_endpoint_consensus(
-                    endpoint_tight_metric_state,
-                    gate,
-                    candidate=tight_metric_endpoint_candidate,
-                    observation_missing=endpoint_observation_missing,
-                )
                 endpoint_ready = bool(
                     not require_endpoint_verified
-                    or tight_metric_endpoint_ready
                     or taught_endpoint_arrival_verified(
                         gate.get("pose") if isinstance(gate, dict) else None,
                         expected_leg_index=endpoint_leg_index,
@@ -5813,15 +5321,14 @@ def execute_guarded_mission_packet(
                         ),
                     }
                 if pose_ready:
-                    recovered_gate = dict(gate)
-                    if tight_metric_endpoint_ready:
-                        recovered_gate["tight_metric_endpoint_arrival"] = True
-                        recovered_gate["tight_metric_endpoint_hits"] = int(
-                            endpoint_tight_metric_state.get("hits") or 0
-                        )
-                    if visual_checkpoint_arrived:
-                        recovered_gate["visual_checkpoint_arrival"] = True
-                    return recovered_gate
+                    return (
+                        {
+                            **gate,
+                            "visual_checkpoint_arrival": True,
+                        }
+                        if visual_checkpoint_arrived
+                        else gate
+                    )
                 if require_metric_pose and not metric_pose_ready:
                     last_reason = (
                         "waiting for a fresh metric TSolve R,t; route-only or held "
@@ -6741,112 +6248,16 @@ def execute_guarded_mission_packet(
                 continue
 
             if kind == "lap_relocalize_entry":
-                saved_point_one = vector3(step.get("point1"))
-                saved_point_two = vector3(step.get("point2"))
-                if saved_point_one is None or saved_point_two is None:
-                    abort_reason = (
-                        "repeated-lap Point-1* checkpoint has no saved Point-1 "
-                        "and Point-2 geometry"
-                    )
-                    break
-
-                # Point 1* is the visually verified end of the taught 4->1
-                # bank, not the saved Point 1.  Publish the real 1->2 geometry
-                # only so the localizer can identify the selected map/patrol;
-                # metric recovery is explicitly unlocked and no route pose is
-                # permitted to authorize translation during this hover.
-                active_route_segment_start = list(saved_point_one)
-                active_route_segment_end = list(saved_point_two)
-                active_route_progress = None
-                active_route_translation_locked = True
-                active_route_position_anchor = pose_gate_position(last_pose_gate)
-                active_route_pose_epoch += 1
-                active_route_pose_epoch_unix = time.time()
-                active_route_pose_epoch_reason = "lap_start_global_relocalization"
-                publish_progress(
-                    {
-                        "phase": "lap_point1_star_global_relocalization",
-                        "lap": current_lap_number,
-                        "translation_locked": True,
-                        "require_metric_pose": True,
-                        "lap_start_metric_rebootstrap": True,
-                        "lap_transition_metric_consensus": True,
-                        "saved_point1": list(saved_point_one),
-                        "message": (
-                            f"Lap {current_lap_number}: hovering at Point 1* while "
-                            "three newest-frame global TSolve poses establish its "
-                            "actual map position. Point 1 is not assumed."
-                        ),
-                    }
-                )
-                recovered_gate = wait_for_pose_recovery(
-                    "lap_point1_star_global_relocalization",
-                    "waiting for three consistent global TSolve poses at Point 1*",
-                    timeout=12.0,
-                    require_translation_safe=True,
-                    require_metric_pose=True,
-                    lap_start_metric_rebootstrap=True,
-                    allow_metric_discontinuity_consensus=True,
-                )
-                if recovered_gate is None:
-                    break
-                if not enforce_patrol_geofence(
-                    recovered_gate,
-                    "lap Point-1* global relocalization",
-                ):
-                    break
-                recovered_position = pose_gate_position(recovered_gate)
-                if recovered_position is None:
-                    abort_reason = (
-                        "Point-1* global consensus has no room-frame position"
-                    )
-                    break
-                last_pose_gate = recovered_gate
-                lap_reentry_metric_ready = True
-                lap_metric_checkpoint_pending = False
-                active_route_segment_start = None
-                active_route_segment_end = None
-                active_route_progress = None
-                active_route_translation_locked = True
-                active_route_position_anchor = list(recovered_position)
-                rc_summary.setdefault("lap_point1_star_relocalizations", []).append(
-                    {
-                        "lap": current_lap_number,
-                        "position": list(recovered_position),
-                        "saved_point1": list(saved_point_one),
-                        "distance_to_saved_point1": horizontal_xz_distance(
-                            recovered_position,
-                            saved_point_one,
-                        ),
-                        "consensus_hits": recovered_gate.get(
-                            "lap_transition_metric_consensus_hits"
-                        ),
-                    }
-                )
-                publish_progress(
-                    {
-                        "phase": "lap_point1_star_localized",
-                        "lap": current_lap_number,
-                        "translation_locked": True,
-                        "position_anchor": list(recovered_position),
-                        "saved_point1": list(saved_point_one),
-                        "distance_to_saved_point1": horizontal_xz_distance(
-                            recovered_position,
-                            saved_point_one,
-                        ),
-                        "message": (
-                            f"Lap {current_lap_number}: Point 1* is globally "
-                            "localized; the guarded Point-1 entry may begin."
-                        ),
-                    }
-                )
-                executed.append(
+                # Older saved mission packets may still contain the former
+                # pre-turn relocalization marker.  It is deliberately ignored:
+                # the Point-1 -> Point-2 cruise performs yaw first and requests
+                # the metric rebootstrap only after the heading is aligned.
+                skipped.append(
                     {
                         "index": idx,
                         "type": kind,
                         "title": title,
-                        "position": list(recovered_position),
-                        "saved_point1": list(saved_point_one),
+                        "reason": "obsolete pre-turn lap relocalization marker",
                     }
                 )
                 continue
@@ -6990,18 +6401,7 @@ def execute_guarded_mission_packet(
                     route_follow_alignment_exit_deg = 6.0
                     route_follow_lookahead_m = 0.35
                     route_follow_max_correction_deg = 7.0
-                dynamic_lap_reentry = step.get("_atlas_lap_reentry") is True
-                # A recorded loop leg needs ORB endpoint identity in addition
-                # to metric distance.  The synthetic Point 1* -> Point 1
-                # connector has no recorded endpoint leg of its own: it must
-                # arrive strictly by fresh room-metric TSolve, without waiting
-                # forever for unrelated ORB evidence.
-                precise_arrival = bool(
-                    taught_leg_requires_precise_arrival(taught_leg)
-                )
-                strict_metric_arrival = bool(
-                    precise_arrival or dynamic_lap_reentry
-                )
+                precise_arrival = taught_leg_requires_precise_arrival(taught_leg)
                 try:
                     endpoint_leg_index = (
                         int(taught_leg.get("from_point"))
@@ -7014,8 +6414,9 @@ def execute_guarded_mission_packet(
                     configured_arrival_radius,
                     arrival_deadband,
                     patrol_stage=cruise_stage,
-                    strict_target=strict_metric_arrival,
+                    strict_target=precise_arrival,
                 )
+                dynamic_lap_reentry = step.get("_atlas_lap_reentry") is True
                 target = step_target_position(step)
                 if target is None:
                     abort_reason = "cruise target is missing; refusing open-loop patrol travel"
@@ -7106,7 +6507,7 @@ def execute_guarded_mission_packet(
                 # failed 14:08 run a false +14.4% head start on Point 2→3.
                 start_position = (
                     list(segment_start)
-                    if strict_metric_arrival and segment_start is not None
+                    if precise_arrival and segment_start is not None
                     else raw_start_position
                 )
                 initial_distance = horizontal_xz_distance(start_position, target)
@@ -7144,7 +6545,7 @@ def execute_guarded_mission_packet(
                 active_route_segment_end = target
                 active_route_progress = (
                     0.0
-                    if strict_metric_arrival and segment_start is not None
+                    if precise_arrival and segment_start is not None
                     else route_segment_progress_xz(
                         start_position,
                         active_route_segment_start,
@@ -7682,13 +7083,13 @@ def execute_guarded_mission_packet(
                     unlocked_position = pose_gate_position(gate)
                     start_position = (
                         list(segment_start)
-                        if strict_metric_arrival and segment_start is not None
+                        if precise_arrival and segment_start is not None
                         else unlocked_position
                     )
                     yaw_position_anchor = start_position
                     active_route_progress = (
                         0.0
-                        if strict_metric_arrival and segment_start is not None
+                        if precise_arrival and segment_start is not None
                         else route_segment_progress_xz(
                             start_position,
                             active_route_segment_start,
@@ -8953,33 +8354,30 @@ def execute_guarded_mission_packet(
                     endpoint_alignment_error: float | None = None
                     endpoint_desired_heading: list[float] | None = None
                     endpoint_ready = not precise_arrival
-                    tight_early_leg_ready = False
+                    tight_point_three_ready = False
                     if current_distance is not None:
                         final_distance = current_distance
-                        tight_early_leg_candidate = bool(
+                        tight_point_three_candidate = bool(
                             precise_arrival
-                            and endpoint_leg_index in {1, 2}
-                            and tight_metric_tsolve_endpoint_arrival_candidate(
+                            and endpoint_leg_index == 2
+                            and tight_metric_visual_endpoint_arrival_candidate(
                                 current_gate,
                                 target=target,
                                 expected_leg_index=endpoint_leg_index,
                                 command_progress_ceiling=(
                                     active_route_command_progress_ceiling
                                 ),
-                                maximum_metric_error=min(
-                                    0.08,
-                                    cruise_arrival_radius,
-                                ),
+                                maximum_metric_error=cruise_arrival_radius,
                             )
                         )
-                        tight_early_leg_ready = update_tight_endpoint_consensus(
+                        tight_point_three_ready = update_tight_endpoint_consensus(
                             tight_metric_endpoint_consensus_state,
                             current_gate,
-                            candidate=tight_early_leg_candidate,
+                            candidate=tight_point_three_candidate,
                         )
                         endpoint_ready = bool(
                             not precise_arrival
-                            or tight_early_leg_ready
+                            or tight_point_three_ready
                             or taught_endpoint_arrival_verified(
                                 current_gate.get("pose")
                                 if isinstance(current_gate, dict)
@@ -9033,15 +8431,6 @@ def execute_guarded_mission_packet(
                                     "verified_endpoint_pose_committed": bool(
                                         endpoint_leg_index == 4
                                     ),
-                                    "verified_endpoint_pose_kind": (
-                                        "visual_route_anchor"
-                                        if endpoint_leg_index == 4
-                                        else None
-                                    ),
-                                    "metric_pose_committed": False,
-                                    "metric_rebootstrap_required": bool(
-                                        endpoint_leg_index == 4
-                                    ),
                                     "message": (
                                         "Repeated progress-independent endpoint images "
                                         "verified the waypoint while TSolve translation "
@@ -9053,13 +8442,13 @@ def execute_guarded_mission_packet(
                             neutral_hover(drone, 0.25)
                             break
                         if (
-                            tight_early_leg_candidate
-                            and not tight_early_leg_ready
+                            tight_point_three_candidate
+                            and not tight_point_three_ready
                             and current_distance <= cruise_arrival_radius
                         ):
                             publish_progress(
                                 {
-                                    "phase": "early_leg_metric_endpoint_consensus",
+                                    "phase": "point3_metric_endpoint_consensus",
                                     "step_index": idx,
                                     "step_title": title,
                                     "translation_locked": True,
@@ -9074,10 +8463,9 @@ def execute_guarded_mission_packet(
                                     ),
                                     "metric_endpoint_required_hits": 3,
                                     "message": (
-                                        f"Fresh TSolve is inside Point "
-                                        f"{int(endpoint_leg_index or 0) + 1}; hovering for "
-                                        "three distinct metric poses. ORB remains diagnostic "
-                                        "and cannot veto this strict metric arrival."
+                                        "Fresh TSolve is inside Point 3 and ORB confirms "
+                                        "the active leg; hovering for three distinct metric "
+                                        "poses without requiring ambiguous endpoint progress."
                                     ),
                                 }
                             )
@@ -9095,7 +8483,7 @@ def execute_guarded_mission_packet(
                             reached = True
                             arrival_mode = (
                                 "strict_radius_metric_tsolve"
-                                if tight_early_leg_ready
+                                if tight_point_three_ready
                                 else "strict_radius_endpoint_verified"
                                 if precise_arrival
                                 else "strict_radius"
@@ -9237,58 +8625,10 @@ def execute_guarded_mission_packet(
                                 current_position, target
                             )
                             final_distance = current_distance
-                            endpoint_ready = bool(
-                                current_gate.get("tight_metric_endpoint_arrival")
-                                or taught_endpoint_arrival_verified(
-                                    current_gate.get("pose"),
-                                    expected_leg_index=endpoint_leg_index,
-                                )
+                            endpoint_ready = taught_endpoint_arrival_verified(
+                                current_gate.get("pose"),
+                                expected_leg_index=endpoint_leg_index,
                             )
-                            # Recovery has already performed every required
-                            # independent check.  Commit the checkpoint in the
-                            # same controller iteration instead of fetching a
-                            # newer frame that may omit the transient endpoint
-                            # fields and re-entering recovery indefinitely.
-                            if (
-                                endpoint_ready
-                                and current_distance is not None
-                                and current_distance <= cruise_soft_arrival_radius
-                            ):
-                                reached = True
-                                arrival_mode = (
-                                    "recovered_metric_tsolve_endpoint"
-                                    if current_gate.get(
-                                        "tight_metric_endpoint_arrival"
-                                    )
-                                    else "recovered_visual_endpoint_verified"
-                                )
-                                active_route_translation_locked = True
-                                active_route_position_anchor = list(target)
-                                yaw_position_anchor = list(target)
-                                publish_progress(
-                                    {
-                                        "phase": "cruise_arrival",
-                                        "step_index": idx,
-                                        "step_title": title,
-                                        "target": target,
-                                        "distance_to_target": current_distance,
-                                        "arrival_radius": cruise_arrival_radius,
-                                        "soft_arrival_radius": (
-                                            cruise_soft_arrival_radius
-                                        ),
-                                        "translation_locked": True,
-                                        "position_anchor": target,
-                                        "endpoint_leg_index": endpoint_leg_index,
-                                        "arrival_mode": arrival_mode,
-                                        "message": (
-                                            "Recovered endpoint evidence was accepted in "
-                                            "the same frame; committing the checkpoint "
-                                            "without another motion or recovery cycle."
-                                        ),
-                                    }
-                                )
-                                neutral_hover(drone, 0.20)
-                                break
                         if current_distance < closest_distance - 0.03:
                             closest_distance = current_distance
                             diverging_pulses = 0
@@ -9966,15 +9306,6 @@ def execute_guarded_mission_packet(
                             allow_visual_stationary_retry=(
                                 visual_stationary_retry_available
                             ),
-                            # If a delayed frame lets physical motion outrun
-                            # the last accepted pose, ordinary 30 cm continuity
-                            # cannot recover from its own stale anchor. While
-                            # RC is held at zero, obtain three independent
-                            # newest-frame metric poses and start a new guarded
-                            # route epoch. Normal tracking thresholds remain
-                            # unchanged before and after this recovery.
-                            require_metric_pose=True,
-                            allow_stopped_global_rebootstrap=True,
                         )
                         if recovered_progress_gate is None:
                             break
@@ -10325,15 +9656,6 @@ def execute_guarded_mission_packet(
                                 "endpoint_leg_index": endpoint_leg_index,
                                 "visual_checkpoint_arrival": True,
                                 "verified_endpoint_pose_committed": bool(
-                                    endpoint_leg_index == 4
-                                ),
-                                "verified_endpoint_pose_kind": (
-                                    "visual_route_anchor"
-                                    if endpoint_leg_index == 4
-                                    else None
-                                ),
-                                "metric_pose_committed": False,
-                                "metric_rebootstrap_required": bool(
                                     endpoint_leg_index == 4
                                 ),
                                 "message": (
@@ -10780,7 +10102,17 @@ def main() -> None:
         "enemy_control": str(enemy_control_path),
         "enemy_detect_fps": args.enemy_detect_fps,
         "enemy_confidence": args.enemy_conf,
-        "runtime_fingerprints": current_runtime_fingerprints(),
+        "runtime_fingerprints": {
+            "atlas_dji_live_bridge.py": file_sha256(Path(__file__).resolve()),
+            "atlas_app_server.py": file_sha256(ROOT / "scripts" / "atlas_app_server.py"),
+            "run_bounded_tsolve_video_stream.py": file_sha256(
+                ROOT / "scripts" / "run_bounded_tsolve_video_stream.py"
+            ),
+            "patrol_visual_route_recovery.py": file_sha256(
+                ROOT / "scripts" / "patrol_visual_route_recovery.py"
+            ),
+            "config.json": file_sha256(ROOT / "config.json"),
+        },
         "note": (
             "Live Check mode: video and localization only; DJI flight commands are disabled."
             if args.view_only
@@ -10788,7 +10120,6 @@ def main() -> None:
         ),
     }
     atomic_write_json(metadata_path, metadata)
-    startup_runtime_fingerprints = dict(metadata["runtime_fingerprints"])
 
     status = {
         **metadata,
@@ -10918,18 +10249,6 @@ def main() -> None:
                         atomic_write_json(session_status_path, status)
                     if command_name == "mission":
                         mission_cancel.clear()
-                        changed_runtime_files = runtime_fingerprint_changes(
-                            startup_runtime_fingerprints,
-                            current_runtime_fingerprints(),
-                        )
-                        if changed_runtime_files:
-                            raise RuntimeError(
-                                "Flight-critical ATLAS files changed after this live "
-                                "session started; restart the live bridge before flight "
-                                "so the recorded runtime fingerprints match the code "
-                                "that executes the mission. Changed: "
-                                + ", ".join(changed_runtime_files)
-                            )
                     if command_name in {"takeoff", "mission"}:
                         video_issue = live_video_motion_safety_issue(
                             decoded_frames.age_seconds()

@@ -1411,9 +1411,9 @@ class PatrolVisualRouteRecoveryTests(unittest.TestCase):
 
         self.assertIsNotNone(observation, stage)
         self.assertTrue(observation["endpoint_verified"])
-        self.assertEqual(observation["endpoint_minimum_inliers"], 50)
+        self.assertEqual(observation["endpoint_minimum_inliers"], 75)
         self.assertLess(observation["endpoint_best_inliers"], 120)
-        self.assertGreaterEqual(observation["progress"], 0.90)
+        self.assertGreater(observation["progress"], 0.90)
 
     def test_1633_point_two_frames_recover_the_verified_endpoint_after_metric_overrun(self):
         """Regress the live 1.079 floor that held 330 correct frames."""
@@ -1954,12 +1954,8 @@ class PatrolVisualRouteRecoveryTests(unittest.TestCase):
             last_observation["endpoint_safe_prearrival_progress"],
         )
         self.assertLessEqual(committed_progress, 0.90)
-        # The requested Point-3 endpoint threshold is now 50, so the same
-        # landed sequence may verify arrival. It still cannot authorize
-        # translation and remains capped at the safe pre-arrival progress.
-        self.assertTrue(last_observation["endpoint_verified"])
-        self.assertFalse(last_observation["translation_safe"])
-        self.assertFalse(last_observation["endpoint_guarded"])
+        self.assertFalse(last_observation["endpoint_verified"])
+        self.assertTrue(last_observation["endpoint_guarded"])
 
     def test_multirun_bank_tracks_the_short_independent_leg_without_freezing(self):
         """One safe metric pulse must fit the normalized short-leg window."""

@@ -1735,8 +1735,6 @@ class PatrolVisualRouteRecovery:
     def _update_endpoint_verification(
         self,
         candidates: list[dict[str, Any]],
-        *,
-        minimum_inliers: int | None = None,
     ) -> dict[str, Any]:
         winner = (
             max(candidates, key=geometric_candidate_rank)
@@ -1748,10 +1746,9 @@ class PatrolVisualRouteRecovery:
         # 14:38 produced a stable endpoint cluster at 97-99 inliers while the
         # normal route threshold remained 120. Keep translation at 120, but
         # allow this stricter whole-leg/three-frame endpoint consensus at 75.
-        endpoint_minimum_inliers = (
-            max(16, int(minimum_inliers))
-            if minimum_inliers is not None
-            else max(72, int(round(self.minimum_inliers * 0.625)))
+        endpoint_minimum_inliers = max(
+            72,
+            int(round(self.minimum_inliers * 0.625)),
         )
         candidate = independent_endpoint_candidate_progress(
             candidates,
@@ -1992,18 +1989,6 @@ class PatrolVisualRouteRecovery:
             self._mark_unverified()
             return None, {"reason": "visual_route_translation_locked"}
         self._reset_for_key(tuple(segment_key))
-        try:
-            route_leg_index = int(tuple(segment_key)[1])
-        except (IndexError, TypeError, ValueError):
-            route_leg_index = 0
-        # Route leg -> arrived point: 1->P2, 2->P3, 3->P4, 4->P1.
-        # The requested 50-inlier endpoint policy applies only to P1/P2/P3;
-        # Point 4 retains the stricter audited endpoint floor.
-        endpoint_verification_minimum = (
-            50
-            if route_leg_index in {1, 2, 4}
-            else max(72, int(round(self.minimum_inliers * 0.625)))
-        )
         try:
             command_progress_ceiling = float(progress_ceiling)
         except (TypeError, ValueError):
@@ -2267,8 +2252,7 @@ class PatrolVisualRouteRecovery:
                 force_exact=True,
             )
             endpoint_only_metadata = self._update_endpoint_verification(
-                endpoint_only_candidates,
-                minimum_inliers=endpoint_verification_minimum,
+                endpoint_only_candidates
             )
             if endpoint_only_metadata.get("endpoint_verified") is True:
                 endpoint_minimum = max(
@@ -2679,7 +2663,7 @@ class PatrolVisualRouteRecovery:
             "endpoint_hits": int(self.endpoint_hits),
             "endpoint_required_hits": int(self.endpoint_required_hits),
             "endpoint_minimum_inliers": max(
-                16, int(endpoint_verification_minimum)
+                72, int(round(self.minimum_inliers * 0.625))
             ),
             "endpoint_candidate_progress": self.endpoint_candidate_progress,
             "endpoint_best_progress": None,
@@ -2719,10 +2703,7 @@ class PatrolVisualRouteRecovery:
                 # local winner.
                 force_exact=True,
             )
-            endpoint_metadata = self._update_endpoint_verification(
-                full_candidates,
-                minimum_inliers=endpoint_verification_minimum,
-            )
+            endpoint_metadata = self._update_endpoint_verification(full_candidates)
             dense_temporal_endpoint = bool(
                 independent_progress
                 and int(winner.get("inliers") or 0) >= self.minimum_inliers
@@ -3050,12 +3031,7 @@ class PatrolVisualRouteRecovery:
             )
 
         proposed_progress = float(proposed)
-        if endpoint_guarded or weak_endpoint_recovery:
-            # Lower endpoint recognition thresholds must not grant additional
-            # route-progress authority. A weak endpoint observation remains a
-            # stop/arrival hint only and stays at the same safe pre-arrival
-            # floor until the controller accepts the independently verified
-            # waypoint.
+        if endpoint_guarded:
             proposed_progress = min(
                 proposed_progress,
                 max(safe_prearrival_progress, reference_progress),

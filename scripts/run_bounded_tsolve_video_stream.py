@@ -12,7 +12,6 @@ import sqlite3
 import subprocess
 import threading
 import time
-import uuid
 from pathlib import Path
 from typing import Any
 
@@ -680,6 +679,7 @@ class RotationOnlyPositionStabilizer:
         ):
             return None
         return self.room_bias.astype(float).tolist()
+
     def observe(
         self,
         *,
@@ -921,17 +921,16 @@ class RotationOnlyPositionStabilizer:
             if self.room_bias_commanded:
                 pose["rotation_anchor_is_position_truth"] = True
                 pose["rotation_anchor_commanded"] = True
-            # Position bias and heading authority are independent. This branch
-            # is reached only by a fresh successful (non-held) pose after yaw
-            # has ended. Replacing that current-frame TSolve heading with the
-            # accumulated optical turn heading made a correct metric pose keep
-            # the previous corner's yaw, most visibly at the second-lap Point
-            # 1 -> Point 2 handoff. Optical yaw remains authoritative above
-            # while yaw is active and while a held pose waits to reanchor; once
-            # a fresh metric pose arrives, preserve its heading here. The
-            # recorded-route absolute heading gate may still refine it later.
-            if normalize_room_heading(pose.get("rheading")) is not None:
-                pose["post_yaw_heading_authority"] = "fresh_metric_pose"
+            # The same weak post-turn solve can jump in rotation even when
+            # the independent optical yaw remains steady. Keep the optical
+            # heading paired with the route-aligned position track.
+            optical_heading = normalize_room_heading(pose.get("rotation_heading"))
+            if optical_heading is not None:
+                solver_heading = normalize_room_heading(pose.get("rheading"))
+                if solver_heading is not None and "rheading_raw" not in pose:
+                    pose["rheading_raw"] = solver_heading
+                pose["rheading"] = optical_heading
+                pose["rheading_source"] = "optical_flow_yaw"
             # Keep the route-aligned offset while this local optical track is
             # active. Decaying it merely recreates the rotation-only drift as
             # fake translation and moves the displayed/controller position
@@ -941,43 +940,6 @@ class RotationOnlyPositionStabilizer:
                 if float(np.linalg.norm(self.room_bias)) < 1e-5:
                     self.room_bias[:] = 0.0
         return pose
-
-
-def accept_lap_start_absolute_metric_position(
-    stabilizer: RotationOnlyPositionStabilizer,
-    *,
-    pool: dict[str, Any] | None,
-    output_accepted: bool,
-) -> bool:
-    """Make a fresh lap-start TSolve center absolute before publication.
-
-    The repeated-lap checkpoint is independently registered from the newest
-    camera image against the fixed COLMAP map.  It therefore supersedes every
-    position anchor/bias accumulated while turning at Point 1.  Applying the
-    old post-yaw room bias to this pose caused the captured lap-2 failure: a
-    raw TSolve center about 1.25 m before Point 2 was shifted onto the saved
-    Point-2 coordinate, so control stopped while the physical drone was still
-    elsewhere.
-
-    This reset is deliberately narrow.  Ordinary optical-flow/TSolve updates
-    retain the existing turn stabilizer, and a failed/rejected rebootstrap can
-    never clear the last trusted hold.
-    """
-    if not output_accepted or not isinstance(pool, dict):
-        return False
-    absolute_rebootstrap = bool(
-        pool.get("lap_start_metric_rebootstrap") is True
-        or pool.get("stopped_metric_rebootstrap") is True
-    )
-    if not absolute_rebootstrap:
-        return False
-    # ``cap_tracking_pool``/``track_pool`` intentionally preserve recovery
-    # metadata. Consume this ownership marker once so later optical frames on
-    # the leg cannot repeatedly reset a newly established stabilizer state.
-    pool.pop("lap_start_metric_rebootstrap", None)
-    pool.pop("stopped_metric_rebootstrap", None)
-    stabilizer.accept_absolute_position()
-    return True
 
 
 def live_rotation_commanded(status_path: Path | None, max_age_seconds: float = 1.0) -> bool:
@@ -1218,11 +1180,6 @@ class LivePatrolRouteGate:
             metric_position_recovery
             and progress.get("lap_start_metric_rebootstrap") is True
         )
-        stopped_metric_rebootstrap = bool(
-            metric_position_recovery
-            and phase == "pose_recovery"
-            and progress.get("stopped_metric_rebootstrap") is True
-        )
         post_translation_progress_recovery = bool(
             recovery_hover
             and phase == "pose_recovery"
@@ -1263,7 +1220,6 @@ class LivePatrolRouteGate:
             "verified_point4_handoff",
             "verified_point1_handoff",
             "lap_start_global_relocalization",
-            "stopped_global_relocalization",
         }
         if (
             route_pose_epoch <= 0
@@ -1318,7 +1274,6 @@ class LivePatrolRouteGate:
             "recovery_hover": recovery_hover,
             "metric_position_recovery": metric_position_recovery,
             "lap_start_metric_rebootstrap": lap_start_metric_rebootstrap,
-            "stopped_metric_rebootstrap": stopped_metric_rebootstrap,
             "post_translation_progress_recovery": (
                 post_translation_progress_recovery
             ),
@@ -2442,30 +2397,6 @@ def patrol_reference_frames_enabled(
     return int(route_context.get("leg_index") or 0) in {1, 2, 3, 4}
 
 
-def visual_route_position_recovery_needed(
-    route_context: dict[str, Any] | None,
-    *,
-    force_route_taught_recovery: bool = False,
-) -> bool:
-    """Run the full route-position matcher only when it can affect position.
-
-    A controller-locked yaw cannot translate the aircraft. Its small
-    departure-heading matcher is handled separately, so running the full-loop
-    position matcher too only spends the live frame budget twice. The weak
-    3->4 translation keeps continuous route supervision, and every leg may
-    still invoke position matching during neutral recovery hover.
-    """
-    if not patrol_reference_frames_enabled(route_context):
-        return False
-    assert isinstance(route_context, dict)
-    if route_context.get("recovery_hover") is True or force_route_taught_recovery:
-        return True
-    return bool(
-        int(route_context.get("leg_index") or 0) == 3
-        and route_context.get("controller_translation_locked") is not True
-    )
-
-
 def visual_route_temporal_recovery_minimum_inliers(
     configured_minimum_inliers: int,
     *,
@@ -2473,17 +2404,15 @@ def visual_route_temporal_recovery_minimum_inliers(
 ) -> int:
     """Return the audited neutral-hover recovery floor for one patrol leg.
 
-    Points 1, 2 and 3 are the endpoints of legs 4, 1 and 2 respectively. The
-    operator-selected recovery floor there is 50 ORB/homography inliers. Point
-    4 (leg 3) keeps the established 90-inlier floor. This lower value is never
-    a normal-flight translation gate: recovery still requires five strong
-    frames inside a short bounded window, endpoint geometry, and the
-    accumulated physical-command distance cap.
+    The current Point-4 departure view in the 15:26 live flight produces a
+    stable 50-61 ORB/homography inliers against the existing bank. Keep the
+    established 90-inlier recovery floor everywhere else. This lower value is
+    never a normal-flight gate: recovery still requires five strong frames
+    inside a short bounded window and remains capped by the accumulated
+    physical command distance.
     """
     configured = max(16, int(configured_minimum_inliers))
-    if int(leg_index) in {1, 2, 4}:
-        return 50
-    return max(90, configured)
+    return max(50, configured) if int(leg_index) == 4 else max(90, configured)
 
 
 def visual_recovery_supersedes_stalled_metric_pose(
@@ -2739,21 +2668,6 @@ def apply_visual_route_heading_alignment(
 ) -> dict[str, Any] | None:
     """Make the rendered heading follow the absolute departure-image match."""
     if not isinstance(pose, dict) or not isinstance(metadata, dict):
-        return pose
-    try:
-        route_leg_index = int(metadata.get("route_visual_heading_leg_index") or 0)
-    except (TypeError, ValueError):
-        route_leg_index = 0
-    if route_leg_index in {1, 2}:
-        # The saved best-one-lap route is metric-led through Point 3. A
-        # recorded departure match may validate/reseed tracking here, but it
-        # must not replace the current TSolve/optical heading consumed by the
-        # flight bridge. The captured 2026-08-24 failure showed the two sources
-        # fighting: TSolve observed the physical turn while the bank held an
-        # older heading, causing repeated yaw and then diagonal travel.
-        pose["route_visual_heading_diagnostic_only"] = True
-        pose["metric_heading_authority"] = "tsolve_with_optical_yaw_feedback"
-        pose["route_visual_heading_authority"] = False
         return pose
     # A single ORB image can be a repeated-texture false positive.  Rendering
     # it immediately made the model snap by ~52 degrees and then snap back on
@@ -3348,17 +3262,13 @@ def route_guarded_output_rejection(
     metric_route_room_bias: Any = None,
     post_yaw_reanchor_cap: float = 0.0,
     lap_start_metric_rebootstrap: bool = False,
-    stopped_metric_rebootstrap: bool = False,
 ) -> tuple[str | None, np.ndarray | None, float | None, dict[str, Any] | None]:
     active_route_context = (
         route_gate.active_context()
         if route_gate is not None and route_gate.enabled
         else None
     )
-    absolute_metric_rebootstrap = bool(
-        lap_start_metric_rebootstrap or stopped_metric_rebootstrap
-    )
-    if absolute_metric_rebootstrap:
+    if lap_start_metric_rebootstrap:
         # The aircraft has just completed 4->1 while the public pose may have
         # remained route-anchored. A strong current-frame full-map measurement
         # may reveal that accumulated discrepancy, but only during neutral
@@ -3393,67 +3303,7 @@ def route_guarded_output_rejection(
         output_center_bias=output_center_bias,
     )
     route_context = route_gate.active_context()
-    if absolute_metric_rebootstrap:
-        if stopped_metric_rebootstrap:
-            if route_context is None or candidate_room is None:
-                return (
-                    "stopped_rebootstrap_route_context_missing",
-                    previous_center,
-                    previous_time,
-                    {"context": route_context},
-                )
-            projection = route_segment_projection_xz(
-                candidate_room,
-                route_context.get("start"),
-                route_context.get("end"),
-            )
-            if projection is None:
-                return (
-                    "stopped_rebootstrap_route_projection_invalid",
-                    previous_center,
-                    previous_time,
-                    {"context": route_context},
-                )
-            progress, cross_track = projection
-            if cross_track > min(0.30, float(route_gate.max_cross_track)):
-                return (
-                    f"stopped_rebootstrap_cross_track_{cross_track:.3f}m",
-                    previous_center,
-                    previous_time,
-                    {
-                        "context": route_context,
-                        "progress": progress,
-                        "cross_track": cross_track,
-                    },
-                )
-            if progress < -0.08 or progress > 1.20:
-                return (
-                    f"stopped_rebootstrap_progress_{progress:.3f}_outside_leg",
-                    previous_center,
-                    previous_time,
-                    {
-                        "context": route_context,
-                        "progress": progress,
-                        "cross_track": cross_track,
-                    },
-                )
-            return (
-                reason,
-                candidate_center if reason is None else previous_center,
-                candidate_time if reason is None else previous_time,
-                {
-                    "key": route_gate._key(route_context),
-                    "context": route_context,
-                    "progress": float(progress),
-                    "unbiased_progress": float(progress),
-                    "cross_track": float(cross_track),
-                    "stopped_global_metric_measurement": True,
-                    "route_continuity_override": True,
-                    "route_continuity_override_source": (
-                        "stopped_current_frame_full_map_measurement"
-                    ),
-                },
-            )
+    if lap_start_metric_rebootstrap:
         return (
             reason,
             candidate_center if reason is None else previous_center,
@@ -5178,13 +5028,6 @@ class GlobalRelocalizer:
         self.recovery_max_step = max(0.10, float(recovery_max_step))
         self.matching_threads = max(1, int(matching_threads))
         self.direct_pnp_recovery = bool(direct_pnp_recovery)
-        # Faiss owns a shared in-memory index and COLMAP feature extraction
-        # writes a temporary SQLite database.  A stopped checkpoint and a
-        # background refresh must never enter that recovery path together.
-        # Unique work directories below provide a second line of defence, but
-        # serializing here also prevents two expensive SIFT jobs from starving
-        # the live optical-flow loop.
-        self.faiss_current_frame_lock = threading.Lock()
         self.map_model_images = (
             read_images_model(map_sparse_model) if self.direct_pnp_recovery else {}
         )
@@ -5223,41 +5066,13 @@ class GlobalRelocalizer:
         query_name: str,
         map_points: dict[int, Any],
         expected_center: np.ndarray | None,
-        max_duration_seconds: float | None = None,
-    ) -> tuple[dict[str, Any] | None, dict[str, Any]]:
-        """Run exactly one isolated newest-frame Faiss/TSolve recovery."""
-        wait_started = time.perf_counter()
-        with self.faiss_current_frame_lock:
-            lock_wait_ms = 1000.0 * (time.perf_counter() - wait_started)
-            pool, stage = self._localize_faiss_current_frame_locked(
-                frame=frame,
-                frame_idx=frame_idx,
-                query_name=query_name,
-                map_points=map_points,
-                expected_center=expected_center,
-                max_duration_seconds=max_duration_seconds,
-            )
-        stage["faiss_recovery_lock_wait_ms"] = lock_wait_ms
-        return pool, stage
-
-    def _localize_faiss_current_frame_locked(
-        self,
-        *,
-        frame: Path,
-        frame_idx: int,
-        query_name: str,
-        map_points: dict[int, Any],
-        expected_center: np.ndarray | None,
-        max_duration_seconds: float | None = None,
     ) -> tuple[dict[str, Any] | None, dict[str, Any]]:
         """Measure one newest frame without copying the multi-GB map DB.
 
         The persistent Faiss index already owns all mapped COLMAP SIFT
         descriptors and their 3D identities. Only the current query's COLMAP
         SIFT rows are needed here, so an isolated query database is sufficient.
-        The same bounded path is used for stopped lap-boundary checkpoints and
-        ordinary live background recovery; copying the complete map database
-        made a nominal 20-second recovery remain pending for several minutes.
+        This path is reserved for the stopped lap-boundary checkpoint.
         """
         started = time.perf_counter()
         stage: dict[str, Any] = {
@@ -5279,17 +5094,10 @@ class GlobalRelocalizer:
         stage["preserved_recovery_frame"] = str(preserved_frame)
         shutil.copy2(frame, self.query_root / frame.name)
 
-        # Frame numbers repeat across synchronous and background callers.  A
-        # frame-indexed filename therefore allowed one worker to unlink the
-        # other worker's SQLite database, producing ``no such table: images``.
-        # Every call now owns a private directory for its complete lifetime.
-        call_id = f"{frame_idx:06d}_{uuid.uuid4().hex}"
-        call_dir = self.work_dir / "faiss_recovery_calls" / call_id
-        call_dir.mkdir(parents=True, exist_ok=False)
-        database = call_dir / "query.db"
-        image_list = call_dir / "image.txt"
+        database = self.work_dir / f"checkpoint_faiss_{frame_idx:06d}.db"
+        image_list = self.work_dir / f"checkpoint_faiss_{frame_idx:06d}_image.txt"
+        database.unlink(missing_ok=True)
         image_list.write_text(query_name + "\n", encoding="utf-8")
-        stage["faiss_recovery_call_id"] = call_id
         feature_command: list[object] = [
             self.colmap,
             "feature_extractor",
@@ -5315,16 +5123,7 @@ class GlobalRelocalizer:
                 ["--ImageReader.camera_params", self.query_camera_params]
             )
         try:
-            timeout = (
-                float(max_duration_seconds)
-                if max_duration_seconds is not None
-                and float(max_duration_seconds) > 0.0
-                else None
-            )
-            stage["feature_extract_ms"] = 1000.0 * run_timed(
-                feature_command,
-                timeout=timeout,
-            )
+            stage["feature_extract_ms"] = 1000.0 * run_timed(feature_command)
             pool, diagnostic = self.faiss_relocalizer.localize(
                 database_path=database,
                 image_name=query_name,
@@ -5361,7 +5160,8 @@ class GlobalRelocalizer:
             return pool, stage
         finally:
             stage["total_ms"] = 1000.0 * (time.perf_counter() - started)
-            shutil.rmtree(call_dir, ignore_errors=True)
+            database.unlink(missing_ok=True)
+            image_list.unlink(missing_ok=True)
 
     def localize(
         self,
@@ -6454,17 +6254,6 @@ def main() -> None:
         """Attach independent optical yaw; it never changes pose validity."""
         if pose is None:
             return pose
-        route_context = patrol_route_gate.active_context()
-        if metric_tsolve_position_authority_required(route_context):
-            # Preserve the proven best-one-lap ownership boundary. On
-            # Point 1 -> 2 and Point 2 -> 3, current-frame TSolve is the only
-            # source allowed to advance room position/route progress. Optical
-            # flow may carry yaw between metric solves, while recorded patrol
-            # images remain supervision/recovery evidence only.
-            pose["metric_position_authority"] = "tsolve"
-            pose["metric_heading_authority"] = "tsolve_with_optical_yaw_feedback"
-            pose["route_visual_position_authority"] = False
-            pose["route_visual_heading_authority"] = False
         # Held poses are copies of the previous publication.  Explicitly clear
         # its yaw fields so a discontinuous current frame cannot inherit an old
         # optical observation and masquerade as fresh feedback.
@@ -6571,44 +6360,11 @@ def main() -> None:
         if args.blocking_global_recovery:
             return False
         if pending_global is not None:
-            pending_age = time.perf_counter() - float(
-                pending_global.get("started_at", time.perf_counter())
-            )
-            pending_limit = max(
-                2.0,
-                float(args.background_recovery_timeout_seconds or 0.0) + 1.0,
-            )
-            if pending_global.get("done"):
-                apply_background_global_recovery(
-                    current_frame_idx=frame_idx,
-                    current_gray=curr_gray,
-                )
-            elif pending_age > pending_limit:
-                # A Python thread cannot be safely cancelled.  Releasing the
-                # state owner here used to launch a second COLMAP/SQLite job
-                # while the first still existed.  Keep the owner until its
-                # bounded subprocess returns; stale-view checks decide whether
-                # its result can still be consumed.
-                if not pending_global.get("deadline_exceeded"):
-                    pending_global["deadline_exceeded"] = True
-                    pending_global["deadline_exceeded_at"] = time.perf_counter()
-                    background_recovery_stale_count += 1
-                    print(
-                        "BACKGROUND RECOVERY DEADLINE EXCEEDED; KEEPING SINGLE OWNER:",
-                        json.dumps(
-                            {
-                                "frame_index": int(
-                                    pending_global.get("frame_idx", -1)
-                                ),
-                                "age_seconds": pending_age,
-                                "deadline_seconds": pending_limit,
-                            }
-                        ),
-                        flush=True,
-                    )
-                return False
-            else:
-                return False
+            # A global map rematch may take several seconds on the full lab
+            # map.  Never discard it and create another worker every few live
+            # frames; that starves the live localizer and is exactly the
+            # behaviour that made the Point-2 exit stall.
+            return False
         center = None if last_center is None else np.asarray(last_center, dtype=float).copy()
         recovery_route_context = patrol_route_gate.active_context()
         recovery_route_key = (
@@ -6655,38 +6411,19 @@ def main() -> None:
 
         def worker() -> None:
             try:
-                if interactive_recovery and relocalizer.faiss_relocalizer is not None:
-                    pool, stage = relocalizer.localize_faiss_current_frame(
-                        frame=frame,
-                        frame_idx=frame_idx,
-                        query_name=query_name,
-                        map_points=map_points,
-                        expected_center=center,
-                        max_duration_seconds=(
-                            args.background_recovery_timeout_seconds
-                        ),
-                    )
-                    stage["registration_profile"] = (
-                        "faiss_ivf_current_frame_live_recovery"
-                    )
-                    if pool is not None:
-                        pool["localization_method"] = (
-                            "faiss_ivf_current_frame_live_recovery"
-                        )
-                else:
-                    pool, stage = relocalizer.localize(
-                        frame=frame,
-                        frame_idx=frame_idx,
-                        query_name=query_name,
-                        map_points=map_points,
-                        last_center=center,
-                        max_duration_seconds=(
-                            args.background_recovery_timeout_seconds
-                            if interactive_recovery
-                            else None
-                        ),
-                        position_locked=position_locked_recovery,
-                    )
+                pool, stage = relocalizer.localize(
+                    frame=frame,
+                    frame_idx=frame_idx,
+                    query_name=query_name,
+                    map_points=map_points,
+                    last_center=center,
+                    max_duration_seconds=(
+                        args.background_recovery_timeout_seconds
+                        if interactive_recovery
+                        else None
+                    ),
+                    position_locked=position_locked_recovery,
+                )
                 recovery["pool"] = pool
                 recovery["stage"] = stage
             except Exception as exc:  # pragma: no cover - defensive live path
@@ -7896,18 +7633,32 @@ def main() -> None:
             isinstance(route_context, dict)
             and route_context.get("recovery_hover") is True
         )
-        should_match_route_position = bool(
+        visual_route_needed = bool(
             reference_frames_enabled
-            and visual_route_position_recovery_needed(
-                route_context,
-                force_route_taught_recovery=force_route_taught_recovery,
+            and (
+                controller_translation_locked
+                or (
+                    route_leg_index == 4
+                    and (
+                        recovery_hover
+                        or force_route_taught_recovery
+                    )
+                )
+                or (
+                    route_leg_index != 4
+                    and (
+                        recovery_hover
+                        or force_route_taught_recovery
+                        or route_leg_index == 3
+                    )
+                )
             )
         )
         if (
             visual_route_recovery is not None
             and route_context is not None
             and reference_frames_enabled
-            and should_match_route_position
+            and visual_route_needed
         ):
             route_key = LivePatrolRouteGate._key(route_context)
             visual_progress_hint = (
@@ -7955,46 +7706,43 @@ def main() -> None:
                 progress_hint=visual_progress_hint,
                 minimum_inliers=visual_route_recovery.minimum_inliers,
             )
-        # During a commanded yaw, run only the small departure-heading bank.
-        # Full-route position matching on the same locked frame cannot reveal
-        # physical translation and used to duplicate ORB work at every turn.
-        # Neutral recovery hover still takes the full position path above.
-        heading_leg_index = int(route_context.get("leg_index") or 0) if route_context else 0
-        if (
-            visual_route_recovery is not None
-            and route_context is not None
-            and reference_frames_enabled
-            and route_context.get("controller_translation_locked") is True
-            and heading_leg_index in {1, 2, 3, 4}
-        ):
-            heading_minimum_inliers = visual_route_heading_minimum_inliers(
-                visual_route_recovery.minimum_inliers,
-                leg_index=heading_leg_index,
-            )
-            visual_heading_started = time.perf_counter()
-            visual_heading_observation, visual_heading_stage = (
-                visual_route_recovery.departure_heading_alignment(
-                    gray=curr_gray,
-                    segment_start=route_context["start"],
-                    segment_end=route_context["end"],
-                    focal_px=rotation_focal_px,
-                    minimum_inliers=heading_minimum_inliers,
+            heading_leg_index = int(route_context.get("leg_index") or 0)
+            if (
+                route_context.get("controller_translation_locked") is True
+                and heading_leg_index in {1, 2, 3, 4}
+            ):
+                heading_minimum_inliers = (
+                    visual_route_heading_minimum_inliers(
+                        visual_route_recovery.minimum_inliers,
+                        leg_index=heading_leg_index,
+                    )
                 )
-            )
-            stage["visual_heading_ms"] += 1000.0 * (
-                time.perf_counter() - visual_heading_started
-            )
-            visual_supervision.update(
-                visual_route_heading_metadata(
-                    context=route_context,
-                    observation=visual_heading_observation,
-                    diagnostic=visual_heading_stage,
-                    minimum_inliers=heading_minimum_inliers,
-                    map_id=visual_route_recovery.map_id,
-                    patrol_id=visual_route_recovery.patrol_id,
-                    baseline_replay_id=visual_route_recovery.baseline_replay_id,
+                visual_heading_started = time.perf_counter()
+                visual_heading_observation, visual_heading_stage = (
+                    visual_route_recovery.departure_heading_alignment(
+                        gray=curr_gray,
+                        segment_start=route_context["start"],
+                        segment_end=route_context["end"],
+                        focal_px=rotation_focal_px,
+                        minimum_inliers=heading_minimum_inliers,
+                    )
                 )
-            )
+                stage["visual_heading_ms"] += 1000.0 * (
+                    time.perf_counter() - visual_heading_started
+                )
+                visual_supervision.update(
+                    visual_route_heading_metadata(
+                        context=route_context,
+                        observation=visual_heading_observation,
+                        diagnostic=visual_heading_stage,
+                        minimum_inliers=heading_minimum_inliers,
+                        map_id=visual_route_recovery.map_id,
+                        patrol_id=visual_route_recovery.patrol_id,
+                        baseline_replay_id=(
+                            visual_route_recovery.baseline_replay_id
+                        ),
+                    )
+                )
         # Give the small route bank first access to a stopped Point-4 recovery
         # view. It is current-frame, command-bounded, and typically finishes
         # in a few frames; launching full-map COLMAP at the same instant made
@@ -8050,13 +7798,6 @@ def main() -> None:
             metric_checkpoint_wait
             and route_context.get("lap_start_metric_rebootstrap") is True
         )
-        stopped_metric_rebootstrap = bool(
-            metric_checkpoint_wait
-            and route_context.get("stopped_metric_rebootstrap") is True
-        )
-        absolute_metric_rebootstrap = bool(
-            lap_start_metric_rebootstrap or stopped_metric_rebootstrap
-        )
         route_supervision_total_ms = 1000.0 * (
             time.perf_counter() - route_supervision_started
         )
@@ -8069,7 +7810,7 @@ def main() -> None:
         if metric_checkpoint_wait and pending_global is not None:
             checkpoint_route_key = LivePatrolRouteGate._key(route_context)
             if (
-                absolute_metric_rebootstrap
+                lap_start_metric_rebootstrap
                 or pending_global.get("route_key") != checkpoint_route_key
             ):
                 # A rematch launched on the previous 4->1 leg cannot satisfy
@@ -8078,9 +7819,7 @@ def main() -> None:
                 # it when it finishes while current-frame compact recovery runs.
                 pending_global["ignored"] = True
                 pending_global["ignore_reason"] = (
-                    "superseded_by_stopped_metric_rebootstrap"
-                    if stopped_metric_rebootstrap
-                    else "superseded_by_lap_start_metric_rebootstrap"
+                    "superseded_by_lap_start_metric_rebootstrap"
                     if lap_start_metric_rebootstrap
                     else "superseded_by_new_lap_metric_checkpoint"
                 )
@@ -8176,18 +7915,13 @@ def main() -> None:
 
         must_global = current_pool is None or prev_gray is None
         global_reason = "bootstrap" if must_global else ""
-        if absolute_metric_rebootstrap:
+        if lap_start_metric_rebootstrap:
             # A verified Point-1 endpoint changes route ownership, but the
             # previous raw optical pool may still belong to Point 4. It is not
             # eligible to seed lap 2: recover 2D->3D correspondences from the
             # current Point-1 image and the saved first-lap metric anchor.
             must_global = True
-            if stopped_metric_rebootstrap:
-                global_reason = "stopped_metric_rebootstrap"
-            else:
-                # Keep the explicit historical lap branch visible for the
-                # source-level safety audit as well as for runtime logging.
-                global_reason = "lap_start_metric_rebootstrap"
+            global_reason = "lap_start_metric_rebootstrap"
         periodic_refresh_due = periodic_feature_refresh_due(
             frame_index=frame_idx,
             frame_time=current_frame_time,
@@ -8249,13 +7983,9 @@ def main() -> None:
         pool: dict[str, Any] | None = None
         proactive_fallback_pool: dict[str, Any] | None = None
         if (
-            absolute_metric_rebootstrap
+            lap_start_metric_rebootstrap
             and must_global
-            and pending_global is None
-            and (
-                stopped_metric_rebootstrap
-                or lap_start_metric_center is not None
-            )
+            and lap_start_metric_center is not None
         ):
             checkpoint_stage: dict[str, Any] = {
                 "reason": "lap_checkpoint_faiss_recovery_unavailable"
@@ -8265,28 +7995,16 @@ def main() -> None:
                 frame_idx=frame_idx,
                 query_name=query_name,
                 map_points=map_points,
-                expected_center=(
-                    None
-                    if stopped_metric_rebootstrap
-                    else lap_start_metric_center
-                ),
+                expected_center=lap_start_metric_center,
             )
             stage.update(checkpoint_stage)
             global_relocalization_count += 1
             if pool is not None:
-                pool[
-                    "stopped_metric_rebootstrap"
-                    if stopped_metric_rebootstrap
-                    else "lap_start_metric_rebootstrap"
-                ] = True
+                pool["lap_start_metric_rebootstrap"] = True
                 must_global = False
                 stable_solve_reset = True
                 stable_solve_point3d_ids = None
-                method = (
-                    "stopped_rebootstrap_faiss_current_frame_tsolve"
-                    if stopped_metric_rebootstrap
-                    else "lap_checkpoint_faiss_current_frame_tsolve"
-                )
+                method = "lap_checkpoint_faiss_current_frame_tsolve"
                 stage["reason"] = ""
                 lap_checkpoint_metric_recovery_count += 1
                 print(
@@ -8309,31 +8027,20 @@ def main() -> None:
                 # fall back to Point-4 LK or a global search constrained by its
                 # stale center at this explicit loop-closure checkpoint.
                 must_global = False
-                if stopped_metric_rebootstrap:
-                    method = "stopped_metric_rebootstrap_retry"
-                else:
-                    method = "lap_start_metric_rebootstrap_retry"
+                method = "lap_start_metric_rebootstrap_retry"
                 stage["reason"] = str(
                     checkpoint_stage.get("reason")
                     or "lap_checkpoint_faiss_recovery_failed"
                 )
-        if absolute_metric_rebootstrap and pool is None and must_global:
+        if lap_start_metric_rebootstrap and pool is None and must_global:
             must_global = False
-            method = (
-                "stopped_metric_rebootstrap_waiting_for_anchor"
-                if stopped_metric_rebootstrap
-                else "lap_start_metric_rebootstrap_waiting_for_anchor"
-            )
-            stage["reason"] = (
-                "stopped_metric_rebootstrap_anchor_unavailable"
-                if stopped_metric_rebootstrap
-                else "lap_start_metric_rebootstrap_anchor_unavailable"
-            )
+            method = "lap_start_metric_rebootstrap_waiting_for_anchor"
+            stage["reason"] = "lap_start_metric_rebootstrap_anchor_unavailable"
         if (
             visual_primary_mode is None
             and not must_global
             and pool is None
-            and not absolute_metric_rebootstrap
+            and not lap_start_metric_rebootstrap
             and current_pool is not None
             and prev_gray is not None
         ):
@@ -9253,9 +8960,6 @@ def main() -> None:
                 lap_start_metric_rebootstrap=bool(
                     pool.get("lap_start_metric_rebootstrap")
                 ),
-                stopped_metric_rebootstrap=bool(
-                    pool.get("stopped_metric_rebootstrap")
-                ),
             )
             if output_rejection_reason is not None:
                 consecutive_local_failures += 1
@@ -9591,20 +9295,6 @@ def main() -> None:
                 continue
 
         pose_update_started = time.perf_counter()
-        stopped_absolute_position_reset = bool(
-            isinstance(pool, dict)
-            and pool.get("stopped_metric_rebootstrap") is True
-        )
-        lap_start_absolute_position_reset = (
-            accept_lap_start_absolute_metric_position(
-                rotation_position_stabilizer,
-                pool=pool,
-                output_accepted=output_accepted,
-            )
-        )
-        if lap_start_absolute_position_reset and isinstance(current_pool, dict):
-            current_pool.pop("lap_start_metric_rebootstrap", None)
-            current_pool.pop("stopped_metric_rebootstrap", None)
         if output_rejection_reason is not None and last_output_pose is not None:
             pose_payload = held_pose_from_last(
                 last_pose=latest_published_pose(partial_poses, last_output_pose),
@@ -9632,13 +9322,6 @@ def main() -> None:
             )
         pose_payload = attach_rotation_only_hint(pose_payload)
         pose_payload = rotation_position_stabilizer.apply(pose_payload)
-        if lap_start_absolute_position_reset:
-            if stopped_absolute_position_reset:
-                pose_payload["stopped_global_absolute_metric_position"] = True
-                pose_payload["stopped_global_turn_bias_cleared"] = True
-            else:
-                pose_payload["lap_start_absolute_metric_position"] = True
-                pose_payload["lap_start_turn_bias_cleared"] = True
         pose_payload = patrol_route_gate.constrain_published_pose(
             pose_payload,
             route_observation,

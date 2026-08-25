@@ -17,16 +17,6 @@ sys.path.insert(0, str(SCRIPTS))
 sys.modules.setdefault("cv2", types.ModuleType("cv2"))
 
 LOCALIZER_PATH = SCRIPTS / "run_bounded_tsolve_video_stream.py"
-LIVE_ATLAS_111129_POSES = (
-    ROOT
-    / "viewer"
-    / "public"
-    / "maps"
-    / "map_copy_20260730_114851_cfefdc"
-    / "replays"
-    / "dji_live_20260824_111129_141c18"
-    / "poses.json"
-)
 SPEC = importlib.util.spec_from_file_location("run_bounded_tsolve_video_stream_alignment_test", LOCALIZER_PATH)
 assert SPEC and SPEC.loader
 localizer = importlib.util.module_from_spec(SPEC)
@@ -281,38 +271,6 @@ class LiveRoomAlignmentTests(unittest.TestCase):
                 observation=verified,
                 last_pose=last_pose,
             ),
-        )
-
-    def test_locked_yaw_runs_heading_matcher_without_duplicate_position_match(self):
-        for leg_index in (1, 2, 3, 4):
-            with self.subTest(leg_index=leg_index):
-                self.assertFalse(
-                    localizer.visual_route_position_recovery_needed(
-                        {
-                            "leg_index": leg_index,
-                            "controller_translation_locked": True,
-                            "recovery_hover": False,
-                        }
-                    )
-                )
-
-        self.assertTrue(
-            localizer.visual_route_position_recovery_needed(
-                {
-                    "leg_index": 3,
-                    "controller_translation_locked": False,
-                    "recovery_hover": False,
-                }
-            )
-        )
-        self.assertTrue(
-            localizer.visual_route_position_recovery_needed(
-                {
-                    "leg_index": 4,
-                    "controller_translation_locked": True,
-                    "recovery_hover": True,
-                }
-            )
         )
 
     def test_point_one_through_three_rejects_visual_position_authority(self):
@@ -1472,36 +1430,6 @@ class LiveRoomAlignmentTests(unittest.TestCase):
         )
         self.assertAlmostEqual(metadata["route_visual_heading_correction_deg"], 2.8)
 
-    def test_recorded_heading_cannot_override_tsolve_on_point_one_to_three(self):
-        for leg_index in (1, 2):
-            metric_heading = [0.996, 0.0, -0.089]
-            recorded_heading = [0.75, 0.0, 0.661]
-            pose = localizer.apply_visual_route_heading_alignment(
-                {
-                    "success": True,
-                    "held_pose": False,
-                    "rcenter": [1.0, 0.0, 2.0],
-                    "rheading": metric_heading,
-                },
-                {
-                    "route_visual_heading_leg_index": leg_index,
-                    "route_visual_heading_render_consensus_verified": True,
-                    "route_visual_heading_render_current": recorded_heading,
-                    "route_visual_heading_render_source": (
-                        "recorded_departure_image_alignment"
-                    ),
-                },
-            )
-
-            self.assertEqual(pose["rheading"], metric_heading)
-            self.assertNotIn("rheading_raw", pose)
-            self.assertTrue(pose["route_visual_heading_diagnostic_only"])
-            self.assertEqual(
-                pose["metric_heading_authority"],
-                "tsolve_with_optical_yaw_feedback",
-            )
-            self.assertFalse(pose["route_visual_heading_authority"])
-
     def test_departure_heading_threshold_is_leg_specific(self):
         self.assertEqual(
             localizer.visual_route_heading_minimum_inliers(120, leg_index=1),
@@ -1751,64 +1679,6 @@ class LiveRoomAlignmentTests(unittest.TestCase):
             {"success": True, "held_pose": False, "rcenter": [1.43, 0.1, 2.49]}
         )
         self.assertTrue(np.allclose(translated["rcenter"], [1.05, 0.2, 2.05]))
-
-    def test_fresh_metric_heading_survives_post_yaw_room_bias(self):
-        stabilizer = localizer.RotationOnlyPositionStabilizer(enabled=True, bias_decay=1.0)
-        stabilizer.room_bias = np.asarray([0.18, 0.0, -0.04])
-        stabilizer.room_bias_commanded = True
-        metric_heading = localizer.normalize_room_heading([0.996, 0.0, 0.087])
-        stale_optical_heading = localizer.normalize_room_heading([0.50, 0.0, -0.866])
-
-        pose = stabilizer.apply(
-            {
-                "success": True,
-                "held_pose": False,
-                "rcenter": [1.0, 0.0, 2.0],
-                "rheading": metric_heading,
-                "rotation_heading": stale_optical_heading,
-            }
-        )
-
-        self.assertTrue(np.allclose(pose["rcenter"], [1.18, 0.0, 1.96]))
-        self.assertTrue(np.allclose(pose["rheading"], metric_heading))
-        self.assertEqual(pose["post_yaw_heading_authority"], "fresh_metric_pose")
-        self.assertNotEqual(pose.get("rheading_source"), "optical_flow_yaw")
-
-    def test_captured_second_lap_metric_heading_is_not_replaced_by_stale_optical_yaw(self):
-        if not LIVE_ATLAS_111129_POSES.exists():
-            self.skipTest("captured second-lap pose stream is unavailable")
-        poses = json.loads(LIVE_ATLAS_111129_POSES.read_text(encoding="utf-8"))["poses"]
-        captured = next(
-            pose
-            for pose in reversed(poses)
-            if pose.get("rotation_position_source") == "post_yaw_room_bias"
-            and pose.get("rheading_raw")
-            and pose.get("rotation_heading")
-            and pose.get("rotation_position_bias")
-        )
-        self.assertEqual(captured["image_name"], "query/query_006093.jpg")
-        self.assertGreater(
-            localizer.room_heading_separation_degrees(
-                captured["rheading_raw"], captured["rotation_heading"]
-            ),
-            50.0,
-        )
-
-        stabilizer = localizer.RotationOnlyPositionStabilizer(enabled=True, bias_decay=1.0)
-        stabilizer.room_bias = np.asarray(captured["rotation_position_bias"], dtype=float)
-        stabilizer.room_bias_commanded = True
-        replayed = stabilizer.apply(
-            {
-                "success": True,
-                "held_pose": False,
-                "rcenter": captured["rotation_raw_rcenter"],
-                "rheading": captured["rheading_raw"],
-                "rotation_heading": captured["rotation_heading"],
-            }
-        )
-
-        self.assertTrue(np.allclose(replayed["rheading"], captured["rheading_raw"]))
-        self.assertEqual(replayed["post_yaw_heading_authority"], "fresh_metric_pose")
 
     def test_point_four_held_pose_cannot_roll_back_after_yaw_release(self):
         # Live ATLAS 14:14:41 physically reached Point 4 and turned toward
@@ -2068,97 +1938,6 @@ class LiveRoomAlignmentTests(unittest.TestCase):
         self.assertFalse(stabilizer.release_anchor_commanded)
         self.assertTrue(np.allclose(stabilizer.room_bias, np.zeros(3)))
         self.assertFalse(stabilizer.room_bias_commanded)
-
-    def test_lap_start_metric_rebootstrap_clears_stale_turn_bias_before_publish(self):
-        stabilizer = localizer.RotationOnlyPositionStabilizer(enabled=True)
-        captured_raw_center = np.asarray(
-            [-1.922221365395041, -0.0991055110233483, 0.21105420236557892],
-            dtype=float,
-        )
-        captured_stale_bias = np.asarray(
-            [1.3009800208792681, 0.06116999278155197, -0.3506191472275711],
-            dtype=float,
-        )
-        stabilizer.room_bias = captured_stale_bias.copy()
-        stabilizer.room_bias_commanded = True
-
-        # This reproduces the failed second-lap publication: an otherwise
-        # valid global TSolve center was shifted close to saved Point 2.
-        poisoned = stabilizer.apply(
-            {
-                "success": True,
-                "held_pose": False,
-                "rcenter": captured_raw_center.tolist(),
-            }
-        )
-        self.assertTrue(
-            np.allclose(
-                poisoned["rcenter"],
-                captured_raw_center + captured_stale_bias,
-            )
-        )
-
-        lap_start_pool = {"lap_start_metric_rebootstrap": True}
-        self.assertTrue(
-            localizer.accept_lap_start_absolute_metric_position(
-                stabilizer,
-                pool=lap_start_pool,
-                output_accepted=True,
-            )
-        )
-        self.assertNotIn("lap_start_metric_rebootstrap", lap_start_pool)
-        corrected = stabilizer.apply(
-            {
-                "success": True,
-                "held_pose": False,
-                "rcenter": captured_raw_center.tolist(),
-            }
-        )
-        self.assertTrue(np.allclose(corrected["rcenter"], captured_raw_center))
-        self.assertNotIn("rotation_position_bias", corrected)
-        self.assertFalse(stabilizer.room_bias_commanded)
-
-    def test_rejected_or_ordinary_metric_pose_cannot_clear_turn_bias(self):
-        for pool, accepted in (
-            ({"lap_start_metric_rebootstrap": True}, False),
-            ({"trusted_recovery": True}, True),
-            (None, True),
-        ):
-            with self.subTest(pool=pool, accepted=accepted):
-                stabilizer = localizer.RotationOnlyPositionStabilizer(enabled=True)
-                stabilizer.room_bias = np.asarray([0.4, 0.0, -0.2])
-                stabilizer.room_bias_commanded = True
-                self.assertFalse(
-                    localizer.accept_lap_start_absolute_metric_position(
-                        stabilizer,
-                        pool=pool,
-                        output_accepted=accepted,
-                    )
-                )
-                self.assertTrue(
-                    np.allclose(stabilizer.room_bias, [0.4, 0.0, -0.2])
-                )
-                self.assertTrue(stabilizer.room_bias_commanded)
-
-    def test_operator_orb_floor_is_50_at_points_one_two_three_only(self):
-        # Route-leg endpoints: leg 1 -> P2, leg 2 -> P3, leg 3 -> P4,
-        # leg 4 -> P1.
-        for leg_index in (1, 2, 4):
-            with self.subTest(leg_index=leg_index):
-                self.assertEqual(
-                    localizer.visual_route_temporal_recovery_minimum_inliers(
-                        90,
-                        leg_index=leg_index,
-                    ),
-                    50,
-                )
-        self.assertEqual(
-            localizer.visual_route_temporal_recovery_minimum_inliers(
-                90,
-                leg_index=3,
-            ),
-            90,
-        )
 
     def test_normal_track_keeps_the_ordinary_refresh_floor(self):
         self.assertEqual(
@@ -2695,85 +2474,6 @@ class LiveRoomAlignmentTests(unittest.TestCase):
             observation["route_continuity_override_source"],
             "stopped_lap_start_full_map_measurement",
         )
-
-    def test_stopped_global_rebootstrap_bypasses_only_stale_continuity(self):
-        context = {
-            "start": [0.0, 0.0, 0.0],
-            "end": [1.0, 0.0, 0.0],
-            "anchor": [0.05, 0.0, 0.0],
-            "leg_index": 1,
-            "position_guard_locked": False,
-        }
-
-        class RouteGate:
-            enabled = True
-            max_cross_track = 0.55
-            last_key = (1, 1)
-            last_progress = 0.05
-
-            def active_context(self):
-                return context
-
-            @staticmethod
-            def _key(_context):
-                return (1, 1)
-
-            def rejection(self, candidate, _previous):
-                progress, cross_track = localizer.route_segment_projection_xz(
-                    candidate,
-                    context["start"],
-                    context["end"],
-                )
-                return None, {
-                    "key": self._key(context),
-                    "context": context,
-                    "progress": progress,
-                    "cross_track": cross_track,
-                }
-
-        previous = np.asarray([0.05, 0.0, 0.0])
-
-        def solve(center, *, stopped=False):
-            candidate = np.asarray(center, dtype=float)
-            return localizer.route_guarded_output_rejection(
-                case={"time_sec": 10.2, "tracked_pool_points": 0},
-                result={
-                    "success": True,
-                    "objective": 20.0,
-                    "R": np.eye(3).tolist(),
-                    "t": (-candidate).tolist(),
-                },
-                previous_center=previous,
-                previous_time=10.0,
-                previous_pose={"rcenter": previous.tolist()},
-                route_gate=RouteGate(),
-                room_transform=lambda value: value,
-                output_center_bias=None,
-                max_step=0.30,
-                max_speed=0.85,
-                objective_threshold=30.0,
-                stopped_metric_rebootstrap=stopped,
-            )
-
-        ordinary_reason, _center, _time, _observation = solve([0.84, 0.0, 0.0])
-        self.assertIsNotNone(ordinary_reason)
-
-        reason, center, timestamp, observation = solve(
-            [0.84, 0.0, 0.0], stopped=True
-        )
-        self.assertIsNone(reason)
-        self.assertTrue(np.allclose(center, [0.84, 0.0, 0.0]))
-        self.assertEqual(timestamp, 10.2)
-        self.assertTrue(observation["stopped_global_metric_measurement"])
-        self.assertAlmostEqual(observation["progress"], 0.84)
-
-        # Absolute recovery is not an unrestricted jump gate. A repeated-room
-        # alias outside the active corridor remains rejected while hovering.
-        reason, _center, _time, observation = solve(
-            [0.84, 0.0, 0.40], stopped=True
-        )
-        self.assertTrue(reason.startswith("stopped_rebootstrap_cross_track_"))
-        self.assertGreater(observation["cross_track"], 0.30)
 
     def test_metric_led_legs_route_gate_uses_post_yaw_tsolve_room_bias(self):
         context = {
@@ -3361,24 +3061,11 @@ class LiveRoomAlignmentTests(unittest.TestCase):
             status_path.write_text(json.dumps(status), encoding="utf-8")
             metric_checkpoint = gate.active_context()
 
-            status["updated_at"] = time.time()
-            status["progress"].update(
-                {
-                    "lap_start_metric_rebootstrap": False,
-                    "stopped_metric_rebootstrap": True,
-                }
-            )
-            status_path.write_text(json.dumps(status), encoding="utf-8")
-            stopped_checkpoint = gate.active_context()
-
         self.assertTrue(metric_checkpoint["controller_translation_locked"])
         self.assertFalse(metric_checkpoint["position_guard_locked"])
         self.assertTrue(metric_checkpoint["metric_position_recovery"])
         self.assertTrue(metric_checkpoint["require_metric_pose"])
         self.assertTrue(metric_checkpoint["lap_start_metric_rebootstrap"])
-        self.assertTrue(stopped_checkpoint["metric_position_recovery"])
-        self.assertTrue(stopped_checkpoint["stopped_metric_rebootstrap"])
-        self.assertFalse(stopped_checkpoint["lap_start_metric_rebootstrap"])
 
     def test_post_translation_recovery_accepts_only_issued_route_budget(self):
         segment_length = 2.589597223809809
