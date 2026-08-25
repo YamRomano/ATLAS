@@ -1,11 +1,11 @@
 {
-  "ok": true,
-  "id": "c4f4933023864c239b4251d8c7c1e544",
+  "ok": false,
+  "id": "601912d22e9a4246bcd8bf542c42e963",
   "command": "mission",
-  "status": "running",
-  "message": "Hovering with physical movement locked while ATLAS releases the stale turn anchor and relocalizes online (82.4s): waiting for progress-independent taught-endpoint image consensus",
-  "started_at": 1787641716.930308,
-  "updated_at": 1787642164.973788,
+  "status": "cancelled",
+  "message": "ATLAS live localization stop requested; saving current path.",
+  "started_at": 1787657426.0611908,
+  "updated_at": 1787657767.629947,
   "progress": {
     "map_id": "map_copy_20260730_114851_cfefdc",
     "patrol_id": "patrol_ms4br5xr_4xclts",
@@ -24,22 +24,157 @@
     ],
     "translation_locked": true,
     "position_anchor": [
-      -0.6480244338911887,
+      -0.6475497640583145,
       -0.0802621969998909,
-      -0.48774887233005093
+      -0.4877774052575321
     ],
     "route_progress_command_ceiling": 1.0,
-    "route_progress_command_sequence": 16,
+    "route_progress_command_sequence": 17,
     "route_progress_command_budget_m": 0.18,
     "route_pose_epoch": 2,
-    "route_pose_epoch_unix": 1787641997.429249,
+    "route_pose_epoch_unix": 1787657652.241715,
     "route_pose_epoch_reason": "verified_point1_handoff",
     "phase": "pose_recovery",
     "recovery_phase": "taught_endpoint_verification",
     "pose_gate": {
-      "ok": false,
-      "reason": "latest TSolve pose is stale (51.82s > 2.50s)",
-      "age_seconds": 51.81842613220215
+      "ok": true,
+      "pose": {
+        "instance_id": "instance_003080",
+        "time_sec": 375.977777,
+        "received_unix": 1787657766.997135,
+        "rcenter": [
+          -0.6475497640583145,
+          -0.0802621969998909,
+          -0.4877774052575321
+        ],
+        "rheading": [
+          0.9009661840106841,
+          0.0,
+          -0.4338893122320787
+        ],
+        "rheading_raw": [
+          0.990903415373089,
+          0.0,
+          0.13457496573266292
+        ],
+        "rheading_source": "optical_flow_yaw",
+        "center": [
+          -0.11707639947000491,
+          0.1507486618651249,
+          -0.35700523045500965
+        ],
+        "R": [
+          [
+            0.8721147080601518,
+            0.051714217093030354,
+            -0.486560968158782
+          ],
+          [
+            0.010558808151143462,
+            0.992178533498123,
+            0.12437953704666015
+          ],
+          [
+            0.48918753822596883,
+            -0.11361072755672803,
+            0.8647474515882931
+          ]
+        ],
+        "t": [
+          -0.07939660964959844,
+          -0.10392925372788328,
+          0.3831183440334527
+        ],
+        "rotation_raw_rcenter": [
+          -2.3034428291349096,
+          -0.01332399394230488,
+          0.6087644501340821
+        ],
+        "rotation_position_anchor": null,
+        "rotation_position_locked": false,
+        "translation_allowed": null,
+        "rotation_position_bias": [
+          1.6781151614039245,
+          0.0029110847990596878,
+          -0.6185866906641431
+        ],
+        "rotation_position_source": "post_yaw_room_bias",
+        "rotation_reanchor_rejected": false,
+        "rotation_reanchored_after_turn": false,
+        "rotation_anchor_is_position_truth": true,
+        "rotation_anchor_commanded": true,
+        "rotation_heading": [
+          0.9009661840106841,
+          0.0,
+          -0.4338893122320787
+        ],
+        "rotation_heading_source": "optical_flow_yaw",
+        "rotation_heading_tracks": 499,
+        "rotation_heading_delta_deg": -0.02261530165347099,
+        "pose_source": null,
+        "route_visual_verified": null,
+        "route_visual_progress": null,
+        "route_visual_published_progress": null,
+        "route_visual_progress_lag": null,
+        "route_visual_translation_safe": null,
+        "route_visual_weak_endpoint_recovery": null,
+        "route_visual_temporal_recovery": null,
+        "route_visual_temporal_recovery_hits": null,
+        "route_visual_temporal_recovery_required_hits": null,
+        "route_visual_inliers": null,
+        "route_visual_ratio_matches": null,
+        "route_visual_anchor": null,
+        "route_visual_source_frame": null,
+        "route_visual_acquisition_hits": null,
+        "route_visual_minimum_inliers": null,
+        "route_visual_map_id": null,
+        "route_visual_patrol_id": null,
+        "route_visual_baseline_replay_id": null,
+        "route_visual_monitor_required": true,
+        "route_visual_monitor_verified": false,
+        "route_visual_monitor_reason": "visual_route_inliers_below_threshold",
+        "route_visual_monitor_inliers": 31,
+        "route_visual_monitor_minimum_inliers": 120,
+        "route_visual_monitor_temporal_recovery": false,
+        "route_visual_monitor_temporal_recovery_hits": 0,
+        "route_visual_monitor_temporal_recovery_required_hits": 5,
+        "route_visual_monitor_progress": null,
+        "route_visual_monitor_tsolve_progress": 1.0001836295730089,
+        "route_visual_monitor_disagreement_m": null,
+        "route_visual_monitor_leg_index": 1,
+        "route_visual_monitor_translation_locked": false,
+        "route_visual_endpoint_guarded": false,
+        "route_visual_endpoint_guard_progress": null,
+        "route_visual_endpoint_safe_prearrival_progress": null,
+        "route_visual_endpoint_checked": false,
+        "route_visual_endpoint_verified": false,
+        "route_visual_endpoint_match_consensus_verified": false,
+        "route_visual_endpoint_view_geometry_verified": false,
+        "route_visual_endpoint_view_scale_min": null,
+        "route_visual_endpoint_view_scale_max": null,
+        "route_visual_endpoint_hits": 0,
+        "route_visual_endpoint_required_hits": 0,
+        "route_visual_endpoint_minimum_inliers": 0,
+        "route_visual_endpoint_candidate_progress": null,
+        "route_visual_endpoint_best_progress": null,
+        "route_visual_endpoint_best_inliers": 0,
+        "route_visual_endpoint_best_anchor": null,
+        "route_visual_verified_rewind": null,
+        "route_visual_verified_rewind_progress": null,
+        "route_visual_verified_rewind_inliers": null,
+        "route_visual_verified_rewind_hits": null,
+        "route_visual_verified_rewind_required_hits": null,
+        "route_verified_visual_rewind_applied": null
+      },
+      "age_seconds": 0.11728596687316895,
+      "processed_count": 1971,
+      "observation_age_seconds": 0.6027822494506836,
+      "pose_offset_room": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "route_progress": 1.0001836295730089
     },
     "continuous_relocalization": true,
     "require_metric_pose": false,
@@ -47,16 +182,19 @@
     "metric_position_recovery_allowed": false,
     "endpoint_position_recovery_allowed": true,
     "post_translation_progress_recovery": false,
-    "recovery_elapsed_seconds": 82.42278033299999,
+    "recovery_elapsed_seconds": 48.106510041000035,
     "route_visual_recovery_allowed": true,
     "rotation_release_requested": true,
     "body_forward_gain": 0.0,
     "body_lateral_gain": 0.0,
-    "message": "Hovering with physical movement locked while ATLAS releases the stale turn anchor and relocalizes online (82.4s): waiting for progress-independent taught-endpoint image consensus",
-    "executed_pulses": 278,
+    "message": "Hovering with physical movement locked while ATLAS releases the stale turn anchor and relocalizes online (48.1s): waiting for progress-independent taught-endpoint image consensus",
+    "executed_pulses": 295,
     "executed_steps": 15,
     "skipped_steps": 7,
-    "elapsed_seconds": 444.16033267974854,
-    "updated_at": 1787642164.9737868
-  }
+    "elapsed_seconds": 337.8079569339752,
+    "updated_at": 1787657767.600121
+  },
+  "error": "ATLAS live localization stop requested; saving current path.",
+  "aborted": true,
+  "cancelled_at": 1787657767.629947
 }

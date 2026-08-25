@@ -1398,7 +1398,7 @@
       "deletable": true,
       "kind": "fixed_reference_map",
       "created_at": "2026-07-30 11:48:51",
-      "updated_at": "2026-08-25 09:17:48",
+      "updated_at": "2026-08-25 14:36:09",
       "counts": {
         "points": 440249,
         "dense_points": 0,
@@ -4654,9 +4654,54 @@
             "failed": 0
           },
           "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260825_090616_f0762b/query_frames"
+        },
+        {
+          "id": "dji_live_20260825_140635_064c3f",
+          "title": "Live ATLAS 14:06:35",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260825_140635_064c3f",
+          "created_at": "2026-08-25 14:13:45",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 1915,
+            "accepted": 1915,
+            "frames": 1933,
+            "held": 16,
+            "failed": 2
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260825_140635_064c3f/query_frames"
+        },
+        {
+          "id": "dji_live_20260825_142046_c8a511",
+          "title": "Live ATLAS 14:20:46",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260825_142046_c8a511",
+          "created_at": "2026-08-25 14:25:44",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 1505,
+            "accepted": 1505,
+            "frames": 1510,
+            "held": 5,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260825_142046_c8a511/query_frames"
+        },
+        {
+          "id": "dji_live_20260825_142949_779adb",
+          "title": "Live ATLAS 14:29:49",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260825_142949_779adb",
+          "created_at": "2026-08-25 14:36:09",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 1733,
+            "accepted": 1733,
+            "frames": 1976,
+            "held": 242,
+            "failed": 1
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260825_142949_779adb/query_frames"
         }
       ],
-      "active_replay_id": "dji_live_20260825_090616_f0762b"
+      "active_replay_id": "dji_live_20260825_142949_779adb"
     },
     {
       "id": "video_map_20260823_191301_f1572f",

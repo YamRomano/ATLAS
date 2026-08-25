@@ -24,6 +24,77 @@ SPEC.loader.exec_module(localizer)
 
 
 class LiveRoomAlignmentTests(unittest.TestCase):
+    def test_post_translation_stasis_forces_metric_recovery_despite_orb_window(self):
+        context = {
+            "recovery_hover": True,
+            "post_translation_progress_recovery": True,
+            "endpoint_position_recovery": False,
+        }
+        self.assertTrue(
+            localizer.pose_recovery_newest_frame_global_due(
+                context,
+                interactive_recovery=True,
+                last_center_available=True,
+                frames_since_last_attempt=15,
+                cooldown_frames=15,
+                route_visual_recovery_window_active=True,
+            )
+        )
+
+    def test_endpoint_orb_window_retains_existing_global_recovery_arbitration(self):
+        context = {
+            "recovery_hover": True,
+            "post_translation_progress_recovery": False,
+            "endpoint_position_recovery": True,
+        }
+        self.assertFalse(
+            localizer.pose_recovery_newest_frame_global_due(
+                context,
+                interactive_recovery=True,
+                last_center_available=True,
+                frames_since_last_attempt=15,
+                cooldown_frames=15,
+                route_visual_recovery_window_active=True,
+            )
+        )
+        self.assertTrue(
+            localizer.pose_recovery_newest_frame_global_due(
+                context,
+                interactive_recovery=True,
+                last_center_available=True,
+                frames_since_last_attempt=15,
+                cooldown_frames=15,
+                route_visual_recovery_window_active=False,
+            )
+        )
+
+    def test_pose_recovery_global_request_respects_cooldown_and_metric_anchor(self):
+        context = {
+            "recovery_hover": True,
+            "post_translation_progress_recovery": True,
+        }
+        common = {
+            "interactive_recovery": True,
+            "cooldown_frames": 15,
+            "route_visual_recovery_window_active": True,
+        }
+        self.assertFalse(
+            localizer.pose_recovery_newest_frame_global_due(
+                context,
+                last_center_available=True,
+                frames_since_last_attempt=14,
+                **common,
+            )
+        )
+        self.assertFalse(
+            localizer.pose_recovery_newest_frame_global_due(
+                context,
+                last_center_available=False,
+                frames_since_last_attempt=15,
+                **common,
+            )
+        )
+
     def test_point4_pose_epoch_is_an_in_leg_tracking_boundary_only(self):
         ordinary = {
             "lap": 1,

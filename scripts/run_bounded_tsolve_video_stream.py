@@ -990,6 +990,45 @@ def live_rotation_command_state(
     return commanded, finite_room_vector(progress.get("position_anchor")) if commanded else None
 
 
+def pose_recovery_newest_frame_global_due(
+    route_context: dict[str, Any] | None,
+    *,
+    interactive_recovery: bool,
+    last_center_available: bool,
+    frames_since_last_attempt: int,
+    cooldown_frames: int,
+    route_visual_recovery_window_active: bool,
+) -> bool:
+    """Decide whether neutral recovery must request a fresh metric pose.
+
+    A strong ORB route match can remain quantized at one recorded anchor while
+    the aircraft has already moved a few centimetres. During post-command
+    stasis that repeated visual match is not new position evidence and must not
+    suppress newest-frame COLMAP/TSolve recovery. Endpoint recovery keeps the
+    prior arbitration rule because its visual window is itself the arrival
+    proof and should finish before a competing metric correction is launched.
+    """
+    if not interactive_recovery or not isinstance(route_context, dict):
+        return False
+    if route_context.get("recovery_hover") is not True:
+        return False
+    post_translation_stasis = bool(
+        route_context.get("post_translation_progress_recovery") is True
+    )
+    endpoint_recovery = bool(
+        route_context.get("endpoint_position_recovery") is True
+    )
+    if not (post_translation_stasis or endpoint_recovery):
+        return False
+    if not last_center_available:
+        return False
+    if int(frames_since_last_attempt) < max(1, int(cooldown_frames)):
+        return False
+    if route_visual_recovery_window_active and not post_translation_stasis:
+        return False
+    return True
+
+
 def finite_room_vector(value: Any) -> list[float] | None:
     if not isinstance(value, (list, tuple, np.ndarray)) or len(value) < 3:
         return None
@@ -7869,18 +7908,17 @@ def main() -> None:
         # unresolved, launch a newest-frame global measurement immediately.
         # Optical flow continues to publish while this worker runs, so the
         # camera stream never blocks on COLMAP/SIFT.
-        recovery_global_due = bool(
-            interactive_recovery
-            and isinstance(route_context, dict)
-            and route_context.get("recovery_hover") is True
-            and (
-                route_context.get("post_translation_progress_recovery") is True
-                or route_context.get("endpoint_position_recovery") is True
-            )
-            and last_center is not None
-            and frame_idx - last_pose_recovery_global_frame
-            >= args.pose_recovery_global_cooldown_frames
-            and not route_visual_recovery_window_active
+        recovery_global_due = pose_recovery_newest_frame_global_due(
+            route_context,
+            interactive_recovery=interactive_recovery,
+            last_center_available=last_center is not None,
+            frames_since_last_attempt=(
+                frame_idx - last_pose_recovery_global_frame
+            ),
+            cooldown_frames=args.pose_recovery_global_cooldown_frames,
+            route_visual_recovery_window_active=(
+                route_visual_recovery_window_active
+            ),
         )
         if recovery_global_due and pending_global is None:
             recovery_reason = (

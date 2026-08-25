@@ -4965,19 +4965,25 @@ class PatrolSafetyTests(unittest.TestCase):
         self.assertIn("max_sequential_catchup_frames = 12 if interactive_recovery", source)
         self.assertIn('"direct_catchup": True', source)
 
-    def test_point_four_route_bank_gets_bounded_priority_before_full_map_recovery(self):
+    def test_route_bank_keeps_endpoint_priority_but_not_during_position_stasis(self):
         source = LOCALIZER_PATH.read_text(encoding="utf-8")
         self.assertIn("route_visual_recovery_grace_frames = 30", source)
         self.assertIn("retained_route_hits > 0", source)
-        recovery_due = source.index("        recovery_global_due = bool(")
+        recovery_due = source.index(
+            "        recovery_global_due = pose_recovery_newest_frame_global_due("
+        )
         recovery_schedule = source.index(
             "        if recovery_global_due and pending_global is None:",
             recovery_due,
         )
         recovery_gate = source[recovery_due:recovery_schedule]
         self.assertIn(
-            "and not route_visual_recovery_window_active",
+            "route_visual_recovery_window_active=(",
             recovery_gate,
+        )
+        self.assertIn(
+            "if route_visual_recovery_window_active and not post_translation_stasis:",
+            source,
         )
 
     def test_yaw_recovery_cannot_overwrite_next_translation_phase(self):
