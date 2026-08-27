@@ -1,0 +1,88 @@
+{
+  "version": 1,
+  "layers": [
+    {
+      "id": "lab_textured_room_scan",
+      "root_map_id": "map_copy_20260730_114851_cfefdc",
+      "inherit_to_copies": true,
+      "kind": "textured_mesh",
+      "url": "public/camera_path_lab/room_scan_textured.glb",
+      "version": "20260806-user-corner-anchor-v6",
+      "opacity": 0.72,
+      "alignment": {
+        "mode": "fixed_room_footprint",
+        "source_floor_y": -1.362,
+        "source_axis_deg": 174.616,
+        "source_center_xz": [-0.929, 0.952],
+        "source_long_m": 16.237,
+        "source_short_m": 7.289,
+        "visual_anchor_offset_xz": [2.74, -0.10],
+        "target_footprint": {
+          "floor_y": -1.080262196999891,
+          "center_xz": [-1.658510846831963, 0.3004193761788141],
+          "axis_deg": 172.381,
+          "long_m": 12.001491,
+          "short_m": 6.787087,
+          "source": "colmap_safety_wall_footprint"
+        },
+        "registration_audit": {
+          "method": "two_axis_room_footprint_plus_user_corner_projection",
+          "reference": "saved_safety_wall_floor_corners_and_user_red_to_purple_corner_annotation",
+          "target_long_m": 12.001491,
+          "target_short_m": 6.787087,
+          "source_long_m": 16.237,
+          "source_short_m": 7.289,
+          "anchor_screenshot": "Image 06-08-2026 at 14.55.heic",
+          "anchor_screen_delta_px": [55, 85],
+          "anchor_room_delta_m": [1.32, -1.54],
+          "visual_anchor_offset_xz": [2.74, -0.10],
+          "automatic_camera_facing_wall_cutaway": true,
+          "visual_only": true
+        }
+      }
+    },
+    {
+      "id": "armour_textured_room_scan",
+      "root_map_id": "video_map_20260823_191301_f1572f",
+      "inherit_to_copies": true,
+      "kind": "textured_mesh",
+      "url": "public/camera_path_lab/room_scan_textured.glb",
+      "version": "20260823-armour-reference-aligned-v1",
+      "opacity": 0.72,
+      "alignment": {
+        "mode": "fixed_room_footprint",
+        "source_floor_y": -1.362,
+        "source_axis_deg": 174.616,
+        "source_center_xz": [
+          -0.929,
+          0.952
+        ],
+        "source_long_m": 16.237,
+        "source_short_m": 7.289,
+        "visual_anchor_offset_xz": [
+          2.74,
+          -0.10
+        ],
+        "target_footprint": {
+          "floor_y": -1.080262196999891,
+          "center_xz": [
+            -1.658510846831963,
+            0.3004193761788141
+          ],
+          "axis_deg": 172.381,
+          "long_m": 12.001491,
+          "short_m": 6.787087,
+          "source": "reference_map_copy_20260730_114851_cfefdc_room_footprint"
+        },
+        "registration_audit": {
+          "method": "reference_map_sim3_then_shared_visual_mesh",
+          "reference_map_id": "map_copy_20260730_114851_cfefdc",
+          "alignment_report": "runtime/map_reference_alignment/video_map_20260823_191301_f1572f_to_copy_audit.json",
+          "visual_only": true,
+          "shared_asset": true,
+          "automatic_camera_facing_wall_cutaway": true
+        }
+      }
+    }
+  ]
+}

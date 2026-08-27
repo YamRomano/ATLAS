@@ -1,12 +1,17 @@
 # ATLAS DJI Live Bridge
 
-This is the first live-drone integration layer for ATLAS.
+This is the current live-drone integration layer for ATLAS. For the complete
+architecture, safety state, and partner setup, read
+[`docs/DAVID_HANDOFF.md`](docs/DAVID_HANDOFF.md).
 
 It connects to the Android `MSDKRemote` app from
 `DJI-MSDK-to-PC`, receives the DJI Mini camera stream, and writes frames in the
 same format that the ATLAS TSolve localization pipeline already uses.
 
-No drone movement commands are sent by this bridge.
+The bridge can receive video and telemetry **and can send guarded takeoff,
+translation, yaw, hover, and landing commands**. Use it only with the physical
+emergency controls available and after confirming the selected map, patrol,
+fresh localization, and command status.
 
 ## Phone And Drone Setup
 
@@ -22,7 +27,8 @@ The app exposes:
 - control on TCP `9998`
 - query/telemetry on TCP `9997`
 
-The bridge connects through `OpenDJI.py` but only reads video frames.
+The bridge connects through `OpenDJI.py`. Read-only frame capture is available,
+but patrol mode also uses the OpenDJI control channel.
 
 ## Run The Frame Bridge
 
@@ -101,8 +107,8 @@ For a quick first test, limit the frame bank:
   --title "DJI Live Smoke Test"
 ```
 
-This adds a new drone path to the selected ATLAS map.  It still sends no
-movement commands.
+This adds a new drone path to the selected ATLAS map. The frame-bank command is
+offline and sends no movement commands; live patrol is a separate guarded mode.
 
 ## Next Layer: True Watch Mode
 

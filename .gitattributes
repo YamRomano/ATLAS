@@ -1,0 +1,8 @@
+*.pt filter=lfs diff=lfs merge=lfs -text
+*.npz filter=lfs diff=lfs merge=lfs -text
+viewer/public/maps/*/scene.json filter=lfs diff=lfs merge=lfs -text
+# These three small legacy scenes predate LFS and remain ordinary text blobs.
+viewer/public/maps/default_demo/scene.json -filter -merge diff text
+viewer/public/maps/demo_replay_20260706_153019_b7c9f6/scene.json -filter -merge diff text
+viewer/public/maps/video_map_20260714_095522_25f465/scene.json -filter -merge diff text
+restore_assets/best_1_live_lap/*.tar.part-* filter=lfs diff=lfs merge=lfs -text

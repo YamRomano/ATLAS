@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "kind": "atlas_taught_patrol_geometry_lock",
+  "map_id": "map_copy_20260730_114851_cfefdc",
+  "patrol_id": "patrol_ms4br5xr_4xclts",
+  "locked_at": "2026-08-09T13:44:18+03:00",
+  "reason": "Point 4 is constrained from the known room geometry: point 3 to 4 equals point 1 to 2, with the corresponding approximately 90-degree corner toward point 1.",
+  "source_replay": "dji_live_20260809_133953_c1c872",
+  "geometry_evidence_replay": "dji_live_20260809_131734_8fafbd",
+  "point_4_derivation": "p3 + (p1 - p2) in horizontal room coordinates; preserve picked point-4 vertical coordinate",
+  "points": [
+    [-3.2329557447702215, -0.17877615459930907, -0.33236579860361815],
+    [-0.6480244338911889, -0.48003389609676617, -0.48774887233005093],
+    [-0.4886978074319452, 1.7599605504441844, 0.9560112230666532],
+    [-3.0736291183109774, -0.20678855225328296, 1.1113942967930859]
+  ]
+}

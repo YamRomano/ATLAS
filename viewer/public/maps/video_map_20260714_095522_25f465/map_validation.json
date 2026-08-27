@@ -1,0 +1,47 @@
+{
+  "frames": "/Users/yamromano/Documents/PythonF4/PythonF4/drone_phase1_replay_demo_20260706/data/maps/video_map_20260714_095522_25f465/frames",
+  "colmap_root": "/Users/yamromano/Documents/PythonF4/PythonF4/drone_phase1_replay_demo_20260706/results/maps/video_map_20260714_095522_25f465/colmap",
+  "asset_dir": "/Users/yamromano/Documents/PythonF4/PythonF4/drone_phase1_replay_demo_20260706/viewer/public/maps/video_map_20260714_095522_25f465",
+  "matcher": "exhaustive",
+  "frame_bank": {
+    "frame_file_count": 1929,
+    "unique_frame_hash_count": 1925,
+    "duplicate_file_count": 4,
+    "duplicate_group_count": 1,
+    "duplicate_examples": [
+      [
+        "replay_dji_live_20260716_181419_query_000778.jpg",
+        "replay_dji_live_20260716_181419_query_000779.jpg",
+        "replay_dji_live_20260716_181419_query_000780.jpg",
+        "replay_dji_live_20260716_181419_query_000781.jpg",
+        "replay_dji_live_20260716_181419_query_000782.jpg"
+      ]
+    ],
+    "prefix_counts": {
+      "map00_6d0bc8": 1054,
+      "replay_dji_live_20260716_181419_query": 875
+    }
+  },
+  "chosen_model": {
+    "registered_images": 1045,
+    "points3D": 188898,
+    "median_points2d_to_3d": 1391,
+    "registered_prefixes": {
+      "map00_6d0bc8": {
+        "registered_images": 1045,
+        "median_points2d_to_3d": 1391
+      }
+    }
+  },
+  "sparse_components": [
+    {
+      "component": "0",
+      "registered_images": 1045,
+      "points3D_bin_bytes": 20778774
+    }
+  ],
+  "notes": [
+    "4 duplicate frame files detected; duplicates can bias COLMAP.",
+    "Video group replay_dji_live_20260716_181419_query registered weakly: 0/875 images."
+  ]
+}

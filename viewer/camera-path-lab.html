@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Camera Path Viewer</title>
+    <script>
+      if (window.location.protocol === "file:") {
+        window.location.replace("http://127.0.0.1:8767/camera-path-lab.html");
+      }
+    </script>
+    <link rel="stylesheet" href="./camera-path-lab.css" />
+  </head>
+  <body>
+    <main class="lab-stage">
+      <div id="lab-canvas" aria-label="3D camera path visualization"></div>
+
+      <header class="app-bar">
+        <span class="app-name">CAMERA PATH</span>
+        <span class="bar-divider"></span>
+        <strong id="map-name">Video Map 20:07:46 Copy</strong>
+        <span class="bar-spacer"></span>
+        <span id="status-dot" class="status-dot idle"></span>
+        <span id="status-text">Ready</span>
+      </header>
+
+      <div id="camera-label" class="camera-label" hidden>
+        <span id="coordinate-kicker" class="coordinate-kicker">LIVE CAMERA POSITION</span>
+        <strong id="camera-coordinates">X 0.000 · Y 0.000 · Z 0.000</strong>
+      </div>
+      <svg id="coordinate-link" class="coordinate-link" aria-hidden="true" hidden>
+        <defs>
+          <filter id="coordinate-glow" x="-100%" y="-100%" width="300%" height="300%">
+            <feGaussianBlur stdDeviation="3" result="blur" />
+            <feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge>
+          </filter>
+        </defs>
+        <path id="coordinate-link-path" class="coordinate-link-path"></path>
+        <circle id="coordinate-camera-ring" class="coordinate-camera-ring" r="8"></circle>
+        <circle id="coordinate-camera-dot" class="coordinate-camera-dot" r="2.5"></circle>
+        <circle id="coordinate-label-dot" class="coordinate-label-dot" r="3"></circle>
+      </svg>
+
+      <aside class="video-card" aria-label="Synchronized source video">
+        <div class="video-frame">
+          <video id="source-video" autoplay muted playsinline preload="metadata"></video>
+          <div id="video-empty" class="video-empty">Choose a video</div>
+          <div id="frame-chip" class="frame-chip">FRAME —</div>
+        </div>
+        <div class="video-caption">
+          <div class="video-caption-copy">
+            <span id="video-time">00:00.0</span>
+            <span id="detail-text">Waiting for video</span>
+          </div>
+          <label class="video-size-control">
+            <span>Video size</span>
+            <input id="video-panel-size" type="range" min="260" max="520" step="10" value="400" aria-label="Video panel size" />
+            <output id="video-panel-size-value" for="video-panel-size">400 px</output>
+          </label>
+        </div>
+      </aside>
+
+      <div class="run-bar">
+        <label class="file-button" for="video-input">
+          <input id="video-input" type="file" accept="video/mp4,video/quicktime,video/*" />
+          <span id="file-name">Choose video</span>
+        </label>
+        <button id="start-button" class="run-button" type="button" disabled>Run</button>
+        <button id="stop-button" class="stop-button" type="button" disabled>Stop</button>
+        <button id="replay-button" class="replay-button" type="button" disabled>Replay</button>
+        <div id="playback-speed-control" class="playback-speed-control" aria-label="Playback speed" hidden>
+          <button type="button" data-playback-rate="1" class="active">1×</button>
+          <button type="button" data-playback-rate="2">2×</button>
+          <button type="button" data-playback-rate="3">3×</button>
+        </div>
+        <div class="progress-track"><span id="progress-fill"></span></div>
+        <span class="pose-count"><strong id="accepted-count">0</strong>/<span id="processed-count">0</span></span>
+        <span id="target-count" class="target-count">0</span>
+      </div>
+
+      <div class="view-controls" aria-label="3D view controls">
+        <button id="adjust-preview-path" type="button" hidden>Adjust path</button>
+        <button id="place-preview-start" type="button" hidden>Place start</button>
+        <label id="preview-scale-control" class="preview-scale-control" hidden>
+          <span>Uniform</span>
+          <input id="preview-motion-scale" type="range" min="10" max="150" step="5" value="35" aria-label="Preview path scale" />
+          <output id="preview-motion-value" for="preview-motion-scale">35%</output>
+        </label>
+        <button id="lock-preview-path" type="button" hidden>Lock</button>
+        <button id="reset-view" type="button">Reset</button>
+        <button id="top-view" type="button">Top</button>
+        <button id="toggle-walls" type="button" aria-pressed="true">Walls</button>
+        <button id="toggle-ceiling" type="button" aria-pressed="true">Ceiling</button>
+      </div>
+
+      <section id="preview-timing-segments" class="preview-timing-segments" aria-label="Path synchronization by video frame" hidden>
+        <div class="timing-segments-title">
+          <div>
+            <strong>Path sync</strong>
+            <span>editable frame sections · smooth transitions</span>
+          </div>
+          <button id="toggle-preview-timing" type="button" aria-expanded="true">Hide</button>
+        </div>
+        <div id="preview-timing-segment-list" class="timing-segment-list"></div>
+      </section>
+
+      <div id="preview-transform-controls" class="preview-transform-controls" aria-label="Floor-plane path transform" hidden>
+        <span class="transform-title">Adjust floor path</span>
+        <label>
+          <span>Rotate</span>
+          <input id="preview-rotation" type="range" min="-180" max="180" step="1" value="0" aria-label="Path rotation" />
+          <output id="preview-rotation-value" for="preview-rotation">0°</output>
+        </label>
+        <label>
+          <span>X size</span>
+          <input id="preview-scale-x" type="range" min="10" max="150" step="5" value="35" aria-label="Path X size" />
+          <output id="preview-scale-x-value" for="preview-scale-x">35%</output>
+        </label>
+        <label>
+          <span>Y size</span>
+          <input id="preview-scale-y" type="range" min="10" max="150" step="5" value="35" aria-label="Path Y size" />
+          <output id="preview-scale-y-value" for="preview-scale-y">35%</output>
+        </label>
+        <span class="transform-note">Floor only · height unchanged</span>
+      </div>
+
+      <div id="mesh-badge" class="mesh-badge">Loading mesh…</div>
+    </main>
+  <script type="module" src="./camera-path-lab.js?v=20260804-flexible-segment-sync-v2"></script>
+  </body>
+</html>

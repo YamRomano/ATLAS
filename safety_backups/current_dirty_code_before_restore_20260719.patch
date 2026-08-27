@@ -1,0 +1,822 @@
+diff --git a/scripts/atlas_app_server.py b/scripts/atlas_app_server.py
+index 6dc310f..0b5a9fd 100644
+--- a/scripts/atlas_app_server.py
++++ b/scripts/atlas_app_server.py
+@@ -899,7 +899,7 @@ def current_live_stream() -> dict | None:
+ 
+ def send_dji_flight_command(payload: dict) -> dict:
+     command = str(payload.get("command", "")).strip().lower()
+-    if command not in {"takeoff", "land", "enable", "disable", "hover"}:
++    if command not in {"takeoff", "land", "enable", "disable", "hover", "mission"}:
+         raise ValueError(f"Unsupported DJI flight command: {command}")
+     phone_ip = str(payload.get("phone_ip", "")).strip()
+     height_m = payload.get("height_m")
+@@ -917,6 +917,18 @@ def send_dji_flight_command(payload: dict) -> dict:
+         "height_m": height_m,
+         "created_at": time.time(),
+     }
++    if command == "mission":
++        if not use_live_bridge:
++            raise ValueError("Start Live ATLAS before confirming a guided mission.")
++        mission = payload.get("mission")
++        if not isinstance(mission, dict):
++            raise ValueError("Mission payload is missing.")
++        pose_rel = stream.get("partial_pose_url") or stream.get("final_pose_url")
++        if not pose_rel:
++            raise ValueError("Live ATLAS has no TSolve pose stream yet.")
++        pose_stream_path = VIEWER / str(pose_rel).lstrip("/")
++        command_payload["mission"] = mission
++        command_payload["pose_stream_path"] = str(pose_stream_path.resolve())
+     if use_live_bridge:
+         command_path = PUBLIC / "live_dji" / "control_command.json"
+         atomic_write_json(command_path, command_payload)
+diff --git a/scripts/atlas_dji_live_bridge.py b/scripts/atlas_dji_live_bridge.py
+index 7ab8a7c..d6ce954 100755
+--- a/scripts/atlas_dji_live_bridge.py
++++ b/scripts/atlas_dji_live_bridge.py
+@@ -1,8 +1,8 @@
+ #!/usr/bin/env python3
+ """Bridge DJI MSDK Remote live video into ATLAS frame streams.
+ 
+-This script is intentionally video-only.  It connects to the Android
+-MSDKRemote/OpenDJI app, receives decoded camera frames, and writes them in the
++This script connects to the Android MSDKRemote/OpenDJI app, receives decoded
++camera frames, and writes them in the
+ same frame-bank format used by the ATLAS TSolve replay pipeline:
+ 
+     data/dji_live/<session>/query_frames/query_000000.jpg
+@@ -13,8 +13,9 @@ It also writes a browser-visible preview:
+     viewer/public/live_dji/latest.jpg
+     viewer/public/live_dji/status.json
+ 
+-No control commands are sent here.  Control must stay a separate, explicit
+-phase after live localization is stable.
++It also accepts explicit takeoff/land/hover/mission command packets from the
++local ATLAS app. Mission movement is guarded by fresh TSolve pose updates and
++uses tiny RC pulses; missing or stale localization causes an immediate hover.
+ """
+ 
+ from __future__ import annotations
+@@ -22,6 +23,7 @@ from __future__ import annotations
+ import argparse
+ import csv
+ import json
++import math
+ import re
+ import signal
+ import sys
+@@ -29,7 +31,7 @@ import threading
+ import time
+ import types
+ from pathlib import Path
+-from typing import Any
++from typing import Any, Callable
+ 
+ import cv2
+ 
+@@ -41,6 +43,12 @@ TAKEOFF_VERTICAL_SPEED = 0.03
+ TAKEOFF_STEP_SECONDS = 0.50
+ TAKEOFF_MAX_ASSIST_SECONDS = 16.0
+ PRE_LAND_STABILIZE_SECONDS = 1.50
++GUIDED_DEFAULT_POSE_MAX_AGE_SECONDS = 2.5
++GUIDED_DEFAULT_PULSE_SECONDS = 0.28
++GUIDED_DEFAULT_MAX_FORWARD_RC = 0.045
++GUIDED_DEFAULT_MAX_YAW_RC = 0.035
++GUIDED_DEFAULT_MAX_VERTICAL_RC = 0.018
++GUIDED_DEFAULT_MAX_STEP_SECONDS = 3.0
+ 
+ 
+ class StopFlag:
+@@ -174,7 +182,447 @@ def climb_to_requested_height(
+     }
+ 
+ 
+-def execute_control_command(drone: Any, OpenDJI: Any, command: dict[str, Any]) -> dict[str, Any]:
++def clamp_float(value: Any, default: float, lo: float, hi: float) -> float:
++    try:
++        out = float(value)
++    except (TypeError, ValueError):
++        out = default
++    return max(lo, min(hi, out))
++
++
++def vector3(value: Any) -> list[float] | None:
++    if not isinstance(value, (list, tuple)) or len(value) < 3:
++        return None
++    try:
++        out = [float(value[0]), float(value[1]), float(value[2])]
++    except (TypeError, ValueError):
++        return None
++    if not all(math.isfinite(v) and abs(v) < 1e9 for v in out):
++        return None
++    return out
++
++
++def dot3(a: list[float], b: list[float]) -> float:
++    return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
++
++
++def sub3(a: list[float], b: list[float]) -> list[float]:
++    return [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
++
++
++def normalize_xz(vec: list[float] | None) -> list[float] | None:
++    if not vec:
++        return None
++    n = math.hypot(vec[0], vec[2])
++    if n < 1e-9 or not math.isfinite(n):
++        return None
++    return [vec[0] / n, 0.0, vec[2] / n]
++
++
++def rotate_xz(vec: list[float] | None, radians: float) -> list[float] | None:
++    base = normalize_xz(vec)
++    if base is None:
++        return None
++    c = math.cos(radians)
++    s = math.sin(radians)
++    return normalize_xz([base[0] * c - base[2] * s, 0.0, base[0] * s + base[2] * c])
++
++
++def room_transform_pose(pose: dict[str, Any], room_transform: dict[str, Any] | None) -> dict[str, Any]:
++    """Fill rcenter/rheading using the same room frame sent by the browser."""
++    out = dict(pose)
++    if vector3(out.get("rcenter")) and vector3(out.get("rheading")):
++        return out
++    if not isinstance(room_transform, dict):
++        return out
++    origin = vector3(room_transform.get("origin"))
++    axes = room_transform.get("axes") if isinstance(room_transform.get("axes"), dict) else {}
++    axis_x = vector3(axes.get("x"))
++    axis_y = vector3(axes.get("y"))
++    axis_z = vector3(axes.get("z"))
++    if not origin or not axis_x or not axis_y or not axis_z:
++        return out
++
++    center = vector3(out.get("center"))
++    if center and not vector3(out.get("rcenter")):
++        d = sub3(center, origin)
++        out["rcenter"] = [dot3(d, axis_x), dot3(d, axis_y), dot3(d, axis_z)]
++
++    if not vector3(out.get("rheading")):
++        R = out.get("R")
++        if isinstance(R, list) and len(R) >= 3 and isinstance(R[2], list) and len(R[2]) >= 3:
++            try:
++                raw_forward = [float(R[2][0]), float(R[2][1]), float(R[2][2])]
++                f = [dot3(raw_forward, axis_x), dot3(raw_forward, axis_y), dot3(raw_forward, axis_z)]
++                if abs(f[0]) + abs(f[2]) > 1e-9:
++                    yaw_offset = clamp_float(room_transform.get("rotation_yaw_offset"), 0.0, -1000.0, 1000.0)
++                    yaw = math.atan2(f[0], f[2]) + yaw_offset
++                    out["rheading"] = [math.sin(yaw), 0.0, math.cos(yaw)]
++            except (TypeError, ValueError):
++                pass
++    return out
++
++
++def dji_control_response_ok(response: Any) -> bool:
++    if response is None:
++        return True
++    text = str(response).lower()
++    return "error" not in text and "fail" not in text and "denied" not in text
++
++
++def dji_control_response_reason(response: Any) -> str:
++    text = str(response)
++    if "CONTROL_AUTH_RC_NOT_P_MODE" in text or "VirtualStickEnabled:-36872" in text:
++        return (
++            "DJI refused virtual-stick control because the RC/drone is not in P/Normal positioning mode. "
++            "Set the controller flight-mode switch to Normal/P mode, not Sport/Cine, then start Live ATLAS again."
++        )
++    return f"DJI refused virtual-stick control: {text}"
++
++
++def latest_tsolve_pose_gate(
++    pose_stream_path: Path | None,
++    max_age_seconds: float,
++    room_transform: dict[str, Any] | None = None,
++) -> dict[str, Any]:
++    if pose_stream_path is None:
++        return {"ok": False, "reason": "mission has no TSolve pose stream path"}
++    if not pose_stream_path.exists():
++        return {"ok": False, "reason": f"TSolve pose stream not found: {pose_stream_path}"}
++    try:
++        payload = json.loads(pose_stream_path.read_text(encoding="utf-8"))
++    except Exception as exc:
++        return {"ok": False, "reason": f"TSolve pose stream unreadable: {exc}"}
++    try:
++        updated_f = float(payload.get("updated_at") or pose_stream_path.stat().st_mtime)
++    except (TypeError, ValueError, OSError):
++        updated_f = 0.0
++    age = time.time() - updated_f if updated_f > 0 else float("inf")
++    if age > max_age_seconds:
++        return {
++            "ok": False,
++            "reason": f"latest TSolve pose is stale ({age:.2f}s > {max_age_seconds:.2f}s)",
++            "age_seconds": age,
++        }
++    poses = payload.get("poses") if isinstance(payload.get("poses"), list) else []
++    for pose in reversed(poses):
++        if not isinstance(pose, dict):
++            continue
++        if not pose.get("success") or pose.get("held_pose"):
++            continue
++        pose_payload = room_transform_pose(pose, room_transform)
++        if vector3(pose_payload.get("rcenter")):
++            return {
++                "ok": True,
++                "pose": {
++                    "instance_id": pose_payload.get("instance_id"),
++                    "time_sec": pose_payload.get("time_sec"),
++                    "rcenter": pose_payload.get("rcenter"),
++                    "rheading": pose_payload.get("rheading"),
++                    "center": pose_payload.get("center"),
++                    "R": pose_payload.get("R"),
++                },
++                "age_seconds": age,
++                "processed_count": payload.get("processed_count"),
++            }
++    return {"ok": False, "reason": "no accepted TSolve pose is available yet", "age_seconds": age}
++
++
++def pose_gate_position(gate: dict[str, Any] | None) -> list[float] | None:
++    pose = gate.get("pose") if isinstance(gate, dict) else None
++    return vector3(pose.get("rcenter")) if isinstance(pose, dict) else None
++
++
++def pose_gate_heading(gate: dict[str, Any] | None, heading_trim_rad: float = 0.0) -> list[float] | None:
++    pose = gate.get("pose") if isinstance(gate, dict) else None
++    if not isinstance(pose, dict):
++        return None
++    return rotate_xz(vector3(pose.get("rheading")), heading_trim_rad)
++
++
++def step_target_position(step: dict[str, Any]) -> list[float] | None:
++    return vector3(step.get("to")) or vector3(step.get("at"))
++
++
++def horizontal_xz_distance(a: list[float] | None, b: list[float] | None) -> float | None:
++    if not a or not b:
++        return None
++    return math.hypot(a[0] - b[0], a[2] - b[2])
++
++
++def signed_angle_xz(from_heading: list[float] | None, to_direction: list[float] | None) -> float | None:
++    a = normalize_xz(from_heading)
++    b = normalize_xz(to_direction)
++    if a is None or b is None:
++        return None
++    cross = a[0] * b[2] - a[2] * b[0]
++    dot = a[0] * b[0] + a[2] * b[2]
++    return math.atan2(cross, dot)
++
++
++def target_direction_xz(current: list[float] | None, target: list[float] | None) -> list[float] | None:
++    if current is None or target is None:
++        return None
++    return [target[0] - current[0], 0.0, target[2] - current[2]]
++
++
++def vertical_rc_toward(current: list[float] | None, target: list[float] | None, max_vertical_rc: float) -> float:
++    if current is None or target is None:
++        return 0.0
++    error = float(target[1]) - float(current[1])
++    if abs(error) < 0.08:
++        return 0.0
++    return max(-max_vertical_rc, min(max_vertical_rc, error * 0.025))
++
++
++def neutral_hover(drone: Any, seconds: float = 0.10) -> None:
++    drone.move(0.0, 0.0, 0.0, 0.0, True)
++    if seconds > 0:
++        time.sleep(seconds)
++
++
++def execute_rc_pulse(
++    drone: Any,
++    *,
++    lr: float = 0.0,
++    du: float = 0.0,
++    bf: float = 0.0,
++    yaw: float = 0.0,
++    seconds: float = GUIDED_DEFAULT_PULSE_SECONDS,
++) -> dict[str, Any]:
++    # OpenDJI.move order is rcw, du, lr, bf.
++    sent = {
++        "rcw_yaw": round(float(yaw), 4),
++        "du_vertical": round(float(du), 3),
++        "lr_lateral": round(float(lr), 3),
++        "bf_forward": round(float(bf), 3),
++        "seconds": round(max(0.05, float(seconds)), 3),
++    }
++    drone.move(float(yaw), float(du), float(lr), float(bf), False)
++    time.sleep(max(0.05, float(seconds)))
++    neutral_hover(drone, 0.03)
++    return sent
++
++
++def execute_guarded_mission_packet(
++    drone: Any,
++    mission: dict[str, Any],
++    *,
++    pose_stream_path: Path | None = None,
++    stop_flag: StopFlag | None = None,
++    progress_callback: Callable[[dict[str, Any]], None] | None = None,
++) -> dict[str, Any]:
++    commands = mission.get("commands") if isinstance(mission.get("commands"), list) else []
++    room_transform = mission.get("room_transform") if isinstance(mission.get("room_transform"), dict) else None
++    executed: list[dict[str, Any]] = []
++    skipped: list[dict[str, Any]] = []
++    started = time.time()
++    pose_max_age = clamp_float(mission.get("pose_max_age_seconds"), GUIDED_DEFAULT_POSE_MAX_AGE_SECONDS, 0.4, 10.0)
++    pulse_seconds = clamp_float(mission.get("pulse_seconds"), GUIDED_DEFAULT_PULSE_SECONDS, 0.08, 0.75)
++    max_forward_rc = clamp_float(mission.get("max_forward_rc"), GUIDED_DEFAULT_MAX_FORWARD_RC, 0.005, 0.09)
++    max_yaw_rc = clamp_float(mission.get("max_yaw_rc"), GUIDED_DEFAULT_MAX_YAW_RC, 0.005, 0.08)
++    max_vertical_rc = clamp_float(mission.get("max_vertical_rc"), GUIDED_DEFAULT_MAX_VERTICAL_RC, 0.005, 0.04)
++    arrival_radius = clamp_float(mission.get("arrival_radius_map_units"), 0.22, 0.05, 0.80)
++    max_cruise_seconds = clamp_float(mission.get("max_cruise_seconds"), 25.0, 2.0, 60.0)
++    heading_trim_rad = math.radians(clamp_float(mission.get("heading_trim_deg"), 0.0, -180.0, 180.0))
++    abort_reason: str | None = None
++    executed_pulses = 0
++
++    def publish(payload: dict[str, Any]) -> None:
++        if progress_callback is None:
++            return
++        try:
++            progress_callback({
++                **payload,
++                "executed_steps": len(executed),
++                "executed_pulses": executed_pulses,
++                "elapsed_seconds": time.time() - started,
++                "updated_at": time.time(),
++            })
++        except Exception:
++            pass
++
++    def pose_gate_or_abort() -> dict[str, Any] | None:
++        nonlocal abort_reason
++        if stop_flag is not None and stop_flag.stop:
++            abort_reason = "live localization stop requested"
++            return None
++        gate = latest_tsolve_pose_gate(pose_stream_path, pose_max_age, room_transform)
++        if not gate.get("ok"):
++            abort_reason = str(gate.get("reason") or "TSolve pose gate failed")
++            return None
++        if pose_gate_position(gate) is None:
++            abort_reason = "latest TSolve pose has no ATLAS room-frame position"
++            return None
++        return gate
++
++    first_pose = pose_gate_or_abort()
++    if first_pose is None:
++        neutral_hover(drone, 0.25)
++        return {
++            "ok": False,
++            "armed": True,
++            "aborted": True,
++            "abort_reason": abort_reason,
++            "executed": executed,
++            "skipped": skipped,
++            "command_count": len(commands),
++            "message": f"Mission refused before motion: {abort_reason}",
++            "elapsed_seconds": time.time() - started,
++        }
++
++    control_enabled = False
++    try:
++        enable_result = drone.enableControl(True)
++        if not dji_control_response_ok(enable_result):
++            abort_reason = dji_control_response_reason(enable_result)
++            return {
++                "ok": False,
++                "armed": True,
++                "aborted": True,
++                "abort_reason": abort_reason,
++                "enable_control_result": enable_result,
++                "executed": executed,
++                "skipped": skipped,
++                "command_count": len(commands),
++                "message": f"Guided mission refused before motion: {abort_reason}",
++                "elapsed_seconds": time.time() - started,
++            }
++        control_enabled = True
++
++        for idx, step in enumerate(commands):
++            if not isinstance(step, dict):
++                skipped.append({"index": idx, "type": "unknown", "reason": "invalid command record"})
++                continue
++            kind = str(step.get("type", "")).strip().lower()
++            title = str(step.get("title", kind or "step"))
++            if kind == "gate":
++                skipped.append({"index": idx, "type": kind, "title": title, "reason": "UI confirmation gate"})
++                continue
++            if kind == "hover":
++                duration = clamp_float(step.get("duration_s"), 0.4, 0.1, 2.0)
++                neutral_hover(drone, duration)
++                executed.append({"index": idx, "type": kind, "title": title, "duration_s": duration})
++                continue
++            if kind == "yaw":
++                # Heading is closed-loop inside cruise; separate yaw preview rows are not open-loop executed.
++                skipped.append({"index": idx, "type": kind, "title": title, "reason": "handled by closed-loop cruise"})
++                continue
++            if kind == "cruise":
++                target = step_target_position(step)
++                if target is None:
++                    abort_reason = "cruise target is missing"
++                    break
++                deadline = time.time() + max_cruise_seconds
++                closest = float("inf")
++                diverging = 0
++                pulses = 0
++                reached = False
++                while time.time() < deadline:
++                    gate = pose_gate_or_abort()
++                    if gate is None:
++                        break
++                    current = pose_gate_position(gate)
++                    heading = pose_gate_heading(gate, heading_trim_rad)
++                    distance = horizontal_xz_distance(current, target)
++                    if current is None or distance is None:
++                        abort_reason = "could not read current TSolve position"
++                        break
++                    if distance <= arrival_radius and abs(target[1] - current[1]) <= 0.35:
++                        reached = True
++                        break
++                    if distance < closest - 0.03:
++                        closest = distance
++                        diverging = 0
++                    elif closest < float("inf") and distance > closest + 0.18:
++                        diverging += 1
++                        if diverging >= 6:
++                            abort_reason = f"mission stopped because drone moved away from target (closest {closest:.2f}, now {distance:.2f})"
++                            break
++                    desired = target_direction_xz(current, target)
++                    angle = signed_angle_xz(heading, desired)
++                    if angle is None:
++                        abort_reason = "could not compute TSolve heading correction"
++                        break
++                    publish({
++                        "phase": "cruise",
++                        "step_index": idx,
++                        "step_title": title,
++                        "target": target,
++                        "distance_to_target": distance,
++                        "angle_error_deg": math.degrees(angle),
++                        "message": f"Closed-loop mission: {title}, distance {distance:.2f}, heading error {math.degrees(angle):.1f} deg",
++                    })
++                    du = vertical_rc_toward(current, target, max_vertical_rc)
++                    if abs(angle) > math.radians(18.0):
++                        yaw = max_yaw_rc if angle > 0 else -max_yaw_rc
++                        execute_rc_pulse(drone, yaw=yaw, du=du * 0.35, seconds=pulse_seconds)
++                    else:
++                        speed_scale = max(0.28, min(1.0, distance / max(arrival_radius * 5.0, 0.55)))
++                        execute_rc_pulse(drone, bf=max_forward_rc * speed_scale, du=du, seconds=pulse_seconds)
++                    pulses += 1
++                    executed_pulses += 1
++                if abort_reason:
++                    break
++                if not reached:
++                    abort_reason = f"closed-loop cruise timed out before reaching target {title}"
++                    break
++                executed.append({"index": idx, "type": kind, "title": title, "target": target, "pulse_count": pulses})
++                continue
++            if kind == "descend":
++                duration = clamp_float(step.get("duration_s"), 1.0, pulse_seconds, 5.0)
++                pulses = max(1, int(round(duration / pulse_seconds)))
++                for _ in range(pulses):
++                    if pose_gate_or_abort() is None:
++                        break
++                    execute_rc_pulse(drone, du=-max_vertical_rc, seconds=pulse_seconds)
++                    executed_pulses += 1
++                if abort_reason:
++                    break
++                executed.append({"index": idx, "type": kind, "title": title, "pulse_count": pulses})
++                continue
++            if kind == "land":
++                neutral_hover(drone, 0.4)
++                if pose_gate_or_abort() is None:
++                    break
++                result = drone.land(True)
++                executed.append({"index": idx, "type": kind, "title": title, "result": result})
++                continue
++            skipped.append({"index": idx, "type": kind or "unknown", "title": title, "reason": "unsupported mission step"})
++    finally:
++        try:
++            neutral_hover(drone, 0.08)
++        except Exception:
++            pass
++        if control_enabled:
++            try:
++                drone.disableControl(True)
++            except Exception:
++                pass
++
++    return {
++        "ok": abort_reason is None,
++        "armed": True,
++        "aborted": abort_reason is not None,
++        "abort_reason": abort_reason,
++        "executed_pulses": executed_pulses,
++        "executed": executed,
++        "skipped": skipped,
++        "command_count": len(commands),
++        "message": "Guided mission executed with TSolve pose gating." if abort_reason is None else f"Guided mission aborted: {abort_reason}",
++        "elapsed_seconds": time.time() - started,
++    }
++
++
++def execute_control_command(
++    drone: Any,
++    OpenDJI: Any,
++    command: dict[str, Any],
++    *,
++    pose_stream_path: Path | None = None,
++    stop_flag: StopFlag | None = None,
++    progress_callback: Callable[[dict[str, Any]], None] | None = None,
++) -> dict[str, Any]:
+     name = str(command.get("command", "")).strip().lower()
+     height_m = command.get("height_m")
+     started = time.time()
+@@ -199,6 +647,18 @@ def execute_control_command(drone: Any, OpenDJI: Any, command: dict[str, Any]) -
+     elif name == "hover":
+         result = drone.move(0, 0, 0, 0, True)
+         height_guard = {"enabled": False, "reason": "not a takeoff command"}
++    elif name == "mission":
++        result = execute_guarded_mission_packet(
++            drone,
++            command.get("mission") if isinstance(command.get("mission"), dict) else {},
++            pose_stream_path=pose_stream_path,
++            stop_flag=stop_flag,
++            progress_callback=progress_callback,
++        )
++        height_guard = {
++            "enabled": False,
++            "reason": "mission execution uses guarded per-step policy, not takeoff height guard",
++        }
+     else:
+         raise ValueError(f"Unsupported live DJI command: {name}")
+     altitude_after = read_altitude(drone, OpenDJI)
+@@ -209,12 +669,14 @@ def execute_control_command(drone: Any, OpenDJI: Any, command: dict[str, Any]) -
+             "conservative telemetry-based upward-only guard when altitude "
+             "telemetry is available."
+         )
++    ok = not (name == "mission" and isinstance(result, dict) and not result.get("ok", False))
+     return {
+-        "ok": True,
++        "ok": ok,
+         "id": command.get("id"),
+         "command": name,
+         "height_m": height_m,
+         "result": result,
++        "error": result.get("abort_reason") if name == "mission" and isinstance(result, dict) else None,
+         "altitude_before": altitude_before,
+         "altitude_after": altitude_after,
+         "height_guard": height_guard,
+@@ -311,6 +773,12 @@ def main() -> None:
+     ap.add_argument("--no-history", action="store_true", help="Only update latest.jpg/status.json.")
+     ap.add_argument("--out-root", type=Path, default=ROOT / "data" / "dji_live")
+     ap.add_argument("--public-root", type=Path, default=ROOT / "viewer" / "public" / "live_dji")
++    ap.add_argument(
++        "--pose-stream",
++        type=Path,
++        default=None,
++        help="Backward-compatible TSolve pose stream path for guarded mission commands.",
++    )
+     args = ap.parse_args()
+ 
+     if args.fps <= 0:
+@@ -349,7 +817,8 @@ def main() -> None:
+         "control_enabled": True,
+         "control_command_path": str(control_command_path),
+         "control_status_path": str(control_status_path),
+-        "note": "This bridge receives frames and accepts explicit takeoff/land/hover commands.",
++        "pose_stream_path": str(args.pose_stream.resolve()) if args.pose_stream else None,
++        "note": "This bridge receives frames and accepts explicit takeoff/land/hover/mission commands.",
+     }
+     atomic_write_json(metadata_path, metadata)
+ 
+@@ -404,7 +873,34 @@ def main() -> None:
+             def control_worker(command_payload: dict[str, Any]) -> None:
+                 nonlocal control_busy
+                 try:
+-                    control_result = execute_control_command(drone, OpenDJI, command_payload)
++                    pose_stream_raw = command_payload.get("pose_stream_path") or (
++                        str(args.pose_stream.resolve()) if args.pose_stream else None
++                    )
++                    pose_stream_path = Path(pose_stream_raw).expanduser() if pose_stream_raw else None
++
++                    def publish_control_progress(progress: dict[str, Any]) -> None:
++                        control_progress = {
++                            "ok": True,
++                            "id": command_payload.get("id"),
++                            "command": command_payload.get("command"),
++                            "progress": progress,
++                            "updated_at": time.time(),
++                        }
++                        atomic_write_json(control_status_path, control_progress)
++                        with control_lock:
++                            status["last_control_progress"] = control_progress
++                            status["updated_at"] = time.time()
++                            atomic_write_json(public_status_path, status)
++                            atomic_write_json(session_status_path, status)
++
++                    control_result = execute_control_command(
++                        drone,
++                        OpenDJI,
++                        command_payload,
++                        pose_stream_path=pose_stream_path,
++                        stop_flag=stop,
++                        progress_callback=publish_control_progress,
++                    )
+                     atomic_write_json(control_status_path, control_result)
+                     with control_lock:
+                         status["last_control"] = control_result
+@@ -476,8 +972,30 @@ def main() -> None:
+                 frame = drone.getFrame()
+                 if frame is None:
+                     if time.perf_counter() - last_progress_print > 2.0:
+-                        print("waiting for first frame...")
++                        saved_count = max(frame_index, existing_frame_count(query_dir))
++                        print("waiting for first frame..." if saved_count <= 0 else "waiting for next frame...")
+                         last_progress_print = time.perf_counter()
++                        if saved_count <= 0:
++                            status.update(
++                                {
++                                    "status": "waiting_for_video",
++                                    "message": "Connected to Android MSDKRemote. Waiting for first decoded DJI video frame.",
++                                    "frames_saved": saved_count,
++                                    "latest_frame": None,
++                                    "updated_at": time.time(),
++                                }
++                            )
++                        else:
++                            status.update(
++                                {
++                                    "status": "streaming",
++                                    "message": "Receiving DJI live frames. Waiting for the next decoded frame.",
++                                    "frames_saved": saved_count,
++                                    "updated_at": time.time(),
++                                }
++                            )
++                        atomic_write_json(public_status_path, status)
++                        atomic_write_json(session_status_path, status)
+                     time.sleep(0.03)
+                     continue
+ 
+diff --git a/scripts/run_bounded_tsolve_video_stream.py b/scripts/run_bounded_tsolve_video_stream.py
+index 22b6bba..03f554e 100644
+--- a/scripts/run_bounded_tsolve_video_stream.py
++++ b/scripts/run_bounded_tsolve_video_stream.py
+@@ -782,6 +782,17 @@ def main() -> None:
+     ap.add_argument("--relocalize-every", type=int, default=0)
+     ap.add_argument("--flow-max-error", type=float, default=34.0)
+     ap.add_argument("--flow-backtrack-error", type=float, default=2.5)
++    # Compatibility with the ATLAS live-control launcher.  Older runtime builds
++    # do not implement these tuning knobs yet, but accepting them keeps live
++    # localization from aborting before the first pose.
++    ap.add_argument("--flow-window", type=int, default=21)
++    ap.add_argument("--flow-levels", type=int, default=3)
++    ap.add_argument("--flow-iterations", type=int, default=18)
++    ap.add_argument("--min-track-points", type=int, default=80)
++    ap.add_argument("--min-track-ratio", type=float, default=0.10)
++    ap.add_argument("--global-recovery-after-failures", type=int, default=2)
++    ap.add_argument("--blocking-global-recovery", action="store_true")
++    ap.add_argument("--disable-background-recovery", action="store_true")
+     ap.add_argument("--prime", type=int, default=2147483647)
+     ap.add_argument("--degree", type=int, default=11)
+     ap.add_argument("--action-weights", default="branch")
+diff --git a/viewer/app.js b/viewer/app.js
+index a83e416..38ac0c8 100644
+--- a/viewer/app.js
++++ b/viewer/app.js
+@@ -779,6 +779,7 @@ function buildRoomFrame() {
+   return {
+     origin: center,
+     axes: { x: axisX, y: axisY, z: axisZ },
++    rotationYawOffset,
+     transform,
+     bounds: b,
+     structureBounds,
+@@ -793,6 +794,15 @@ function buildRoomFrame() {
+   };
+ }
+ 
++function roomTransformForMission() {
++  if (!room?.origin || !room?.axes) return null;
++  return {
++    origin: room.origin,
++    axes: room.axes,
++    rotation_yaw_offset: Number(room.rotationYawOffset || 0),
++  };
++}
++
+ function displayPointSummaryLine() {
+   if (!room) return "";
+   if (room.scanPoints?.length) return `${room.scanPoints.length} LiDAR scan samples<br>`;
+@@ -2941,6 +2951,8 @@ function buildMissionCommandPlan(mission = plannedMission) {
+       commands.push({
+         type: profile === "horizontal-approach-then-land" ? "land" : "descend",
+         title: profile === "horizontal-approach-then-land" ? "Land" : "Vertical descend",
++        from: a,
++        to: b,
+         detail: profile === "horizontal-approach-then-land"
+           ? `Land above destination ${formatCommandPoint(b)}.`
+           : `Descend slowly to selected height at ${formatCommandPoint(b)}.`,
+@@ -2953,6 +2965,9 @@ function buildMissionCommandPlan(mission = plannedMission) {
+     commands.push({
+       type: "yaw",
+       title: `Yaw to segment ${i}`,
++      from: a,
++      to: b,
++      heading_deg: heading,
+       detail: `Face ${heading.toFixed(1)} degrees toward waypoint ${i}.`,
+       duration_s: 1.0,
+       safety: "slow-yaw",
+@@ -2960,8 +2975,12 @@ function buildMissionCommandPlan(mission = plannedMission) {
+     commands.push({
+       type: "cruise",
+       title: `Slow cruise ${i}`,
++      from: a,
++      to: b,
++      heading_deg: heading,
+       detail: `Move ${d.toFixed(2)} map units to ${formatCommandPoint(b)} at ${speed.toFixed(2)} m/s.`,
+       distance: d,
++      speed_mps: speed,
+       duration_s: d / speed,
+       safety: speedCapped ? `speed capped from ${requestedSpeed.toFixed(2)} m/s` : "indoor-speed",
+     });
+@@ -4045,8 +4064,8 @@ function partialPolyline(points, u) {
+ }
+ 
+ function headingForPose(cur) {
+-  if (cur?.rheading && norm(cur.rheading) > 1e-8) return cur.rheading;
+   if (cur?.rotationHeading && norm(cur.rotationHeading) > 1e-8) return cur.rotationHeading;
++  if (cur?.rheading && norm(cur.rheading) > 1e-8) return cur.rheading;
+   if (cur?.pathHeading && norm(cur.pathHeading) > 1e-8) return cur.pathHeading;
+   const good = room.poses.filter(p => p.success && p.rcenter);
+   const idx = good.findIndex(p => p.instance_id === cur.instance_id);
+@@ -5070,7 +5089,7 @@ clearTargetButton?.addEventListener("click", () => {
+   updateMissionStatus();
+ });
+ planMissionButton?.addEventListener("click", planMissionPreview);
+-startMissionButton?.addEventListener("click", () => {
++startMissionButton?.addEventListener("click", async () => {
+   if (!firstLocalizationConfirmed) {
+     updateMissionStatus("Confirm the first TSolve localization before confirming a mission.");
+     return;
+@@ -5097,7 +5116,55 @@ startMissionButton?.addEventListener("click", () => {
+   plannedMission.commands = buildMissionCommandPlan(plannedMission);
+   renderMissionCommands(plannedMission.commands);
+   const commandCount = plannedMission.commands?.length || 0;
+-  updateMissionStatus(`Mission command plan confirmed: ${commandCount} slow guarded steps are visible below. Takeoff, land, and hover are live; lateral autonomous movement remains locked until the TSolve-to-RC follower is calibrated indoors.`);
++  if (!commandCount) {
++    updateMissionStatus("Mission has no movement steps. Re-plan the destination.");
++    return;
++  }
++  const ok = window.confirm(
++    `Send ${commandCount} guarded slow mission steps to the live DJI bridge?\n\n` +
++    "The drone must already be localized correctly on the 3D map. It will move slowly, stop between segments, and gate every step on fresh TSolve R,t."
++  );
++  if (!ok) {
++    updateMissionStatus(`Mission ready: ${commandCount} guarded steps. Waiting for your confirmation.`);
++    return;
++  }
++  updateMissionStatus(`Mission confirmed. Sending ${commandCount} guarded steps to the live DJI bridge...`);
++  try {
++    const data = await sendDjiFlightCommand("mission", {
++      mission: {
++        guided_enabled: true,
++        pose_max_age_seconds: 2.5,
++        pulse_seconds: 0.28,
++        max_forward_rc: 0.045,
++        max_yaw_rc: 0.035,
++        max_vertical_rc: 0.018,
++        max_step_seconds: 3.0,
++        max_cruise_seconds: 30.0,
++        arrival_radius_map_units: 0.22,
++        map_id: currentMapEntry?.id || null,
++        map_title: currentMapEntry?.title || null,
++        replay_id: activeReplay(currentMapEntry)?.id || null,
++        target: plannedMission.target,
++        approach: plannedMission.approach,
++        route: plannedMission.route,
++        route_segments: plannedMission.route_segments,
++        speed: plannedMission.speed,
++        profile: plannedMission.profile,
++        commands: plannedMission.commands,
++        safety_barriers: mapSafetyBarriers(),
++        barrier_clearance_m: selectedBarrierClearance(),
++        room_transform: roomTransformForMission(),
++        confirmed_at: new Date().toISOString(),
++      },
++    });
++    const bridgeMessage = data.result?.message || data.message || "Mission packet queued.";
++    updateMissionStatus(`${bridgeMessage} ${commandCount} guarded steps are active on the bridge.`);
++    setDjiCommandStatus(bridgeMessage, data.result?.ok === false ? "error" : "ok");
++  } catch (error) {
++    const message = error?.message || String(error);
++    updateMissionStatus(`Mission command failed: ${message}`);
++    setDjiCommandStatus(`Mission command failed: ${message}`, "error");
++  }
+ });
+ addBarrierButton?.addEventListener("click", () => {
+   if (barrierUnsaved) {

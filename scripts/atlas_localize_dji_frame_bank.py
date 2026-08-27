@@ -72,6 +72,10 @@ def main() -> None:
     selected = atlas.set_selected_map(args.map_id) if args.map_id else atlas.selected_map_entry()
     full_map_frames = atlas.frames_for_entry(selected)
     map_artifacts = atlas.colmap_artifacts_for_entry(selected)
+    faiss_spec = atlas.faiss_index_command(cfg, map_artifacts)
+    if faiss_spec is None:
+        raise RuntimeError("Direct OpenCV SIFT localization requires the Faiss map index.")
+    faiss_index_dir, faiss_build_cmd = faiss_spec
 
     replay_id = atlas.make_map_id("dji_live")
     replay_title = args.title.strip() or f"DJI Live Path {time.strftime('%H:%M:%S')}"
@@ -140,17 +144,18 @@ def main() -> None:
             "--dropin-patch-dir",
             cfg["dropin_patch_dir"],
             "--base-harness-dir",
-            str(ROOT.parent / "pnp-symbolic-research/Yam/exact_ff_ysolve_pnp/harness"),
+            cfg["base_harness_dir"],
             "--out-dir",
             runtime_dir,
         ],
         atlas.DRONE_STOP_EVENT,
     )
 
+    atlas.set_job("drone", "running", "Preparing the persistent all-map SIFT/Faiss index.")
+    atlas.run_cmd("drone", faiss_build_cmd, atlas.DRONE_STOP_EVENT)
+
     atlas.set_job("drone", "running", "Running bounded TSolve localization on DJI live frames.")
-    atlas.run_cmd(
-        "drone",
-        [
+    localize_command: list[object] = [
             py,
             SCRIPTS / "run_bounded_tsolve_video_stream.py",
             "--colmap",
@@ -179,6 +184,10 @@ def main() -> None:
             cfg["max_image_size"],
             "--query-camera-model",
             cfg["query_camera_model"],
+            "--query-camera-params",
+            cfg.get("query_camera_params", ""),
+            "--sift-max-num-features",
+            cfg.get("live_sift_max_num_features", 1024),
             "--min-points",
             cfg["min_query_correspondences"],
             "--max-points",
@@ -209,9 +218,13 @@ def main() -> None:
             cfg["tsolve_action_weights"],
             "--fallback-action-weights",
             cfg["tsolve_fallback_action_weights"],
-        ],
-        atlas.DRONE_STOP_EVENT,
-    )
+            "--scene-json",
+            base_asset_dir / "scene.json",
+            "--display-z-sign",
+            selected.get("display_z_sign", -1),
+        ]
+    atlas.add_faiss_live_arguments(localize_command, cfg, faiss_index_dir)
+    atlas.run_cmd("drone", localize_command, atlas.DRONE_STOP_EVENT)
 
     final_pose_path = out_asset_dir / "poses.json"
     pose_count = copy_final_partial_to_poses(partial_pose_path, final_pose_path)

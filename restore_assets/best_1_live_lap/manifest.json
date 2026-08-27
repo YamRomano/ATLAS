@@ -1,0 +1,76 @@
+{
+  "snapshot": "best 1 live lap",
+  "branch": "Yams",
+  "code_parent_commit": "6b9dbdb9a03df171671ecbb0bd18a44e46275830",
+  "map_id": "map_copy_20260730_114851_cfefdc",
+  "map_title": "Video Map 20:07:46 Copy",
+  "patrol_id": "patrol_ms4br5xr_4xclts",
+  "patrol_title": "Patrol 1",
+  "baseline_replay_id": "patrol_baseline_precision_20260813",
+  "preserved_live_session": "atlas_dji_live_20260823_154451_94903f",
+  "preserved_pose_replay": "dji_live_20260823_154451_94903f",
+  "session_evidence": {
+    "latest_frame": "query_004051.jpg",
+    "saved_query_frames": 4052,
+    "localized_pose_records": 2253,
+    "completed_lap_before_stop": 1,
+    "active_lap_at_stop": 2,
+    "executed_motion_pulses": 266,
+    "executed_mission_steps": 15,
+    "status": "stopped_by_user"
+  },
+  "runtime": {
+    "platform": "macOS arm64",
+    "colmap": "3.11.1 conda-forge build cpuh0af2650_3",
+    "python_packages": "requirements.txt",
+    "opendji_sha256": "804ac3b15f7cbde20093f868599b813b4b6b82715820354b213311336c2d6d1a"
+  },
+  "archives": [
+    {
+      "name": "active_colmap_map",
+      "restores": [
+        "results/maps/map_copy_20260730_114851_cfefdc"
+      ],
+      "source_file_count": 3611,
+      "tar_entry_count": 3619,
+      "parts": [
+        {"file": "active_colmap_map.tar.part-aa", "bytes": 1992294400},
+        {"file": "active_colmap_map.tar.part-ab", "bytes": 1992294400},
+        {"file": "active_colmap_map.tar.part-ac", "bytes": 1217454080}
+      ]
+    },
+    {
+      "name": "best_full_lap_run",
+      "restores": [
+        "viewer/public/live_dji_sessions/atlas_dji_live_20260823_154451_94903f",
+        "viewer/public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260823_154451_94903f"
+      ],
+      "source_file_count": 4060,
+      "tar_entry_count": 4063,
+      "parts": [
+        {"file": "best_full_lap_run.tar.part-aa", "bytes": 593838080}
+      ]
+    },
+    {
+      "name": "colmap_runtime_macos_arm64",
+      "restores": [
+        "tools/colmap-env"
+      ],
+      "source_file_count": 24350,
+      "tar_entry_count": 29886,
+      "parts": [
+        {"file": "colmap_runtime_macos_arm64.tar.part-aa", "bytes": 1224980480}
+      ]
+    }
+  ],
+  "excluded_secrets": [
+    "DJI developer key",
+    "Android secrets.xml",
+    "key-bearing Android APK"
+  ],
+  "notes": [
+    "The active visual route-recovery NPZ is already tracked in Git LFS and is self-contained at runtime; historical source images are not reopened during live matching.",
+    "The Android MSDKRemote application is deployed separately and must use the operator's own DJI developer key.",
+    "The bundled COLMAP runtime is the exact macOS arm64 environment. On another platform, install COLMAP 3.11.1 and update config.json."
+  ]
+}

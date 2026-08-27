@@ -1,0 +1,80 @@
+{
+  "version": 1,
+  "kind": "atlas_audited_mixed_recording_two_lap_plan",
+  "enabled": true,
+  "complete_second_lap": true,
+  "map_id": "map_copy_20260730_114851_cfefdc",
+  "patrol_id": "patrol_ms4br5xr_4xclts",
+  "baseline_replay_id": "patrol_baseline_precision_20260813",
+  "description": "Lap 1 uses the validated 15:47:14 loop. Lap 2 uses independent 11:57:36 camera frames from Point 1 through Point 4 arrival, then the coherent validated 15:47:14 Point 4 turn and Point 4 to Point 1 final leg because 11:57:36 did not finish the Point 4 turn at the same 4-to-1 departure heading.",
+  "second_lap_segments": [
+    {
+      "label": "Independent Live ATLAS 11:57:36 Point 1 through Point 4 arrival",
+      "source_replay_id": "dji_live_20260811_115736_2b91ca",
+      "start_frame": 675,
+      "end_frame": 2019,
+      "phase_boundaries": {
+        "point1": 675,
+        "point2_arrival": 930,
+        "point2_departure": 1120,
+        "point3_arrival": 1180,
+        "point3_departure": 1460,
+        "point4_arrival": 2020,
+        "point4_departure": 2211,
+        "point1_return": 999999
+      }
+    },
+    {
+      "label": "Validated 15:47:14 Point 4 turn and Point 4 to Point 1 final leg",
+      "source_replay_id": "patrol_baseline_precision_20260813",
+      "start_frame": 3900,
+      "end_frame": 4414,
+      "phase_boundaries": {
+        "point1": 991,
+        "point2_arrival": 1417,
+        "point2_departure": 1690,
+        "point3_arrival": 2180,
+        "point3_departure": 2878,
+        "point4_arrival": 3900,
+        "point4_departure": 4093,
+        "point1_return": 4414,
+        "point1_next_departure": 4533
+      }
+    }
+  ],
+  "seam_audits": [
+    {
+      "at": "lap1 Point 1 departure to alternate lap2 Point 1 departure",
+      "left_replay_id": "patrol_baseline_precision_20260813",
+      "left_frame": 4533,
+      "right_replay_id": "dji_live_20260811_115736_2b91ca",
+      "right_frame": 675,
+      "orb_matches": 396,
+      "orb_inliers": 216,
+      "inlier_ratio": 0.5454545454545454
+    },
+    {
+      "at": "alternate Point 4 arrival to validated Point 4 turn",
+      "left_replay_id": "dji_live_20260811_115736_2b91ca",
+      "left_frame": 2019,
+      "right_replay_id": "patrol_baseline_precision_20260813",
+      "right_frame": 3900,
+      "orb_matches": 319,
+      "orb_inliers": 274,
+      "inlier_ratio": 0.8589341692789969
+    }
+  ],
+  "motion_audit": {
+    "method": "10-frame Lucas-Kanade optical flow with expansion and horizontal-yaw separation",
+    "point2_translation_ends": 930,
+    "point2_rotation": [960, 1120],
+    "point3_translation": [1120, 1180],
+    "point3_rotation": [1190, 1460],
+    "point4_translation": [1460, 2020],
+    "point4_rotation": [2040, 2210]
+  },
+  "limitations": [
+    "This is a mixed-recording localization stress test, not evidence of one physical two-lap flight.",
+    "The Point 4 turn and final Point 4 to Point 1 segment are reused from the validated baseline because the alternate run stops its Point 4 turn about ten degrees short of the baseline departure heading."
+  ]
+}

@@ -7,10 +7,26 @@ __pycache__/
 data/
 results/
 viewer/public/maps/
+viewer/public/live_dji/
 viewer/public/live_dji_sessions/
 viewer/public/live_dji/latest.jpg
 viewer/public/live_dji/status.json
 viewer/public/media/
+viewer/public/enemy_drones/datasets/
+viewer/public/enemy_drones/training_runs/
+viewer/public/enemy_drones/enemy_*/
+viewer/public/fleet/
+viewer/public/camera_path_lab/
+.atlas_runtime/
+runs/
+runtime/
+yolov8n.pt
+outputs/
+
+# Local credentials and machine-specific overrides
+config.local.json
+.env
+.env.*
 
 # Local tool installations and environments
 tools/colmap-env/

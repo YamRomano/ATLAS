@@ -1,0 +1,45 @@
+{
+  "frames": "results/maps/map_copy_20260730_114851_cfefdc/colmap/images",
+  "colmap_root": "results/maps/map_copy_20260730_114851_cfefdc/colmap",
+  "asset_dir": "viewer/public/maps/map_copy_20260730_114851_cfefdc",
+  "matcher": "fixed_reference_validated_additive",
+  "frame_bank": {
+    "frame_file_count": 1872,
+    "unique_frame_hash_count": 1872,
+    "duplicate_file_count": 0,
+    "duplicate_group_count": 0,
+    "duplicate_examples": [],
+    "prefix_counts": {
+      "map00_50486c": 1872
+    }
+  },
+  "chosen_model": {
+    "registered_images": 3235,
+    "points3D": 440249,
+    "median_points2d_to_3d": 1493,
+    "registered_prefixes": {
+      "manual_patrol": {
+        "registered_images": 604,
+        "median_points2d_to_3d": 939.5
+      },
+      "map00_50486c": {
+        "registered_images": 1826,
+        "median_points2d_to_3d": 1444.0
+      },
+      "query": {
+        "registered_images": 805,
+        "median_points2d_to_3d": 2777
+      }
+    }
+  },
+  "sparse_components": [
+    {
+      "component": "0",
+      "registered_images": 3235,
+      "points3D_bin_bytes": 64031635
+    }
+  ],
+  "notes": [
+    "No obvious frame-bank or COLMAP component warning detected."
+  ]
+}

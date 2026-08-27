@@ -1,0 +1,4942 @@
+{
+  "selected_map_id": "map_copy_20260730_114851_cfefdc",
+  "live_patrol_lock": {
+    "enabled": true,
+    "flight_enabled": true,
+    "reference_profile": "live-atlas-141441",
+    "map_id": "map_copy_20260730_114851_cfefdc",
+    "patrol_id": "patrol_ms4br5xr_4xclts",
+    "baseline_replay_id": "patrol_baseline_precision_20260813",
+    "patrol_laps": 2,
+    "note": "Use Patrol 1 with the preserved 15:47:14 full-loop frames and independent 11:57:36 route views. Current-frame ORB supervises the recorded physical arrival at Point 4 and continues through the Point 4-to-1 turn/translation; exactly two circles.",
+    "suspension_reason": ""
+  },
+  "live_patrol_profiles": [
+    {
+      "enabled": true,
+      "flight_enabled": true,
+      "reference_profile": "live-atlas-141441",
+      "map_id": "map_copy_20260730_114851_cfefdc",
+      "patrol_id": "patrol_mszqwnot_awshxl",
+      "baseline_replay_id": "patrol2_hybrid_baseline_20260819",
+      "patrol_laps": 2,
+      "note": "Patrol 2 is isolated from Patrol 1. Its Points 2 and 3 exactly match Patrol 1; Points 1 and 4 remain independent. The hybrid 15:47:14/11:57:36 visual bank passed its two-lap audits.",
+      "suspension_reason": ""
+    }
+  ],
+  "maps": [
+    {
+      "id": "video_map_20260714_095522_25f465",
+      "title": "Lab",
+      "description": "COLMAP point-cloud map from Lab frame bank plus saved DJI frames from Live ATLAS 18:14:19.",
+      "asset_base": "public/maps/video_map_20260714_095522_25f465",
+      "frames_path": "/Users/yamromano/Documents/PythonF4/PythonF4/drone_phase1_replay_demo_20260706/data/maps/video_map_20260714_095522_25f465/frames",
+      "deletable": true,
+      "kind": "map",
+      "created_at": "2026-07-14 11:16:25",
+      "updated_at": "2026-07-27 15:22:35",
+      "counts": {
+        "points": 188898,
+        "dense_points": 0,
+        "cameras": 1045,
+        "poses": 0,
+        "frames": 0,
+        "held": 0,
+        "accepted": 0,
+        "failed": 0
+      },
+      "validation": {
+        "frames": "/Users/yamromano/Documents/PythonF4/PythonF4/drone_phase1_replay_demo_20260706/data/maps/video_map_20260714_095522_25f465/frames",
+        "colmap_root": "/Users/yamromano/Documents/PythonF4/PythonF4/drone_phase1_replay_demo_20260706/results/maps/video_map_20260714_095522_25f465/colmap",
+        "asset_dir": "/Users/yamromano/Documents/PythonF4/PythonF4/drone_phase1_replay_demo_20260706/viewer/public/maps/video_map_20260714_095522_25f465",
+        "matcher": "exhaustive",
+        "frame_bank": {
+          "frame_file_count": 1929,
+          "unique_frame_hash_count": 1925,
+          "duplicate_file_count": 4,
+          "duplicate_group_count": 1,
+          "duplicate_examples": [
+            [
+              "replay_dji_live_20260716_181419_query_000778.jpg",
+              "replay_dji_live_20260716_181419_query_000779.jpg",
+              "replay_dji_live_20260716_181419_query_000780.jpg",
+              "replay_dji_live_20260716_181419_query_000781.jpg",
+              "replay_dji_live_20260716_181419_query_000782.jpg"
+            ]
+          ],
+          "prefix_counts": {
+            "map00_6d0bc8": 1054,
+            "replay_dji_live_20260716_181419_query": 875
+          }
+        },
+        "chosen_model": {
+          "registered_images": 1045,
+          "points3D": 188898,
+          "median_points2d_to_3d": 1391,
+          "registered_prefixes": {
+            "map00_6d0bc8": {
+              "registered_images": 1045,
+              "median_points2d_to_3d": 1391
+            }
+          }
+        },
+        "sparse_components": [
+          {
+            "component": "0",
+            "registered_images": 1045,
+            "points3D_bin_bytes": 20778774
+          }
+        ],
+        "notes": [
+          "4 duplicate frame files detected; duplicates can bias COLMAP.",
+          "Video group replay_dji_live_20260716_181419_query registered weakly: 0/875 images."
+        ]
+      },
+      "display_z_sign": -1,
+      "source_map_id": null,
+      "localization_map_id": null,
+      "has_drone_demo": true,
+      "patrols": [
+        {
+          "id": "patrol_mrrfdwq5_rhiph6",
+          "title": "2Points",
+          "points": [
+            {
+              "rxyz": [
+                0.9191335289766989,
+                1.4820491885837295,
+                -0.8704149627925005
+              ],
+              "rgb": [
+                137,
+                137,
+                136
+              ]
+            },
+            {
+              "rxyz": [
+                5.3057426816407585,
+                1.905479470025803,
+                -0.794672524997546
+              ],
+              "rgb": [
+                15,
+                17,
+                31
+              ]
+            },
+            {
+              "rxyz": [
+                5.377729659399781,
+                0.6121384173156318,
+                -0.06940441775131866
+              ],
+              "rgb": [
+                175,
+                174,
+                171
+              ]
+            },
+            {
+              "rxyz": [
+                0.9594534239925865,
+                1.5859059294794315,
+                -0.002152984174571531
+              ],
+              "rgb": [
+                42,
+                41,
+                47
+              ]
+            }
+          ],
+          "speed": 0.1,
+          "altitude_m": 1.0,
+          "dwell_s": 2.0,
+          "scan_mode": "yaw-sweep",
+          "patrol_mode": "circle",
+          "loop": true,
+          "created_at": "2026-07-19T06:39:23.117Z",
+          "updated_at": "2026-07-27T11:47:08.122Z"
+        }
+      ],
+      "safety_barriers": [
+        {
+          "id": "barrier_mrrgpw2i",
+          "label": "Wall 1",
+          "a": [
+            -4.999775027912731,
+            -1.048489641417853,
+            -2.7771443799740436
+          ],
+          "b": [
+            8.959533935243936,
+            -1.048489641417853,
+            -2.914359274192785
+          ],
+          "corners": [
+            [
+              -4.999775027912731,
+              -1.048489641417853,
+              -2.7771443799740436
+            ],
+            [
+              8.959533935243936,
+              -1.048489641417853,
+              -2.914359274192785
+            ],
+            [
+              8.959533935243936,
+              2.451510358582147,
+              -2.914359274192785
+            ],
+            [
+              -4.999775027912731,
+              2.451510358582147,
+              -2.7771443799740436
+            ]
+          ],
+          "height_m": 3.5,
+          "clearance_m": 0.45,
+          "color": "#94e3fe",
+          "opacity": 0.11,
+          "created_at": "2026-07-26 14:17:55",
+          "updated_at": "2026-07-26 14:17:55"
+        },
+        {
+          "id": "barrier_mrrgq0ws",
+          "label": "Wall 2",
+          "a": [
+            9.24172415093313,
+            -1.048489641417853,
+            2.452994504382702
+          ],
+          "b": [
+            -4.638997921224542,
+            -1.048489641417853,
+            2.7528931855971406
+          ],
+          "corners": [
+            [
+              9.24172415093313,
+              -1.048489641417853,
+              2.452994504382702
+            ],
+            [
+              -4.638997921224542,
+              -1.048489641417853,
+              2.7528931855971406
+            ],
+            [
+              -4.638997921224542,
+              2.451510358582147,
+              2.7528931855971406
+            ],
+            [
+              9.24172415093313,
+              2.451510358582147,
+              2.452994504382702
+            ]
+          ],
+          "height_m": 3.5,
+          "clearance_m": 0.45,
+          "color": "#94e3fe",
+          "opacity": 0.11,
+          "created_at": "2026-07-26 14:17:55",
+          "updated_at": "2026-07-26 14:17:55"
+        },
+        {
+          "id": "barrier_mrrgq577",
+          "label": "Wall 3",
+          "a": [
+            8.959533935243936,
+            -1.048489641417853,
+            -2.914359274192785
+          ],
+          "b": [
+            9.24172415093313,
+            -1.048489641417853,
+            2.452994504382702
+          ],
+          "corners": [
+            [
+              8.959533935243936,
+              -1.048489641417853,
+              -2.914359274192785
+            ],
+            [
+              9.24172415093313,
+              -1.048489641417853,
+              2.452994504382702
+            ],
+            [
+              9.24172415093313,
+              2.451510358582147,
+              2.452994504382702
+            ],
+            [
+              8.959533935243936,
+              2.451510358582147,
+              -2.914359274192785
+            ]
+          ],
+          "height_m": 3.5,
+          "clearance_m": 0.45,
+          "color": "#94e3fe",
+          "opacity": 0.1,
+          "created_at": "2026-07-26 14:17:55",
+          "updated_at": "2026-07-26 14:17:55"
+        },
+        {
+          "id": "barrier_mrrgq9fj",
+          "label": "Wall 4",
+          "a": [
+            -4.999775027912731,
+            -1.048489641417853,
+            -2.7771443799740436
+          ],
+          "b": [
+            -4.638997921224542,
+            -1.048489641417853,
+            2.7528931855971406
+          ],
+          "corners": [
+            [
+              -4.999775027912731,
+              -1.048489641417853,
+              -2.7771443799740436
+            ],
+            [
+              -4.638997921224542,
+              -1.048489641417853,
+              2.7528931855971406
+            ],
+            [
+              -4.638997921224542,
+              2.451510358582147,
+              2.7528931855971406
+            ],
+            [
+              -4.999775027912731,
+              2.451510358582147,
+              -2.7771443799740436
+            ]
+          ],
+          "height_m": 3.5,
+          "clearance_m": 0.45,
+          "color": "#94e3fe",
+          "opacity": 0.1,
+          "created_at": "2026-07-26 14:17:55",
+          "updated_at": "2026-07-26 14:17:55"
+        },
+        {
+          "id": "barrier_mrrgqpw2",
+          "label": "Wall 5",
+          "a": [
+            -0.5907945619366474,
+            -1.048489641417853,
+            1.3330889778232355
+          ],
+          "b": [
+            -0.5864365493215628,
+            -1.048489641417853,
+            2.6192236346591704
+          ],
+          "corners": [
+            [
+              -0.5907945619366474,
+              -1.048489641417853,
+              1.3330889778232355
+            ],
+            [
+              -0.5864365493215628,
+              -1.048489641417853,
+              2.6192236346591704
+            ],
+            [
+              -0.5864365493215628,
+              2.451510358582147,
+              2.6192236346591704
+            ],
+            [
+              -0.5907945619366474,
+              2.451510358582147,
+              1.3330889778232355
+            ]
+          ],
+          "height_m": 3.5,
+          "clearance_m": 0.45,
+          "color": "#94e3fe",
+          "opacity": 0.11,
+          "created_at": "2026-07-26 14:17:55",
+          "updated_at": "2026-07-26 14:17:55"
+        },
+        {
+          "id": "barrier_mrrgqu6j",
+          "label": "Wall 6",
+          "a": [
+            -0.7535409525637348,
+            -1.048489641417853,
+            -2.818648749760954
+          ],
+          "b": [
+            -0.7154643024152944,
+            -1.048489641417853,
+            -2.5388070573631047
+          ],
+          "corners": [
+            [
+              -0.7535409525637348,
+              -1.048489641417853,
+              -2.818648749760954
+            ],
+            [
+              -0.7154643024152944,
+              -1.048489641417853,
+              -2.5388070573631047
+            ],
+            [
+              -0.7154643024152944,
+              2.451510358582147,
+              -2.5388070573631047
+            ],
+            [
+              -0.7535409525637348,
+              2.451510358582147,
+              -2.818648749760954
+            ]
+          ],
+          "height_m": 3.5,
+          "clearance_m": 0.45,
+          "color": "#94e3fe",
+          "opacity": 0.09,
+          "created_at": "2026-07-26 14:17:55",
+          "updated_at": "2026-07-26 14:17:55"
+        }
+      ],
+      "safety_obstacles": [
+        {
+          "id": "obstacle_mrrguclw",
+          "label": "SockerTable",
+          "points": [
+            [
+              1.227774064409426,
+              -0.41365253840138305,
+              2.091965150704947
+            ],
+            [
+              1.184161870287697,
+              -0.36321054412133846,
+              1.4262303639354341
+            ],
+            [
+              2.717409646422247,
+              -1.1046982191657375,
+              2.0442957146599614
+            ],
+            [
+              2.723867622539125,
+              -0.8966302557355805,
+              1.40081545374219
+            ],
+            [
+              2.4501222440141124,
+              -0.7332461821456224,
+              1.4135253130286516
+            ]
+          ],
+          "bounds": {
+            "min": [
+              1.184161870287697,
+              -1.1046982191657375,
+              1.40081545374219
+            ],
+            "max": [
+              2.723867622539125,
+              -0.36321054412133846,
+              2.091965150704947
+            ]
+          },
+          "clearance_m": 0.35,
+          "color": "#e392fe",
+          "opacity": 0.13,
+          "created_at": "2026-07-26 14:17:55",
+          "updated_at": "2026-07-26 14:17:55"
+        },
+        {
+          "id": "obstacle_mrrgztto",
+          "label": "Locker",
+          "points": [
+            [
+              -4.351582372272486,
+              -1.0476634835211198,
+              -2.7344113831348467
+            ],
+            [
+              -4.829396642336654,
+              2.458282496488462,
+              2.682618039665307
+            ]
+          ],
+          "bounds": {
+            "min": [
+              -4.829396642336654,
+              -1.0476634835211198,
+              -2.7344113831348467
+            ],
+            "max": [
+              -4.351582372272486,
+              2.458282496488462,
+              2.682618039665307
+            ]
+          },
+          "clearance_m": 0.35,
+          "color": "#fffbb9",
+          "opacity": 0.13,
+          "created_at": "2026-07-26 14:17:55",
+          "updated_at": "2026-07-26 14:17:55"
+        },
+        {
+          "id": "obstacle_mrrh1jch",
+          "label": "Table1",
+          "points": [
+            [
+              -0.5127713515883146,
+              -1.0476634835211174,
+              -2.5199652383450704
+            ],
+            [
+              -0.4982348661110725,
+              -0.8077579789390513,
+              -1.6727209361563444
+            ],
+            [
+              8.807399628737919,
+              -1.010618997180158,
+              -1.885316078122175
+            ],
+            [
+              8.759292729058663,
+              -0.3997088811331914,
+              -2.8009496251712878
+            ]
+          ],
+          "bounds": {
+            "min": [
+              -0.5127713515883146,
+              -1.0476634835211174,
+              -2.8009496251712878
+            ],
+            "max": [
+              8.807399628737919,
+              -0.3997088811331914,
+              -1.6727209361563444
+            ]
+          },
+          "clearance_m": 0.35,
+          "color": "#c0c0c0",
+          "opacity": 0.09,
+          "created_at": "2026-07-26 14:17:55",
+          "updated_at": "2026-07-26 14:17:55"
+        },
+        {
+          "id": "obstacle_mrrh3lhd",
+          "label": "Table2",
+          "points": [
+            [
+              8.039292256892047,
+              -0.4797331553013379,
+              -1.8557734868973343
+            ],
+            [
+              8.79823599682219,
+              -1.0066484368876618,
+              -1.8298893087377293
+            ],
+            [
+              8.866484811187604,
+              -0.6621310293033164,
+              2.309731875805289
+            ],
+            [
+              8.09848879612105,
+              -0.5417030723457252,
+              2.3449506808727834
+            ]
+          ],
+          "bounds": {
+            "min": [
+              8.039292256892047,
+              -1.0066484368876618,
+              -1.8557734868973343
+            ],
+            "max": [
+              8.866484811187604,
+              -0.4797331553013379,
+              2.3449506808727834
+            ]
+          },
+          "clearance_m": 0.35,
+          "color": "#c0c0c0",
+          "opacity": 0.09,
+          "created_at": "2026-07-26 14:17:55",
+          "updated_at": "2026-07-26 14:17:55"
+        },
+        {
+          "id": "obstacle_mrrh5vne",
+          "label": "NikaTable",
+          "points": [
+            [
+              -3.2358618560795396,
+              -0.7176466942495566,
+              2.5705612456140665
+            ],
+            [
+              -3.2459775909973287,
+              -0.702475229059487,
+              1.7336513469208832
+            ],
+            [
+              -0.8234851105603428,
+              -0.6052991955303245,
+              1.6597948688587805
+            ],
+            [
+              -0.7868966634162098,
+              -1.0313737973969295,
+              2.462053428608285
+            ]
+          ],
+          "bounds": {
+            "min": [
+              -3.2459775909973287,
+              -1.0313737973969295,
+              1.6597948688587805
+            ],
+            "max": [
+              -0.7868966634162098,
+              -0.6052991955303245,
+              2.5705612456140665
+            ]
+          },
+          "clearance_m": 0.35,
+          "color": "#c0c0c0",
+          "opacity": 0.09,
+          "created_at": "2026-07-26 14:17:55",
+          "updated_at": "2026-07-26 14:17:55"
+        },
+        {
+          "id": "obstacle_mrrh9pm3",
+          "label": "YamTable",
+          "points": [
+            [
+              -3.4230548313917506,
+              -0.9528555642231391,
+              -0.785424077869519
+            ],
+            [
+              -3.4444285906520973,
+              -0.5263595877536088,
+              -2.5562605068802604
+            ],
+            [
+              -2.661019292086911,
+              -0.6411665571006215,
+              -2.543309150864619
+            ],
+            [
+              -2.614383889895682,
+              -0.48125801848203986,
+              -0.8042499914479609
+            ]
+          ],
+          "bounds": {
+            "min": [
+              -3.4444285906520973,
+              -0.9528555642231391,
+              -2.5562605068802604
+            ],
+            "max": [
+              -2.614383889895682,
+              -0.48125801848203986,
+              -0.785424077869519
+            ]
+          },
+          "clearance_m": 0.35,
+          "color": "#c0c0c0",
+          "opacity": 0.09,
+          "created_at": "2026-07-26 14:17:55",
+          "updated_at": "2026-07-26 14:17:55"
+        }
+      ],
+      "replays": [
+        {
+          "id": "dji_live_20260727_151816_815996",
+          "title": "Live ATLAS 15:18:16",
+          "asset_base": "public/maps/video_map_20260714_095522_25f465/replays/dji_live_20260727_151816_815996",
+          "created_at": "2026-07-27 15:22:35",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 948,
+            "accepted": 948,
+            "frames": 1308,
+            "held": 359,
+            "failed": 1
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260727_151816_815996/query_frames"
+        }
+      ],
+      "active_replay_id": "dji_live_20260727_151816_815996"
+    },
+    {
+      "id": "video_map_20260727_193831_f822a4",
+      "title": "Video Map 20:07:46",
+      "description": "COLMAP point-cloud map from direct local video IMG_9961.MOV.",
+      "asset_base": "public/maps/video_map_20260727_193831_f822a4",
+      "frames_path": "/Users/yamromano/Documents/PythonF4/PythonF4/drone_phase1_replay_demo_20260706/data/maps/video_map_20260727_193831_f822a4/frames",
+      "deletable": true,
+      "kind": "map",
+      "created_at": "2026-07-28 00:25:25",
+      "updated_at": "2026-08-09 11:25:28",
+      "counts": {
+        "points": 280297,
+        "dense_points": 0,
+        "cameras": 1825,
+        "poses": 0,
+        "frames": 0,
+        "held": 0,
+        "accepted": 0,
+        "failed": 0
+      },
+      "validation": {
+        "frames": "/Users/yamromano/Documents/PythonF4/PythonF4/drone_phase1_replay_demo_20260706/data/maps/video_map_20260727_193831_f822a4/frames",
+        "colmap_root": "/Users/yamromano/Documents/PythonF4/PythonF4/drone_phase1_replay_demo_20260706/results/maps/video_map_20260727_193831_f822a4/colmap",
+        "asset_dir": "/Users/yamromano/Documents/PythonF4/PythonF4/drone_phase1_replay_demo_20260706/viewer/public/maps/video_map_20260727_193831_f822a4",
+        "matcher": "exhaustive",
+        "frame_bank": {
+          "frame_file_count": 1872,
+          "unique_frame_hash_count": 1872,
+          "duplicate_file_count": 0,
+          "duplicate_group_count": 0,
+          "duplicate_examples": [],
+          "prefix_counts": {
+            "map00_50486c": 1872
+          }
+        },
+        "chosen_model": {
+          "registered_images": 1825,
+          "points3D": 280297,
+          "median_points2d_to_3d": 1413,
+          "registered_prefixes": {
+            "map00_50486c": {
+              "registered_images": 1825,
+              "median_points2d_to_3d": 1413
+            }
+          }
+        },
+        "sparse_components": [
+          {
+            "component": "2",
+            "registered_images": 1825,
+            "points3D_bin_bytes": 34755251
+          },
+          {
+            "component": "0",
+            "registered_images": 2,
+            "points3D_bin_bytes": 410
+          },
+          {
+            "component": "1",
+            "registered_images": 2,
+            "points3D_bin_bytes": 142
+          }
+        ],
+        "notes": [
+          "3 sparse components were created; ATLAS uses the largest component."
+        ]
+      },
+      "display_z_sign": 1,
+      "source_map_id": null,
+      "localization_map_id": null,
+      "has_drone_demo": true,
+      "patrols": [
+        {
+          "id": "patrol_ms4g09kv_oc82o7",
+          "title": "Patrol 2",
+          "points": [
+            {
+              "rxyz": [
+                -2.586257022405724,
+                1.0128809219277874,
+                1.3186567403603764
+              ],
+              "rgb": [
+                214,
+                217,
+                216
+              ]
+            },
+            {
+              "rxyz": [
+                -0.002071083434476843,
+                1.4058573565043289,
+                1.011948259875793
+              ],
+              "rgb": [
+                172,
+                172,
+                172
+              ]
+            },
+            {
+              "rxyz": [
+                -0.48585303637458954,
+                0.6701484616920452,
+                0.22194372634672752
+              ],
+              "rgb": [
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "rxyz": [
+                -1.4656348100997958,
+                1.5098888032158047,
+                0.13034215459321405
+              ],
+              "rgb": [
+                25,
+                16,
+                27
+              ]
+            },
+            {
+              "rxyz": [
+                -2.597440849510588,
+                -1.8998940869063135,
+                0.08613220264059104
+              ],
+              "rgb": [
+                123,
+                113,
+                93
+              ]
+            }
+          ],
+          "speed": 0.1,
+          "altitude_m": 1.0,
+          "dwell_s": 2.0,
+          "scan_mode": "yaw-sweep",
+          "patrol_mode": "circle",
+          "loop": true,
+          "created_at": "2026-07-28T09:17:46.495Z",
+          "updated_at": "2026-07-28T11:20:18.788Z"
+        },
+        {
+          "id": "patrol_ms5sbpk6_xw62bn",
+          "title": "Patrol 3",
+          "points": [
+            {
+              "rxyz": [
+                -3.4582406432678705,
+                -0.10332749101049488,
+                0.9630980344350764
+              ],
+              "rgb": [
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "rxyz": [
+                -2.097149636895227,
+                -1.190923394122272,
+                -0.1086852315916075
+              ],
+              "rgb": [
+                158,
+                155,
+                143
+              ]
+            },
+            {
+              "rxyz": [
+                -0.2961515134162898,
+                0.8491244265348064,
+                0.873422380463176
+              ],
+              "rgb": [
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "rxyz": [
+                -2.202608293285717,
+                0.8524342514401821,
+                1.9355846022299228
+              ],
+              "rgb": [
+                218,
+                219,
+                214
+              ]
+            }
+          ],
+          "speed": 0.1,
+          "altitude_m": 1.0,
+          "dwell_s": 2.0,
+          "scan_mode": "yaw-sweep",
+          "patrol_mode": "circle",
+          "loop": true,
+          "created_at": "2026-07-29T07:50:21.990Z",
+          "updated_at": "2026-07-29T07:55:34.565Z"
+        },
+        {
+          "id": "patrol_ms4br5xr_4xclts",
+          "title": "Patrol 1",
+          "points": [
+            {
+              "rxyz": [
+                -3.2329557447702215,
+                -0.17877615459930907,
+                -0.33236579860361815
+              ],
+              "rgb": [
+                85,
+                84,
+                88
+              ]
+            },
+            {
+              "rxyz": [
+                -0.6480244338911889,
+                -0.48003389609676617,
+                -0.48774887233005093
+              ],
+              "rgb": [
+                72,
+                73,
+                72
+              ]
+            },
+            {
+              "rxyz": [
+                -0.5143625014424476,
+                1.7599605504441844,
+                0.6683538489298324
+              ],
+              "rgb": [
+                12,
+                14,
+                25
+              ]
+            },
+            {
+              "rxyz": [
+                -2.0419791751171257,
+                -0.20678855225328296,
+                0.7644163238295383
+              ],
+              "rgb": [
+                0,
+                0,
+                0
+              ]
+            }
+          ],
+          "speed": 0.1,
+          "altitude_m": 1.0,
+          "dwell_s": 2.0,
+          "scan_mode": "yaw-sweep",
+          "patrol_mode": "circle",
+          "loop": true,
+          "created_at": "2026-07-28T07:18:43.407Z",
+          "updated_at": "2026-07-29T09:56:28.863Z"
+        }
+      ],
+      "replays": [
+        {
+          "id": "dji_live_20260728_123437_9e770c",
+          "title": "Live ATLAS 12:34:37",
+          "asset_base": "public/maps/video_map_20260727_193831_f822a4/replays/dji_live_20260728_123437_9e770c",
+          "created_at": "2026-07-28 12:39:20",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 1430,
+            "accepted": 1430,
+            "frames": 1436,
+            "held": 6,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260728_123437_9e770c/query_frames"
+        },
+        {
+          "id": "dji_live_20260728_125456_f8ec4e",
+          "title": "Live ATLAS 12:54:56",
+          "asset_base": "public/maps/video_map_20260727_193831_f822a4/replays/dji_live_20260728_125456_f8ec4e",
+          "created_at": "2026-07-28 13:00:43",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 1572,
+            "accepted": 1572,
+            "frames": 1578,
+            "held": 6,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260728_125456_f8ec4e/query_frames"
+        },
+        {
+          "id": "dji_live_20260728_133839_d67a53",
+          "title": "Live ATLAS 13:38:39",
+          "asset_base": "public/maps/video_map_20260727_193831_f822a4/replays/dji_live_20260728_133839_d67a53",
+          "created_at": "2026-07-28 13:45:56",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 1750,
+            "accepted": 1750,
+            "frames": 1755,
+            "held": 5,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260728_133839_d67a53/query_frames"
+        },
+        {
+          "id": "dji_live_20260728_142410_f1b756",
+          "title": "Live ATLAS 14:24:10",
+          "asset_base": "public/maps/video_map_20260727_193831_f822a4/replays/dji_live_20260728_142410_f1b756",
+          "created_at": "2026-07-28 14:29:21",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 1312,
+            "accepted": 1312,
+            "frames": 1324,
+            "held": 12,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260728_142410_f1b756/query_frames"
+        },
+        {
+          "id": "dji_live_20260728_150549_75cb1c",
+          "title": "Live ATLAS 15:05:49",
+          "asset_base": "public/maps/video_map_20260727_193831_f822a4/replays/dji_live_20260728_150549_75cb1c",
+          "created_at": "2026-07-28 15:15:16",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 1638,
+            "accepted": 1638,
+            "frames": 1683,
+            "held": 45,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260728_150549_75cb1c/query_frames"
+        },
+        {
+          "id": "dji_live_20260728_163938_92db23",
+          "title": "Live ATLAS 16:39:38",
+          "asset_base": "public/maps/video_map_20260727_193831_f822a4/replays/dji_live_20260728_163938_92db23",
+          "created_at": "2026-07-28 16:44:22",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 1037,
+            "accepted": 1037,
+            "frames": 1042,
+            "held": 4,
+            "failed": 1
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260728_163938_92db23/query_frames"
+        },
+        {
+          "id": "dji_live_20260728_164504_3fe6c8",
+          "title": "Live ATLAS 16:45:04",
+          "asset_base": "public/maps/video_map_20260727_193831_f822a4/replays/dji_live_20260728_164504_3fe6c8",
+          "created_at": "2026-07-28 16:57:25",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 1945,
+            "accepted": 1945,
+            "frames": 1994,
+            "held": 49,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260728_164504_3fe6c8/query_frames"
+        },
+        {
+          "id": "dji_live_20260728_170935_4cc0e8",
+          "title": "Live ATLAS 17:09:35",
+          "asset_base": "public/maps/video_map_20260727_193831_f822a4/replays/dji_live_20260728_170935_4cc0e8",
+          "created_at": "2026-07-28 17:18:16",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 1601,
+            "accepted": 1601,
+            "frames": 1636,
+            "held": 35,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260728_170935_4cc0e8/query_frames"
+        },
+        {
+          "id": "dji_live_20260729_110756_0e852d",
+          "title": "Live ATLAS 11:07:56",
+          "asset_base": "public/maps/video_map_20260727_193831_f822a4/replays/dji_live_20260729_110756_0e852d",
+          "created_at": "2026-07-29 11:14:11",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 1293,
+            "accepted": 1293,
+            "frames": 1578,
+            "held": 283,
+            "failed": 2
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260729_110756_0e852d/query_frames"
+        },
+        {
+          "id": "dji_live_20260729_115854_7b877c",
+          "title": "Live ATLAS 11:58:54",
+          "asset_base": "public/maps/video_map_20260727_193831_f822a4/replays/dji_live_20260729_115854_7b877c",
+          "created_at": "2026-07-29 12:04:04",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 1414,
+            "accepted": 1414,
+            "frames": 1929,
+            "held": 515,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260729_115854_7b877c/query_frames"
+        },
+        {
+          "id": "dji_live_20260729_121117_f4130e",
+          "title": "Live ATLAS 12:11:17",
+          "asset_base": "public/maps/video_map_20260727_193831_f822a4/replays/dji_live_20260729_121117_f4130e",
+          "created_at": "2026-07-29 12:18:01",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 1486,
+            "accepted": 1486,
+            "frames": 2385,
+            "held": 899,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260729_121117_f4130e/query_frames"
+        },
+        {
+          "id": "dji_live_20260729_123008_7d44b4",
+          "title": "Live ATLAS 12:30:08",
+          "asset_base": "public/maps/video_map_20260727_193831_f822a4/replays/dji_live_20260729_123008_7d44b4",
+          "created_at": "2026-07-29 12:35:05",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 1145,
+            "accepted": 1145,
+            "frames": 1956,
+            "held": 811,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260729_123008_7d44b4/query_frames"
+        },
+        {
+          "id": "dji_live_20260729_124846_af76c9",
+          "title": "Live ATLAS 12:48:46",
+          "asset_base": "public/maps/video_map_20260727_193831_f822a4/replays/dji_live_20260729_124846_af76c9",
+          "created_at": "2026-07-29 12:52:57",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 1152,
+            "accepted": 1152,
+            "frames": 1724,
+            "held": 572,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260729_124846_af76c9/query_frames"
+        },
+        {
+          "id": "dji_live_20260729_125708_5ba9c9",
+          "title": "Live ATLAS 12:57:08",
+          "asset_base": "public/maps/video_map_20260727_193831_f822a4/replays/dji_live_20260729_125708_5ba9c9",
+          "created_at": "2026-07-29 13:01:17",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 1204,
+            "accepted": 1204,
+            "frames": 1712,
+            "held": 508,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260729_125708_5ba9c9/query_frames"
+        },
+        {
+          "id": "dji_live_20260729_131257_13092c",
+          "title": "Live ATLAS 13:12:57",
+          "asset_base": "public/maps/video_map_20260727_193831_f822a4/replays/dji_live_20260729_131257_13092c",
+          "created_at": "2026-07-29 13:16:35",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 975,
+            "accepted": 975,
+            "frames": 1549,
+            "held": 574,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260729_131257_13092c/query_frames"
+        },
+        {
+          "id": "dji_live_20260729_151619_ebe171",
+          "title": "Live ATLAS 15:16:19",
+          "asset_base": "public/maps/video_map_20260727_193831_f822a4/replays/dji_live_20260729_151619_ebe171",
+          "created_at": "2026-07-29 15:22:47",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 1127,
+            "accepted": 1127,
+            "frames": 2425,
+            "held": 1298,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260729_151619_ebe171/query_frames"
+        },
+        {
+          "id": "dji_live_20260809_112414_03173e",
+          "title": "Live ATLAS 11:24:14",
+          "asset_base": "public/maps/video_map_20260727_193831_f822a4/replays/dji_live_20260809_112414_03173e",
+          "created_at": "2026-08-09 11:25:28",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 543,
+            "accepted": 543,
+            "frames": 543,
+            "held": 0,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260809_112414_03173e/query_frames"
+        }
+      ],
+      "active_replay_id": "dji_live_20260728_142410_f1b756",
+      "safety_barriers": [
+        {
+          "id": "barrier_msljcd6d",
+          "label": "Wall 1",
+          "a": [
+            -8.26531834653603,
+            -1.1358460917142272,
+            -1.9315583628464754
+          ],
+          "b": [
+            3.843384392686311,
+            -1.1358460917142272,
+            -3.4383441105050188
+          ],
+          "corners": [
+            [
+              -8.26531834653603,
+              -1.1358460917142272,
+              -1.9315583628464754
+            ],
+            [
+              3.843384392686311,
+              -1.1358460917142272,
+              -3.4383441105050188
+            ],
+            [
+              3.843384392686311,
+              2.3641539082857728,
+              -3.4383441105050188
+            ],
+            [
+              -8.26531834653603,
+              2.3641539082857728,
+              -1.9315583628464754
+            ]
+          ],
+          "height_m": 3.5,
+          "clearance_m": 0.45,
+          "color": "#cfd8df",
+          "opacity": 0.24,
+          "created_at": "2026-08-09 11:24:06",
+          "updated_at": "2026-08-09 11:24:06"
+        },
+        {
+          "id": "barrier_msljcgwx",
+          "label": "Wall 2",
+          "a": [
+            3.843384392686311,
+            -1.1358460917142272,
+            -3.4383441105050188
+          ],
+          "b": [
+            4.844434503130113,
+            -1.1358460917142272,
+            2.889073538428284
+          ],
+          "corners": [
+            [
+              3.843384392686311,
+              -1.1358460917142272,
+              -3.4383441105050188
+            ],
+            [
+              4.844434503130113,
+              -1.1358460917142272,
+              2.889073538428284
+            ],
+            [
+              4.844434503130113,
+              2.3641539082857728,
+              2.889073538428284
+            ],
+            [
+              3.843384392686311,
+              2.3641539082857728,
+              -3.4383441105050188
+            ]
+          ],
+          "height_m": 3.5,
+          "clearance_m": 0.45,
+          "color": "#cfd8df",
+          "opacity": 0.24,
+          "created_at": "2026-08-09 11:24:06",
+          "updated_at": "2026-08-09 11:24:06"
+        },
+        {
+          "id": "barrier_msljcplq",
+          "label": "Wall 3",
+          "a": [
+            4.844434503130113,
+            -1.1358460917142272,
+            2.889073538428284
+          ],
+          "b": [
+            -7.366371312194948,
+            -1.1358460917142272,
+            4.447565945611342
+          ],
+          "corners": [
+            [
+              4.844434503130113,
+              -1.1358460917142272,
+              2.889073538428284
+            ],
+            [
+              -7.366371312194948,
+              -1.1358460917142272,
+              4.447565945611342
+            ],
+            [
+              -7.366371312194948,
+              2.3641539082857728,
+              4.447565945611342
+            ],
+            [
+              4.844434503130113,
+              2.3641539082857728,
+              2.889073538428284
+            ]
+          ],
+          "height_m": 3.5,
+          "clearance_m": 0.45,
+          "color": "#cfd8df",
+          "opacity": 0.08,
+          "created_at": "2026-08-09 11:24:06",
+          "updated_at": "2026-08-09 11:24:06"
+        },
+        {
+          "id": "barrier_msljctfh",
+          "label": "Wall 4",
+          "a": [
+            -8.26531834653603,
+            -1.1358460917142272,
+            -1.9315583628464754
+          ],
+          "b": [
+            -7.366371312194948,
+            -1.1358460917142272,
+            4.447565945611342
+          ],
+          "corners": [
+            [
+              -8.26531834653603,
+              -1.1358460917142272,
+              -1.9315583628464754
+            ],
+            [
+              -7.366371312194948,
+              -1.1358460917142272,
+              4.447565945611342
+            ],
+            [
+              -7.366371312194948,
+              2.3641539082857728,
+              4.447565945611342
+            ],
+            [
+              -8.26531834653603,
+              2.3641539082857728,
+              -1.9315583628464754
+            ]
+          ],
+          "height_m": 3.5,
+          "clearance_m": 0.45,
+          "color": "#cfd8df",
+          "opacity": 0.24,
+          "created_at": "2026-08-09 11:24:06",
+          "updated_at": "2026-08-09 11:24:06"
+        }
+      ],
+      "safety_obstacles": []
+    },
+    {
+      "id": "map_copy_20260730_114851_cfefdc",
+      "title": "Video Map 20:07:46 Copy",
+      "description": "Validated fixed-reference enhancement of Video Map 20:07:46: 3235 registered cameras, 440249 points; original map untouched.",
+      "asset_base": "public/maps/map_copy_20260730_114851_cfefdc",
+      "frames_path": "/Users/yamromano/Documents/PythonF4/PythonF4/drone_phase1_replay_demo_20260706/results/maps/map_copy_20260730_114851_cfefdc/colmap/images",
+      "deletable": true,
+      "kind": "fixed_reference_map",
+      "created_at": "2026-07-30 11:48:51",
+      "updated_at": "2026-08-25 15:37:57",
+      "counts": {
+        "points": 440249,
+        "dense_points": 0,
+        "cameras": 3235,
+        "poses": 0,
+        "frames": 0,
+        "held": 0,
+        "accepted": 0,
+        "failed": 0
+      },
+      "validation": {
+        "frames": "results/maps/map_copy_20260730_114851_cfefdc/colmap/images",
+        "colmap_root": "results/maps/map_copy_20260730_114851_cfefdc/colmap",
+        "asset_dir": "viewer/public/maps/map_copy_20260730_114851_cfefdc",
+        "matcher": "fixed_reference_validated_additive",
+        "frame_bank": {
+          "frame_file_count": 1872,
+          "unique_frame_hash_count": 1872,
+          "duplicate_file_count": 0,
+          "duplicate_group_count": 0,
+          "duplicate_examples": [],
+          "prefix_counts": {
+            "map00_50486c": 1872
+          }
+        },
+        "chosen_model": {
+          "registered_images": 3235,
+          "points3D": 440249,
+          "median_points2d_to_3d": 1493,
+          "registered_prefixes": {
+            "manual_patrol": {
+              "registered_images": 604,
+              "median_points2d_to_3d": 939.5
+            },
+            "map00_50486c": {
+              "registered_images": 1826,
+              "median_points2d_to_3d": 1444.0
+            },
+            "query": {
+              "registered_images": 805,
+              "median_points2d_to_3d": 2777
+            }
+          }
+        },
+        "sparse_components": [
+          {
+            "component": "0",
+            "registered_images": 3235,
+            "points3D_bin_bytes": 64031635
+          }
+        ],
+        "notes": [
+          "No obvious frame-bank or COLMAP component warning detected."
+        ]
+      },
+      "display_z_sign": 1,
+      "source_map_id": "video_map_20260727_193831_f822a4",
+      "localization_map_id": "map_copy_20260730_114851_cfefdc",
+      "has_drone_demo": true,
+      "patrols": [
+        {
+          "id": "patrol_mszqwnot_awshxl",
+          "title": "Patrol 2",
+          "points": [
+            {
+              "rxyz": [
+                -4.474199857223765,
+                -1.0970791450580026,
+                -0.4413194121935565
+              ],
+              "rgb": [
+                75,
+                76,
+                80
+              ]
+            },
+            {
+              "rxyz": [
+                -0.6480244338911889,
+                -0.48003389609676617,
+                -0.48774887233005093
+              ],
+              "rgb": [
+                72,
+                73,
+                72
+              ]
+            },
+            {
+              "rxyz": [
+                -0.4886978074319452,
+                1.7599605504441844,
+                0.9560112230666532
+              ],
+              "rgb": [
+                12,
+                14,
+                25
+              ]
+            },
+            {
+              "rxyz": [
+                -4.201807651965376,
+                1.0299625711008562,
+                1.6201707399080743
+              ],
+              "rgb": [
+                42,
+                42,
+                48
+              ]
+            }
+          ],
+          "speed": 0.1,
+          "altitude_m": 1.0,
+          "dwell_s": 2.0,
+          "scan_mode": "yaw-sweep",
+          "patrol_mode": "circle",
+          "loop": true,
+          "created_at": "2026-08-19T07:03:45.389Z",
+          "updated_at": "2026-08-19T09:26:44.871Z"
+        },
+        {
+          "id": "patrol_ms4br5xr_4xclts",
+          "title": "Patrol 1",
+          "points": [
+            {
+              "rxyz": [
+                -3.2329557447702215,
+                -0.17877615459930907,
+                -0.33236579860361815
+              ],
+              "rgb": [
+                85,
+                84,
+                88
+              ]
+            },
+            {
+              "rxyz": [
+                -0.6480244338911889,
+                -0.48003389609676617,
+                -0.48774887233005093
+              ],
+              "rgb": [
+                72,
+                73,
+                72
+              ]
+            },
+            {
+              "rxyz": [
+                -0.4886978074319452,
+                1.7599605504441844,
+                0.9560112230666532
+              ],
+              "rgb": [
+                12,
+                14,
+                25
+              ]
+            },
+            {
+              "rxyz": [
+                -3.0736291183109774,
+                -0.20678855225328296,
+                1.1113942967930859
+              ],
+              "rgb": [
+                0,
+                0,
+                0
+              ]
+            }
+          ],
+          "speed": 0.1,
+          "altitude_m": 1.0,
+          "dwell_s": 2.0,
+          "scan_mode": "yaw-sweep",
+          "patrol_mode": "circle",
+          "loop": true,
+          "created_at": "2026-08-02 10:23:21",
+          "updated_at": "2026-08-23T06:13:15.113Z"
+        }
+      ],
+      "fixed_reference_summary": {
+        "mode": "additive_colmap_point_merge",
+        "reference_images": 3195,
+        "new_images": 40,
+        "merged_images": 3235,
+        "reference_points_preserved": 435705,
+        "candidate_only_points": 18589,
+        "added_points": 4544,
+        "merged_points": 440249,
+        "extended_reference_point_tracks": 2399,
+        "dropped_new_points": {
+          "short_track": 560,
+          "no_new_image_observation": 13485
+        },
+        "max_fixed_center_delta": 3.9968028886505635e-15,
+        "new_image_support_min": 19,
+        "new_image_support_median": 463.0,
+        "new_image_support_max": 1244,
+        "new_images_with_zero_support": 0
+      },
+      "fixed_reference_validation": {
+        "valid": true,
+        "registered_selected_frames": 604,
+        "span_registration_ratio": 0.9179331306990881,
+        "max_new_consecutive_center_step": 0.48642377030666817,
+        "max_reference_center_delta": 0.0,
+        "added_points": 4544
+      },
+      "room_alignment": {
+        "matrix": [
+          [
+            0.36207367791076406,
+            -0.06712116445589023,
+            0.9297297462414857,
+            -1.9190157385398814
+          ],
+          [
+            0.1024708210589583,
+            -0.9884931828700952,
+            -0.11126975442972714,
+            0.10796306109562112
+          ],
+          [
+            0.9265000715572962,
+            0.13555801968690084,
+            -0.3510294014792644,
+            0.5714812201762367
+          ]
+        ],
+        "method": "fixed-reference-room-frame",
+        "structure_yaw_deg": -7.662
+      },
+      "safety_barriers": [
+        {
+          "id": "barrier_mslftztw",
+          "label": "Wall 1",
+          "a": [
+            4.70522114742383,
+            -1.080262196999891,
+            2.9236467473568433
+          ],
+          "b": [
+            3.884855197750779,
+            -1.080262196999891,
+            -3.481595289272572
+          ],
+          "corners": [
+            [
+              4.70522114742383,
+              -1.080262196999891,
+              2.9236467473568433
+            ],
+            [
+              3.884855197750779,
+              -1.080262196999891,
+              -3.481595289272572
+            ],
+            [
+              3.884855197750779,
+              2.419737803000109,
+              -3.481595289272572
+            ],
+            [
+              4.70522114742383,
+              2.419737803000109,
+              2.9236467473568433
+            ]
+          ],
+          "height_m": 3.5,
+          "clearance_m": 0.45,
+          "color": "#cfd8df",
+          "opacity": 0.08,
+          "created_at": "2026-08-09 09:46:40",
+          "updated_at": "2026-08-09 09:46:40"
+        },
+        {
+          "id": "barrier_mslfu70x",
+          "label": "Wall 2",
+          "a": [
+            3.884855197750779,
+            -1.080262196999891,
+            -3.481595289272572
+          ],
+          "b": [
+            -8.590606179278124,
+            -1.080262196999891,
+            -1.7156411439613584
+          ],
+          "corners": [
+            [
+              3.884855197750779,
+              -1.080262196999891,
+              -3.481595289272572
+            ],
+            [
+              -8.590606179278124,
+              -1.080262196999891,
+              -1.7156411439613584
+            ],
+            [
+              -8.590606179278124,
+              2.419737803000109,
+              -1.7156411439613584
+            ],
+            [
+              3.884855197750779,
+              2.419737803000109,
+              -3.481595289272572
+            ]
+          ],
+          "height_m": 3.5,
+          "clearance_m": 0.45,
+          "color": "#cfd8df",
+          "opacity": 0.08,
+          "created_at": "2026-08-09 09:46:40",
+          "updated_at": "2026-08-09 09:46:40"
+        },
+        {
+          "id": "barrier_mslfuf9f",
+          "label": "Wall 3",
+          "a": [
+            -8.590606179278124,
+            -1.080262196999891,
+            -1.7156411439613584
+          ],
+          "b": [
+            -7.836618103069541,
+            -1.080262196999891,
+            4.725536862220148
+          ],
+          "corners": [
+            [
+              -8.590606179278124,
+              -1.080262196999891,
+              -1.7156411439613584
+            ],
+            [
+              -7.836618103069541,
+              -1.080262196999891,
+              4.725536862220148
+            ],
+            [
+              -7.836618103069541,
+              2.419737803000109,
+              4.725536862220148
+            ],
+            [
+              -8.590606179278124,
+              2.419737803000109,
+              -1.7156411439613584
+            ]
+          ],
+          "height_m": 3.5,
+          "clearance_m": 0.45,
+          "color": "#cfd8df",
+          "opacity": 0.08,
+          "created_at": "2026-08-09 09:46:40",
+          "updated_at": "2026-08-09 09:46:40"
+        },
+        {
+          "id": "barrier_mslfub3l",
+          "label": "Wall 4",
+          "a": [
+            -7.836618103069541,
+            -1.080262196999891,
+            4.725536862220148
+          ],
+          "b": [
+            4.70522114742383,
+            -1.080262196999891,
+            2.9236467473568433
+          ],
+          "corners": [
+            [
+              -7.836618103069541,
+              -1.080262196999891,
+              4.725536862220148
+            ],
+            [
+              4.70522114742383,
+              -1.080262196999891,
+              2.9236467473568433
+            ],
+            [
+              4.70522114742383,
+              2.419737803000109,
+              2.9236467473568433
+            ],
+            [
+              -7.836618103069541,
+              2.419737803000109,
+              4.725536862220148
+            ]
+          ],
+          "height_m": 3.5,
+          "clearance_m": 0.45,
+          "color": "#cfd8df",
+          "opacity": 0.08,
+          "created_at": "2026-08-09 09:46:40",
+          "updated_at": "2026-08-09 09:46:40"
+        }
+      ],
+      "safety_obstacles": [],
+      "replays": [
+        {
+          "id": "replay_20260802_093832_a6bcf2",
+          "title": "Drone Path 09:38:32",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/replay_20260802_093832_a6bcf2",
+          "created_at": "2026-08-02 09:49:18",
+          "source_video": "drone_upload_26547228.mp4",
+          "counts": {
+            "poses": 1796,
+            "processed": 1806,
+            "accepted": 1796,
+            "frames": 1806,
+            "output_rejected": 2,
+            "temporal_coverage": 0.9994462901439646
+          }
+        },
+        {
+          "id": "dji_live_20260809_124625_3580b4",
+          "title": "Live ATLAS 12:46:25",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260809_124625_3580b4",
+          "created_at": "2026-08-09 12:53:52",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 2176,
+            "accepted": 2176,
+            "frames": 3007,
+            "held": 830,
+            "failed": 1
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260809_124625_3580b4/query_frames"
+        },
+        {
+          "id": "dji_live_20260809_125524_b17e17",
+          "title": "Live ATLAS 12:55:24",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260809_125524_b17e17",
+          "created_at": "2026-08-09 13:05:39",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 3027,
+            "accepted": 3027,
+            "frames": 4253,
+            "held": 1225,
+            "failed": 1
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260809_125524_b17e17/query_frames"
+        },
+        {
+          "id": "dji_live_20260809_131734_8fafbd",
+          "title": "Live ATLAS 13:17:34",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260809_131734_8fafbd",
+          "created_at": "2026-08-09 13:23:19",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 1891,
+            "accepted": 1891,
+            "frames": 2573,
+            "held": 681,
+            "failed": 1
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260809_131734_8fafbd/query_frames"
+        },
+        {
+          "id": "dji_live_20260809_133048_ff315f",
+          "title": "Live ATLAS 13:30:48",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260809_133048_ff315f",
+          "created_at": "2026-08-09 13:35:17",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 1407,
+            "accepted": 1407,
+            "frames": 1636,
+            "held": 229,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260809_133048_ff315f/query_frames"
+        },
+        {
+          "id": "dji_live_20260809_133953_c1c872",
+          "title": "Live ATLAS 13:39:53",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260809_133953_c1c872",
+          "created_at": "2026-08-09 13:44:18",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 1264,
+            "accepted": 1264,
+            "frames": 1511,
+            "held": 247,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260809_133953_c1c872/query_frames"
+        },
+        {
+          "id": "dji_live_20260809_135415_78ce5a",
+          "title": "Live ATLAS 13:54:15",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260809_135415_78ce5a",
+          "created_at": "2026-08-09 13:58:37",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 783,
+            "accepted": 783,
+            "frames": 1446,
+            "held": 663,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260809_135415_78ce5a/query_frames"
+        },
+        {
+          "id": "dji_live_20260809_141750_769971",
+          "title": "Live ATLAS 14:17:50",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260809_141750_769971",
+          "created_at": "2026-08-09 14:22:58",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 1685,
+            "accepted": 1685,
+            "frames": 2245,
+            "held": 560,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260809_141750_769971/query_frames"
+        },
+        {
+          "id": "dji_live_20260809_142542_bc1454",
+          "title": "Live ATLAS 14:25:42",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260809_142542_bc1454",
+          "created_at": "2026-08-09 14:30:30",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 1507,
+            "accepted": 1507,
+            "frames": 1746,
+            "held": 239,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260809_142542_bc1454/query_frames"
+        },
+        {
+          "id": "dji_live_20260809_145040_e291f8",
+          "title": "Live ATLAS 14:50:40",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260809_145040_e291f8",
+          "created_at": "2026-08-09 14:55:24",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 1844,
+            "accepted": 1844,
+            "frames": 1849,
+            "held": 5,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260809_145040_e291f8/query_frames"
+        },
+        {
+          "id": "dji_live_20260809_153039_78ab9b",
+          "title": "Live ATLAS 15:30:39",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260809_153039_78ab9b",
+          "created_at": "2026-08-09 15:35:16",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 1639,
+            "accepted": 1639,
+            "frames": 1800,
+            "held": 161,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260809_153039_78ab9b/query_frames"
+        },
+        {
+          "id": "dji_live_20260809_170212_9adc61",
+          "title": "Live ATLAS 17:02:12",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260809_170212_9adc61",
+          "created_at": "2026-08-09 17:04:55",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 1113,
+            "accepted": 1113,
+            "frames": 1113,
+            "held": 0,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260809_170212_9adc61/query_frames"
+        },
+        {
+          "id": "sim_live_20260809_193648_048b61",
+          "title": "New Live Path Simulation 19:36:48",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/sim_live_20260809_193648_048b61",
+          "created_at": "2026-08-09 19:42:55",
+          "source_video": "Validated Full Patrol Baseline 15:47:14 live simulation",
+          "source_replay_id": "patrol_baseline_20260809_154714_d26c33",
+          "kind": "simulated_live_patrol_baseline",
+          "counts": {
+            "poses": 3668,
+            "accepted": 3668,
+            "frames": 3668,
+            "held": 0,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260809_154714_d26c33/query_frames"
+        },
+        {
+          "id": "sim_live_20260809_195009_bad4eb",
+          "title": "New Live Path Simulation 19:50:09",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/sim_live_20260809_195009_bad4eb",
+          "created_at": "2026-08-09 19:52:11",
+          "source_video": "Validated Full Patrol Baseline 15:47:14 live simulation",
+          "source_replay_id": "patrol_baseline_20260809_154714_d26c33",
+          "kind": "simulated_live_patrol_baseline",
+          "counts": {
+            "poses": 3668,
+            "accepted": 3668,
+            "frames": 3668,
+            "held": 0,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260809_154714_d26c33/query_frames"
+        },
+        {
+          "id": "sim_live_20260809_200810_f501ee",
+          "title": "New Live Path Simulation 20:08:10",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/sim_live_20260809_200810_f501ee",
+          "created_at": "2026-08-09 20:14:17",
+          "source_video": "Validated Full Patrol Baseline 15:47:14 live simulation",
+          "source_replay_id": "patrol_baseline_20260809_154714_d26c33",
+          "kind": "simulated_live_patrol_baseline",
+          "counts": {
+            "poses": 3668,
+            "accepted": 3668,
+            "frames": 3668,
+            "held": 0,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260809_154714_d26c33/query_frames"
+        },
+        {
+          "id": "sim_live_20260809_201519_7b0570",
+          "title": "New Live Path Simulation 20:15:19",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/sim_live_20260809_201519_7b0570",
+          "created_at": "2026-08-09 20:16:11",
+          "source_video": "Validated Full Patrol Baseline 15:47:14 live simulation",
+          "source_replay_id": "patrol_baseline_20260809_154714_d26c33",
+          "kind": "simulated_live_patrol_baseline",
+          "counts": {
+            "poses": 522,
+            "accepted": 522,
+            "frames": 522,
+            "held": 0,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260809_154714_d26c33/query_frames"
+        },
+        {
+          "id": "sim_live_20260809_201844_be1fa2",
+          "title": "New Live Path Simulation 20:18:44",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/sim_live_20260809_201844_be1fa2",
+          "created_at": "2026-08-09 20:24:51",
+          "source_video": "Validated Full Patrol Baseline 15:47:14 live simulation",
+          "source_replay_id": "patrol_baseline_20260809_154714_d26c33",
+          "kind": "simulated_live_patrol_baseline",
+          "counts": {
+            "poses": 3668,
+            "accepted": 3668,
+            "frames": 3668,
+            "held": 0,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260809_154714_d26c33/query_frames"
+        },
+        {
+          "id": "dji_live_20260810_112932_2659ee",
+          "title": "Live ATLAS 11:29:32",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260810_112932_2659ee",
+          "created_at": "2026-08-10 11:35:03",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 1394,
+            "accepted": 1394,
+            "frames": 1925,
+            "held": 531,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260810_112932_2659ee/query_frames"
+        },
+        {
+          "id": "dji_live_20260810_133246_d7a064",
+          "title": "Live ATLAS 13:32:46",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260810_133246_d7a064",
+          "created_at": "2026-08-10 13:36:27",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 1215,
+            "accepted": 1215,
+            "frames": 1235,
+            "held": 20,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260810_133246_d7a064/query_frames"
+        },
+        {
+          "id": "dji_live_20260810_141441_b89541",
+          "title": "Live ATLAS 14:14:41",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260810_141441_b89541",
+          "created_at": "2026-08-10 14:25:04",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 1535,
+            "accepted": 1535,
+            "frames": 2280,
+            "held": 745,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260810_141441_b89541/query_frames"
+        },
+        {
+          "id": "patrol_baseline_20260809_154714_d26c33",
+          "title": "Full Patrol Baseline 15:47:14",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/patrol_baseline_20260809_154714_d26c33",
+          "created_at": "2026-08-10 15:04:17",
+          "source_video": "Live ATLAS 15:47:14 full manual patrol frames",
+          "source_replay_id": "dji_live_20260809_154714_d26c33",
+          "kind": "route_constrained_taught_baseline",
+          "counts": {
+            "poses": 3410,
+            "processed": 3410,
+            "accepted": 3410,
+            "frames": 3410,
+            "held": 0,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260809_154714_d26c33/query_frames",
+          "route_constraints": {
+            "monotonic_leg_progress": true,
+            "rotation_position_locked": true,
+            "direct_flight_command_trace": false,
+            "requires_fresh_live_localization_for_translation": true
+          }
+        },
+        {
+          "id": "dji_live_20260810_163028_debcd3",
+          "title": "Live ATLAS 16:30:28",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260810_163028_debcd3",
+          "created_at": "2026-08-10 16:35:06",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 620,
+            "accepted": 620,
+            "frames": 1891,
+            "held": 1271,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260810_163028_debcd3/query_frames"
+        },
+        {
+          "id": "dji_live_20260810_164209_151ea9",
+          "title": "Live ATLAS 16:42:09",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260810_164209_151ea9",
+          "created_at": "2026-08-10 16:44:09",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 520,
+            "accepted": 520,
+            "frames": 594,
+            "held": 74,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260810_164209_151ea9/query_frames"
+        },
+        {
+          "id": "dji_live_20260811_102420_f47f9a",
+          "title": "Live ATLAS 10:24:20",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260811_102420_f47f9a",
+          "created_at": "2026-08-11 10:28:42",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 1684,
+            "accepted": 1684,
+            "frames": 1688,
+            "held": 4,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260811_102420_f47f9a/query_frames"
+        },
+        {
+          "id": "dji_live_20260811_112940_58cc1d",
+          "title": "Live ATLAS 11:29:40",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260811_112940_58cc1d",
+          "created_at": "2026-08-11 11:32:48",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 992,
+            "accepted": 992,
+            "frames": 1022,
+            "held": 30,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260811_112940_58cc1d/query_frames"
+        },
+        {
+          "id": "dji_live_20260811_115736_2b91ca",
+          "title": "Live ATLAS 11:57:36",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260811_115736_2b91ca",
+          "created_at": "2026-08-11 12:05:40",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 1233,
+            "accepted": 1233,
+            "frames": 2367,
+            "held": 1134,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260811_115736_2b91ca/query_frames"
+        },
+        {
+          "id": "dji_live_20260811_122627_c81914",
+          "title": "Live ATLAS 12:26:27",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260811_122627_c81914",
+          "created_at": "2026-08-11 12:33:05",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 1577,
+            "accepted": 1577,
+            "frames": 2290,
+            "held": 713,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260811_122627_c81914/query_frames"
+        },
+        {
+          "id": "dji_live_20260811_125219_25e17d",
+          "title": "Live ATLAS 12:52:19",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260811_125219_25e17d",
+          "created_at": "2026-08-11 12:56:00",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 619,
+            "accepted": 619,
+            "frames": 1003,
+            "held": 384,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260811_125219_25e17d/query_frames"
+        },
+        {
+          "id": "dji_live_20260811_140849_2f60f0",
+          "title": "Live ATLAS 14:08:49",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260811_140849_2f60f0",
+          "created_at": "2026-08-11 14:12:38",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 937,
+            "accepted": 937,
+            "frames": 1361,
+            "held": 424,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260811_140849_2f60f0/query_frames"
+        },
+        {
+          "id": "dji_live_20260811_143856_f3a6bd",
+          "title": "Live ATLAS 14:38:56",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260811_143856_f3a6bd",
+          "created_at": "2026-08-11 14:42:09",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 900,
+            "accepted": 900,
+            "frames": 900,
+            "held": 0,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260811_143856_f3a6bd/query_frames"
+        },
+        {
+          "id": "dji_live_20260811_144544_7d1cdc",
+          "title": "Live ATLAS 14:45:44",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260811_144544_7d1cdc",
+          "created_at": "2026-08-11 14:48:51",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 289,
+            "accepted": 289,
+            "frames": 1085,
+            "held": 796,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260811_144544_7d1cdc/query_frames"
+        },
+        {
+          "id": "dji_live_20260811_144928_6b7014",
+          "title": "Live ATLAS 14:49:28",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260811_144928_6b7014",
+          "created_at": "2026-08-11 14:52:33",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 819,
+            "accepted": 819,
+            "frames": 878,
+            "held": 59,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260811_144928_6b7014/query_frames"
+        },
+        {
+          "id": "dji_live_20260811_145656_c614e8",
+          "title": "Live ATLAS 14:56:56",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260811_145656_c614e8",
+          "created_at": "2026-08-11 14:59:09",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 640,
+            "accepted": 640,
+            "frames": 642,
+            "held": 2,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260811_145656_c614e8/query_frames"
+        },
+        {
+          "id": "dji_live_20260811_154120_32a5a7",
+          "title": "Live ATLAS 15:41:20",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260811_154120_32a5a7",
+          "created_at": "2026-08-11 15:43:42",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 383,
+            "accepted": 383,
+            "frames": 726,
+            "held": 343,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260811_154120_32a5a7/query_frames"
+        },
+        {
+          "id": "dji_live_20260811_154642_f04789",
+          "title": "Live ATLAS 15:46:42",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260811_154642_f04789",
+          "created_at": "2026-08-11 15:49:13",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 568,
+            "accepted": 568,
+            "frames": 776,
+            "held": 208,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260811_154642_f04789/query_frames"
+        },
+        {
+          "id": "dji_live_20260811_155257_7b5677",
+          "title": "Live ATLAS 15:52:57",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260811_155257_7b5677",
+          "created_at": "2026-08-11 15:55:34",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 500,
+            "accepted": 500,
+            "frames": 844,
+            "held": 344,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260811_155257_7b5677/query_frames"
+        },
+        {
+          "id": "dji_live_20260811_163315_1fd889",
+          "title": "Live ATLAS 16:33:15",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260811_163315_1fd889",
+          "created_at": "2026-08-11 16:37:39",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 1129,
+            "accepted": 1129,
+            "frames": 1461,
+            "held": 332,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260811_163315_1fd889/query_frames"
+        },
+        {
+          "id": "dji_live_20260811_164459_dc4552",
+          "title": "Live ATLAS 16:44:59",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260811_164459_dc4552",
+          "created_at": "2026-08-11 16:47:49",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 913,
+            "accepted": 913,
+            "frames": 914,
+            "held": 0,
+            "failed": 1
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260811_164459_dc4552/query_frames"
+        },
+        {
+          "id": "dji_live_20260811_165255_75e02b",
+          "title": "Live ATLAS 16:52:55",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260811_165255_75e02b",
+          "created_at": "2026-08-11 16:56:14",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 776,
+            "accepted": 776,
+            "frames": 904,
+            "held": 128,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260811_165255_75e02b/query_frames"
+        },
+        {
+          "id": "live_frames_20260812_122430_90eea3",
+          "title": "New Localized Live Path 12:24:30",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/live_frames_20260812_122430_90eea3",
+          "created_at": "2026-08-12 12:38:31",
+          "source_video": "Full patrol recorded DJI frames localized as a new live stream",
+          "source_replay_id": "patrol_baseline_20260809_154714_d26c33",
+          "kind": "simulated_live_tsolve_recorded_frames",
+          "counts": {
+            "poses": 2893,
+            "accepted": 2893,
+            "frames": 3410,
+            "held": 517,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260809_154714_d26c33/query_frames"
+        },
+        {
+          "id": "live_frames_20260812_130233_3afdbf",
+          "title": "New Localized Live Path 13:02:33",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/live_frames_20260812_130233_3afdbf",
+          "created_at": "2026-08-12 13:19:01",
+          "source_video": "Full patrol recorded DJI frames localized as a new live stream",
+          "source_replay_id": "patrol_baseline_20260809_154714_d26c33",
+          "kind": "simulated_live_tsolve_recorded_frames",
+          "counts": {
+            "poses": 3238,
+            "accepted": 3238,
+            "frames": 3668,
+            "held": 430,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260809_154714_d26c33/query_frames"
+        },
+        {
+          "id": "live_frames_20260812_133809_bd967c",
+          "title": "New Localized Live Path 13:38:09",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/live_frames_20260812_133809_bd967c",
+          "created_at": "2026-08-12 13:53:31",
+          "source_video": "Full patrol recorded DJI frames localized as a new live stream",
+          "source_replay_id": "patrol_baseline_20260809_154714_d26c33",
+          "kind": "simulated_live_tsolve_recorded_frames",
+          "counts": {
+            "poses": 3090,
+            "accepted": 3090,
+            "frames": 3668,
+            "held": 578,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260809_154714_d26c33/query_frames"
+        },
+        {
+          "id": "live_frames_20260812_142147_cac293",
+          "title": "New Localized Live Path 14:21:47",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/live_frames_20260812_142147_cac293",
+          "created_at": "2026-08-12 14:23:10",
+          "source_video": "Full patrol recorded DJI frames localized as a new live stream",
+          "source_replay_id": "patrol_baseline_20260809_154714_d26c33",
+          "kind": "simulated_live_tsolve_recorded_frames",
+          "counts": {
+            "poses": 108,
+            "accepted": 108,
+            "frames": 108,
+            "held": 0,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260809_154714_d26c33/query_frames"
+        },
+        {
+          "id": "live_frames_20260812_142431_293477",
+          "title": "New Localized Live Path 14:24:31",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/live_frames_20260812_142431_293477",
+          "created_at": "2026-08-12 14:25:57",
+          "source_video": "Full patrol recorded DJI frames localized as a new live stream",
+          "source_replay_id": "patrol_baseline_20260809_154714_d26c33",
+          "kind": "simulated_live_tsolve_recorded_frames",
+          "counts": {
+            "poses": 108,
+            "accepted": 108,
+            "frames": 108,
+            "held": 0,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260809_154714_d26c33/query_frames"
+        },
+        {
+          "id": "live_frames_20260812_142829_e2304b",
+          "title": "New Localized Live Path 14:28:29",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/live_frames_20260812_142829_e2304b",
+          "created_at": "2026-08-12 14:29:57",
+          "source_video": "Full patrol recorded DJI frames localized as a new live stream",
+          "source_replay_id": "patrol_baseline_20260809_154714_d26c33",
+          "kind": "simulated_live_tsolve_recorded_frames",
+          "counts": {
+            "poses": 108,
+            "accepted": 108,
+            "frames": 108,
+            "held": 0,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260809_154714_d26c33/query_frames"
+        },
+        {
+          "id": "live_frames_20260812_143502_e00d5c",
+          "title": "New Localized Live Path 14:35:02",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/live_frames_20260812_143502_e00d5c",
+          "created_at": "2026-08-12 14:36:26",
+          "source_video": "Full patrol recorded DJI frames localized as a new live stream",
+          "source_replay_id": "patrol_baseline_20260809_154714_d26c33",
+          "kind": "simulated_live_tsolve_recorded_frames",
+          "counts": {
+            "poses": 108,
+            "accepted": 108,
+            "frames": 108,
+            "held": 0,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260809_154714_d26c33/query_frames"
+        },
+        {
+          "id": "live_frames_20260812_144129_c2a1a6",
+          "title": "New Localized Live Path 14:41:29",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/live_frames_20260812_144129_c2a1a6",
+          "created_at": "2026-08-12 14:42:51",
+          "source_video": "Full patrol recorded DJI frames localized as a new live stream",
+          "source_replay_id": "patrol_baseline_20260809_154714_d26c33",
+          "kind": "simulated_live_tsolve_recorded_frames",
+          "counts": {
+            "poses": 106,
+            "accepted": 106,
+            "frames": 108,
+            "held": 2,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260809_154714_d26c33/query_frames"
+        },
+        {
+          "id": "live_frames_20260812_144847_484c5c",
+          "title": "New Localized Live Path 14:48:47",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/live_frames_20260812_144847_484c5c",
+          "created_at": "2026-08-12 14:50:07",
+          "source_video": "Full patrol recorded DJI frames localized as a new live stream",
+          "source_replay_id": "patrol_baseline_20260809_154714_d26c33",
+          "kind": "simulated_live_tsolve_recorded_frames",
+          "counts": {
+            "poses": 108,
+            "accepted": 108,
+            "frames": 108,
+            "held": 0,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260809_154714_d26c33/query_frames"
+        },
+        {
+          "id": "live_frames_20260812_145202_65b303",
+          "title": "New Localized Live Path 14:52:02",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/live_frames_20260812_145202_65b303",
+          "created_at": "2026-08-12 14:53:28",
+          "source_video": "Full patrol recorded DJI frames localized as a new live stream",
+          "source_replay_id": "patrol_baseline_20260809_154714_d26c33",
+          "kind": "simulated_live_tsolve_recorded_frames",
+          "counts": {
+            "poses": 108,
+            "accepted": 108,
+            "frames": 108,
+            "held": 0,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260809_154714_d26c33/query_frames"
+        },
+        {
+          "id": "live_frames_20260812_145515_5c6ff2",
+          "title": "New Localized Live Path 14:55:15",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/live_frames_20260812_145515_5c6ff2",
+          "created_at": "2026-08-12 14:56:39",
+          "source_video": "Full patrol recorded DJI frames localized as a new live stream",
+          "source_replay_id": "patrol_baseline_20260809_154714_d26c33",
+          "kind": "simulated_live_tsolve_recorded_frames",
+          "counts": {
+            "poses": 108,
+            "accepted": 108,
+            "frames": 108,
+            "held": 0,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260809_154714_d26c33/query_frames"
+        },
+        {
+          "id": "live_frames_20260812_145750_954d61",
+          "title": "New Localized Live Path 14:57:50",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/live_frames_20260812_145750_954d61",
+          "created_at": "2026-08-12 14:59:21",
+          "source_video": "Full patrol recorded DJI frames localized as a new live stream",
+          "source_replay_id": "patrol_baseline_20260809_154714_d26c33",
+          "kind": "simulated_live_tsolve_recorded_frames",
+          "counts": {
+            "poses": 106,
+            "accepted": 106,
+            "frames": 108,
+            "held": 2,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260809_154714_d26c33/query_frames"
+        },
+        {
+          "id": "live_frames_20260812_150005_c2aef9",
+          "title": "New Localized Live Path 15:00:05",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/live_frames_20260812_150005_c2aef9",
+          "created_at": "2026-08-12 15:01:18",
+          "source_video": "Full patrol recorded DJI frames localized as a new live stream",
+          "source_replay_id": "patrol_baseline_20260809_154714_d26c33",
+          "kind": "simulated_live_tsolve_recorded_frames",
+          "counts": {
+            "poses": 1,
+            "accepted": 1,
+            "frames": 141,
+            "held": 0,
+            "failed": 140
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260809_154714_d26c33/query_frames"
+        },
+        {
+          "id": "live_frames_20260812_150200_a37d89",
+          "title": "New Localized Live Path 15:02:00",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/live_frames_20260812_150200_a37d89",
+          "created_at": "2026-08-12 15:03:22",
+          "source_video": "Full patrol recorded DJI frames localized as a new live stream",
+          "source_replay_id": "patrol_baseline_20260809_154714_d26c33",
+          "kind": "simulated_live_tsolve_recorded_frames",
+          "counts": {
+            "poses": 141,
+            "accepted": 141,
+            "frames": 142,
+            "held": 1,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260809_154714_d26c33/query_frames"
+        },
+        {
+          "id": "live_frames_20260812_150817_6dc0f2",
+          "title": "New Localized Live Path 15:08:17",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/live_frames_20260812_150817_6dc0f2",
+          "created_at": "2026-08-12 15:09:35",
+          "source_video": "Full patrol recorded DJI frames localized as a new live stream",
+          "source_replay_id": "patrol_baseline_20260809_154714_d26c33",
+          "kind": "simulated_live_tsolve_recorded_frames",
+          "counts": {
+            "poses": 140,
+            "accepted": 140,
+            "frames": 142,
+            "held": 2,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260809_154714_d26c33/query_frames"
+        },
+        {
+          "id": "live_frames_20260812_151122_2b151e",
+          "title": "New Localized Live Path 15:11:22",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/live_frames_20260812_151122_2b151e",
+          "created_at": "2026-08-12 15:12:44",
+          "source_video": "Full patrol recorded DJI frames localized as a new live stream",
+          "source_replay_id": "patrol_baseline_20260809_154714_d26c33",
+          "kind": "simulated_live_tsolve_recorded_frames",
+          "counts": {
+            "poses": 140,
+            "accepted": 140,
+            "frames": 142,
+            "held": 2,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260809_154714_d26c33/query_frames"
+        },
+        {
+          "id": "live_frames_20260812_151318_fcfe2f",
+          "title": "New Localized Live Path 15:13:18",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/live_frames_20260812_151318_fcfe2f",
+          "created_at": "2026-08-12 15:17:38",
+          "source_video": "Full patrol recorded DJI frames localized as a new live stream",
+          "source_replay_id": "patrol_baseline_20260809_154714_d26c33",
+          "kind": "simulated_live_tsolve_recorded_frames",
+          "counts": {
+            "poses": 1002,
+            "accepted": 1002,
+            "frames": 1002,
+            "held": 0,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260809_154714_d26c33/query_frames"
+        },
+        {
+          "id": "live_frames_20260812_151923_a3c3bd",
+          "title": "New Localized Live Path 15:19:23",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/live_frames_20260812_151923_a3c3bd",
+          "created_at": "2026-08-12 15:23:36",
+          "source_video": "Full patrol recorded DJI frames localized as a new live stream",
+          "source_replay_id": "patrol_baseline_20260809_154714_d26c33",
+          "kind": "simulated_live_tsolve_recorded_frames",
+          "counts": {
+            "poses": 1002,
+            "accepted": 1002,
+            "frames": 1002,
+            "held": 0,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260809_154714_d26c33/query_frames"
+        },
+        {
+          "id": "live_frames_20260812_160635_f9daa8",
+          "title": "New Localized Live Path 16:06:35",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/live_frames_20260812_160635_f9daa8",
+          "created_at": "2026-08-12 16:08:48",
+          "source_video": "Full patrol recorded DJI frames localized as a new live stream",
+          "source_replay_id": "patrol_baseline_20260809_154714_d26c33",
+          "kind": "simulated_live_tsolve_recorded_frames",
+          "counts": {
+            "poses": 188,
+            "accepted": 188,
+            "frames": 702,
+            "held": 514,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260809_154714_d26c33/query_frames"
+        },
+        {
+          "id": "live_frames_20260812_161048_837516",
+          "title": "New Localized Live Path 16:10:48",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/live_frames_20260812_161048_837516",
+          "created_at": "2026-08-12 16:18:45",
+          "source_video": "Full patrol recorded DJI frames localized as a new live stream",
+          "source_replay_id": "patrol_baseline_20260809_154714_d26c33",
+          "kind": "simulated_live_tsolve_recorded_frames",
+          "counts": {
+            "poses": 2299,
+            "accepted": 2299,
+            "frames": 3561,
+            "held": 1262,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260809_154714_d26c33/query_frames"
+        },
+        {
+          "id": "live_frames_20260813_102835_72465e",
+          "title": "New Localized Live Path 10:28:35",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/live_frames_20260813_102835_72465e",
+          "created_at": "2026-08-13 10:36:36",
+          "source_video": "Full patrol recorded DJI frames localized as a new live stream",
+          "source_replay_id": "patrol_baseline_20260809_154714_d26c33",
+          "kind": "simulated_live_tsolve_recorded_frames",
+          "counts": {
+            "poses": 2298,
+            "accepted": 2298,
+            "frames": 3561,
+            "held": 1263,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260809_154714_d26c33/query_frames"
+        },
+        {
+          "id": "live_frames_20260813_104601_83a2ed",
+          "title": "New Localized Live Path 10:46:01",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/live_frames_20260813_104601_83a2ed",
+          "created_at": "2026-08-13 10:54:15",
+          "source_video": "Full patrol recorded DJI frames localized as a new live stream",
+          "source_replay_id": "patrol_baseline_20260809_154714_d26c33",
+          "kind": "simulated_live_tsolve_recorded_frames",
+          "counts": {
+            "poses": 2300,
+            "accepted": 2300,
+            "frames": 3561,
+            "held": 1261,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260809_154714_d26c33/query_frames"
+        },
+        {
+          "id": "patrol_baseline_precision_20260813",
+          "title": "Full Patrol Precision Baseline 15:47:14",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/patrol_baseline_precision_20260813",
+          "created_at": "2026-08-13 11:14:12",
+          "source_video": "Live ATLAS 15:47:14 full manual patrol frames",
+          "source_replay_id": "dji_live_20260809_154714_d26c33",
+          "kind": "route_constrained_taught_baseline",
+          "counts": {
+            "poses": 3424,
+            "processed": 3424,
+            "accepted": 3424,
+            "frames": 3424,
+            "held": 0,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260809_154714_d26c33/query_frames",
+          "route_constraints": {
+            "monotonic_leg_progress": true,
+            "rotation_position_locked": true,
+            "direct_flight_command_trace": false,
+            "requires_fresh_live_localization_for_translation": true,
+            "weak_leg_progress_clock": "recorded_forward_image_pulses"
+          }
+        },
+        {
+          "id": "live_frames_20260813_112314_95dbfc",
+          "title": "New Localized Live Path 11:23:14",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/live_frames_20260813_112314_95dbfc",
+          "created_at": "2026-08-13 11:43:30",
+          "source_video": "Full patrol recorded DJI frames localized as a new live stream",
+          "source_replay_id": "patrol_baseline_precision_20260813",
+          "kind": "simulated_live_tsolve_recorded_frames",
+          "counts": {
+            "poses": 4753,
+            "accepted": 4753,
+            "frames": 6967,
+            "held": 2214,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/maps/map_copy_20260730_114851_cfefdc/replays/live_frames_20260813_112314_95dbfc/two_lap_query_frames",
+          "laps": 2
+        },
+        {
+          "id": "live_frames_20260813_114731_6df622",
+          "title": "New Localized Live Path 11:47:31",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/live_frames_20260813_114731_6df622",
+          "created_at": "2026-08-13 12:07:25",
+          "source_video": "Full patrol recorded DJI frames localized as a new live stream",
+          "source_replay_id": "patrol_baseline_precision_20260813",
+          "kind": "simulated_live_tsolve_recorded_frames",
+          "counts": {
+            "poses": 4754,
+            "accepted": 4754,
+            "frames": 6967,
+            "held": 2213,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/maps/map_copy_20260730_114851_cfefdc/replays/live_frames_20260813_114731_6df622/two_lap_query_frames",
+          "laps": 2
+        },
+        {
+          "id": "live_frames_20260813_121252_6317cf",
+          "title": "New Localized Live Path 12:12:52",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/live_frames_20260813_121252_6317cf",
+          "created_at": "2026-08-13 12:31:30",
+          "source_video": "Full patrol recorded DJI frames localized as a new live stream",
+          "source_replay_id": "patrol_baseline_precision_20260813",
+          "kind": "simulated_live_tsolve_recorded_frames",
+          "counts": {
+            "poses": 4757,
+            "accepted": 4757,
+            "frames": 6967,
+            "held": 2210,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/maps/map_copy_20260730_114851_cfefdc/replays/live_frames_20260813_121252_6317cf/two_lap_query_frames",
+          "laps": 2
+        },
+        {
+          "id": "live_frames_20260813_134735_51490d",
+          "title": "New Localized Live Path 13:47:35",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/live_frames_20260813_134735_51490d",
+          "created_at": "2026-08-13 14:06:24",
+          "source_video": "Full patrol recorded DJI frames localized as a new live stream",
+          "source_replay_id": "patrol_baseline_precision_20260813",
+          "kind": "simulated_live_tsolve_recorded_frames",
+          "counts": {
+            "poses": 5002,
+            "accepted": 5002,
+            "frames": 6967,
+            "held": 1964,
+            "failed": 1
+          },
+          "query_frame_base_url": "public/maps/map_copy_20260730_114851_cfefdc/replays/live_frames_20260813_134735_51490d/two_lap_query_frames",
+          "laps": 2
+        },
+        {
+          "id": "live_frames_20260813_152940_c73613",
+          "title": "New Localized Live Path 15:29:40",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/live_frames_20260813_152940_c73613",
+          "created_at": "2026-08-13 15:45:10",
+          "source_video": "Mixed 15:47:14 and independent 11:57:36 patrol frames localized as one two-lap live stream",
+          "source_replay_id": "patrol_baseline_precision_20260813",
+          "source_replay_ids": [
+            "patrol_baseline_precision_20260813",
+            "dji_live_20260811_115736_2b91ca"
+          ],
+          "kind": "simulated_live_tsolve_recorded_frames",
+          "counts": {
+            "poses": 3981,
+            "accepted": 3981,
+            "frames": 5401,
+            "held": 1420,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/maps/map_copy_20260730_114851_cfefdc/replays/live_frames_20260813_152940_c73613/two_lap_query_frames",
+          "laps": 2
+        },
+        {
+          "id": "dji_live_20260816_093916_367792",
+          "title": "Live ATLAS 09:39:16",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260816_093916_367792",
+          "created_at": "2026-08-16 09:43:17",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 659,
+            "accepted": 659,
+            "frames": 677,
+            "held": 18,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260816_093916_367792/query_frames"
+        },
+        {
+          "id": "dji_live_20260816_095452_f97e34",
+          "title": "Live ATLAS 09:54:52",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260816_095452_f97e34",
+          "created_at": "2026-08-16 09:58:54",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 681,
+            "accepted": 681,
+            "frames": 1147,
+            "held": 466,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260816_095452_f97e34/query_frames"
+        },
+        {
+          "id": "dji_live_20260816_101315_a17819",
+          "title": "Live ATLAS 10:13:15",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260816_101315_a17819",
+          "created_at": "2026-08-16 10:17:24",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 898,
+            "accepted": 898,
+            "frames": 937,
+            "held": 39,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260816_101315_a17819/query_frames"
+        },
+        {
+          "id": "dji_live_20260816_101854_680776",
+          "title": "Live ATLAS 10:18:54",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260816_101854_680776",
+          "created_at": "2026-08-16 10:22:49",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 549,
+            "accepted": 549,
+            "frames": 1274,
+            "held": 724,
+            "failed": 1
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260816_101854_680776/query_frames"
+        },
+        {
+          "id": "dji_live_20260816_103838_602007",
+          "title": "Live ATLAS 10:38:38",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260816_103838_602007",
+          "created_at": "2026-08-16 10:46:15",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 1146,
+            "accepted": 1146,
+            "frames": 2358,
+            "held": 1212,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260816_103838_602007/query_frames"
+        },
+        {
+          "id": "dji_live_20260816_105058_87ae3a",
+          "title": "Live ATLAS 10:50:58",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260816_105058_87ae3a",
+          "created_at": "2026-08-16 10:56:28",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 902,
+            "accepted": 902,
+            "frames": 1835,
+            "held": 933,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260816_105058_87ae3a/query_frames"
+        },
+        {
+          "id": "dji_live_20260816_110954_b9d9d1",
+          "title": "Live ATLAS 11:09:54",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260816_110954_b9d9d1",
+          "created_at": "2026-08-16 11:15:53",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 908,
+            "accepted": 908,
+            "frames": 1873,
+            "held": 965,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260816_110954_b9d9d1/query_frames"
+        },
+        {
+          "id": "dji_live_20260816_112653_eee6d1",
+          "title": "Live ATLAS 11:26:53",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260816_112653_eee6d1",
+          "created_at": "2026-08-16 11:29:39",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 565,
+            "accepted": 565,
+            "frames": 657,
+            "held": 92,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260816_112653_eee6d1/query_frames"
+        },
+        {
+          "id": "dji_live_20260816_114307_86da37",
+          "title": "Live ATLAS 11:43:07",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260816_114307_86da37",
+          "created_at": "2026-08-16 11:47:54",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 617,
+            "accepted": 617,
+            "frames": 1196,
+            "held": 579,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260816_114307_86da37/query_frames"
+        },
+        {
+          "id": "dji_live_20260816_123711_9d0556",
+          "title": "Live ATLAS 12:37:11",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260816_123711_9d0556",
+          "created_at": "2026-08-16 12:46:04",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 2436,
+            "accepted": 2436,
+            "frames": 2641,
+            "held": 205,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260816_123711_9d0556/query_frames"
+        },
+        {
+          "id": "dji_live_20260816_125612_dc456e",
+          "title": "Live ATLAS 12:56:12",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260816_125612_dc456e",
+          "created_at": "2026-08-16 12:58:19",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 330,
+            "accepted": 330,
+            "frames": 492,
+            "held": 162,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260816_125612_dc456e/query_frames"
+        },
+        {
+          "id": "dji_live_20260816_125853_1b94db",
+          "title": "Live ATLAS 12:58:53",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260816_125853_1b94db",
+          "created_at": "2026-08-16 13:02:59",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 892,
+            "accepted": 892,
+            "frames": 1119,
+            "held": 227,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260816_125853_1b94db/query_frames"
+        },
+        {
+          "id": "dji_live_20260816_132238_4c29b5",
+          "title": "Live ATLAS 13:22:38",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260816_132238_4c29b5",
+          "created_at": "2026-08-16 13:27:45",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 896,
+            "accepted": 896,
+            "frames": 1024,
+            "held": 128,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260816_132238_4c29b5/query_frames"
+        },
+        {
+          "id": "dji_live_20260816_140557_dd8aa3",
+          "title": "Live ATLAS 14:05:57",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260816_140557_dd8aa3",
+          "created_at": "2026-08-16 14:12:48",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 991,
+            "accepted": 991,
+            "frames": 2586,
+            "held": 1595,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260816_140557_dd8aa3/query_frames"
+        },
+        {
+          "id": "dji_live_20260816_143344_aee49b",
+          "title": "Live ATLAS 14:33:44",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260816_143344_aee49b",
+          "created_at": "2026-08-16 14:40:20",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 792,
+            "accepted": 792,
+            "frames": 1781,
+            "held": 989,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260816_143344_aee49b/query_frames"
+        },
+        {
+          "id": "dji_live_20260816_144116_df75b6",
+          "title": "Live ATLAS 14:41:16",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260816_144116_df75b6",
+          "created_at": "2026-08-16 14:45:38",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 834,
+            "accepted": 834,
+            "frames": 1288,
+            "held": 454,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260816_144116_df75b6/query_frames"
+        },
+        {
+          "id": "dji_live_20260817_090236_064f20",
+          "title": "Live ATLAS 09:02:36",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260817_090236_064f20",
+          "created_at": "2026-08-17 09:02:47",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 0,
+            "accepted": 0,
+            "frames": 0,
+            "held": 0,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260817_090236_064f20/query_frames"
+        },
+        {
+          "id": "dji_live_20260817_090303_f65cee",
+          "title": "Live ATLAS 09:03:03",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260817_090303_f65cee",
+          "created_at": "2026-08-17 09:09:14",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 1219,
+            "accepted": 1219,
+            "frames": 1901,
+            "held": 682,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260817_090303_f65cee/query_frames"
+        },
+        {
+          "id": "dji_live_20260817_092639_6c87ff",
+          "title": "Live ATLAS 09:26:39",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260817_092639_6c87ff",
+          "created_at": "2026-08-17 09:31:59",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 420,
+            "accepted": 420,
+            "frames": 921,
+            "held": 501,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260817_092639_6c87ff/query_frames"
+        },
+        {
+          "id": "dji_live_20260817_093250_4c4119",
+          "title": "Live ATLAS 09:32:50",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260817_093250_4c4119",
+          "created_at": "2026-08-17 09:39:22",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 912,
+            "accepted": 912,
+            "frames": 2143,
+            "held": 1231,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260817_093250_4c4119/query_frames"
+        },
+        {
+          "id": "dji_live_20260817_094913_5604e4",
+          "title": "Live ATLAS 09:49:13",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260817_094913_5604e4",
+          "created_at": "2026-08-17 09:55:41",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 917,
+            "accepted": 917,
+            "frames": 2121,
+            "held": 1203,
+            "failed": 1
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260817_094913_5604e4/query_frames"
+        },
+        {
+          "id": "dji_live_20260817_102120_fa483c",
+          "title": "Live ATLAS 10:21:20",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260817_102120_fa483c",
+          "created_at": "2026-08-17 10:23:34",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 576,
+            "accepted": 576,
+            "frames": 576,
+            "held": 0,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260817_102120_fa483c/query_frames"
+        },
+        {
+          "id": "dji_live_20260817_102340_af6654",
+          "title": "Live ATLAS 10:23:40",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260817_102340_af6654",
+          "created_at": "2026-08-17 10:25:53",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 374,
+            "accepted": 374,
+            "frames": 383,
+            "held": 9,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260817_102340_af6654/query_frames"
+        },
+        {
+          "id": "dji_live_20260817_103038_e689da",
+          "title": "Live ATLAS 10:30:38",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260817_103038_e689da",
+          "created_at": "2026-08-17 10:35:13",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 648,
+            "accepted": 648,
+            "frames": 1513,
+            "held": 865,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260817_103038_e689da/query_frames"
+        },
+        {
+          "id": "dji_live_20260817_103815_fa8c57",
+          "title": "Live ATLAS 10:38:15",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260817_103815_fa8c57",
+          "created_at": "2026-08-17 10:43:13",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 1131,
+            "accepted": 1131,
+            "frames": 1478,
+            "held": 347,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260817_103815_fa8c57/query_frames"
+        },
+        {
+          "id": "dji_live_20260817_110331_4d77cf",
+          "title": "Live ATLAS 11:03:31",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260817_110331_4d77cf",
+          "created_at": "2026-08-17 11:06:57",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 618,
+            "accepted": 618,
+            "frames": 621,
+            "held": 3,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260817_110331_4d77cf/query_frames"
+        },
+        {
+          "id": "dji_live_20260817_110719_694a0b",
+          "title": "Live ATLAS 11:07:19",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260817_110719_694a0b",
+          "created_at": "2026-08-17 11:12:13",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 749,
+            "accepted": 749,
+            "frames": 1566,
+            "held": 817,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260817_110719_694a0b/query_frames"
+        },
+        {
+          "id": "dji_live_20260817_111824_60175b",
+          "title": "Live ATLAS 11:18:24",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260817_111824_60175b",
+          "created_at": "2026-08-17 11:21:31",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 597,
+            "accepted": 597,
+            "frames": 690,
+            "held": 92,
+            "failed": 1
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260817_111824_60175b/query_frames"
+        },
+        {
+          "id": "dji_live_20260817_115508_01a9b1",
+          "title": "Live ATLAS 11:55:08",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260817_115508_01a9b1",
+          "created_at": "2026-08-17 12:03:08",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 657,
+            "accepted": 657,
+            "frames": 2374,
+            "held": 1717,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260817_115508_01a9b1/query_frames"
+        },
+        {
+          "id": "dji_live_20260817_122039_40e9c0",
+          "title": "Live ATLAS 12:20:39",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260817_122039_40e9c0",
+          "created_at": "2026-08-17 12:25:54",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 777,
+            "accepted": 777,
+            "frames": 1595,
+            "held": 818,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260817_122039_40e9c0/query_frames"
+        },
+        {
+          "id": "dji_live_20260817_124039_3bfd94",
+          "title": "Live ATLAS 12:40:39",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260817_124039_3bfd94",
+          "created_at": "2026-08-17 12:45:35",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 730,
+            "accepted": 730,
+            "frames": 1644,
+            "held": 914,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260817_124039_3bfd94/query_frames"
+        },
+        {
+          "id": "dji_live_20260817_125937_7040f6",
+          "title": "Live ATLAS 12:59:37",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260817_125937_7040f6",
+          "created_at": "2026-08-17 13:04:05",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 879,
+            "accepted": 879,
+            "frames": 1161,
+            "held": 282,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260817_125937_7040f6/query_frames"
+        },
+        {
+          "id": "dji_live_20260817_140306_244b13",
+          "title": "Live ATLAS 14:03:06",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260817_140306_244b13",
+          "created_at": "2026-08-17 14:11:23",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 1054,
+            "accepted": 1054,
+            "frames": 2474,
+            "held": 1420,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260817_140306_244b13/query_frames"
+        },
+        {
+          "id": "dji_live_20260817_142130_902a01",
+          "title": "Live ATLAS 14:21:30",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260817_142130_902a01",
+          "created_at": "2026-08-17 14:29:11",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 871,
+            "accepted": 871,
+            "frames": 1533,
+            "held": 662,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260817_142130_902a01/query_frames"
+        },
+        {
+          "id": "dji_live_20260817_150451_caeecd",
+          "title": "Live ATLAS 15:04:51",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260817_150451_caeecd",
+          "created_at": "2026-08-17 15:09:10",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 909,
+            "accepted": 909,
+            "frames": 1080,
+            "held": 171,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260817_150451_caeecd/query_frames"
+        },
+        {
+          "id": "dji_live_20260817_153000_58680a",
+          "title": "Live ATLAS 15:30:00",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260817_153000_58680a",
+          "created_at": "2026-08-17 15:36:22",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 760,
+            "accepted": 760,
+            "frames": 2176,
+            "held": 1416,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260817_153000_58680a/query_frames"
+        },
+        {
+          "id": "dji_live_20260817_155829_f2e33a",
+          "title": "Live ATLAS 15:58:29",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260817_155829_f2e33a",
+          "created_at": "2026-08-17 16:04:00",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 933,
+            "accepted": 933,
+            "frames": 1901,
+            "held": 968,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260817_155829_f2e33a/query_frames"
+        },
+        {
+          "id": "dji_live_20260817_161914_23caaf",
+          "title": "Live ATLAS 16:19:14",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260817_161914_23caaf",
+          "created_at": "2026-08-17 16:27:05",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 1479,
+            "accepted": 1479,
+            "frames": 2937,
+            "held": 1458,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260817_161914_23caaf/query_frames"
+        },
+        {
+          "id": "dji_live_20260819_093017_d54a38",
+          "title": "Live ATLAS 09:30:17",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260819_093017_d54a38",
+          "created_at": "2026-08-19 09:37:02",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 1144,
+            "accepted": 1144,
+            "frames": 2431,
+            "held": 233,
+            "failed": 1054
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260819_093017_d54a38/query_frames"
+        },
+        {
+          "id": "dji_live_20260819_102434_72eb99",
+          "title": "Live ATLAS 10:24:34",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260819_102434_72eb99",
+          "created_at": "2026-08-19 10:28:22",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 1115,
+            "accepted": 1115,
+            "frames": 1115,
+            "held": 0,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260819_102434_72eb99/query_frames"
+        },
+        {
+          "id": "dji_live_20260819_104413_b3f3d2",
+          "title": "Live ATLAS 10:44:13",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260819_104413_b3f3d2",
+          "created_at": "2026-08-19 10:53:51",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 2447,
+            "accepted": 2447,
+            "frames": 2528,
+            "held": 81,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260819_104413_b3f3d2/query_frames"
+        },
+        {
+          "id": "dji_live_20260819_112028_f0bd92",
+          "title": "Live ATLAS 11:20:28",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260819_112028_f0bd92",
+          "created_at": "2026-08-19 11:27:28",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 1222,
+            "accepted": 1222,
+            "frames": 1929,
+            "held": 706,
+            "failed": 1
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260819_112028_f0bd92/query_frames"
+        },
+        {
+          "id": "dji_live_20260819_113412_fdba04",
+          "title": "Live ATLAS 11:34:12",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260819_113412_fdba04",
+          "created_at": "2026-08-19 11:37:13",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 980,
+            "accepted": 980,
+            "frames": 980,
+            "held": 0,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260819_113412_fdba04/query_frames"
+        },
+        {
+          "id": "dji_live_20260819_113737_f8eeab",
+          "title": "Live ATLAS 11:37:37",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260819_113737_f8eeab",
+          "created_at": "2026-08-19 11:42:41",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 1052,
+            "accepted": 1052,
+            "frames": 1894,
+            "held": 841,
+            "failed": 1
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260819_113737_f8eeab/query_frames"
+        },
+        {
+          "id": "dji_live_20260819_115103_05fddb",
+          "title": "Live ATLAS 11:51:03",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260819_115103_05fddb",
+          "created_at": "2026-08-19 11:57:40",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 1161,
+            "accepted": 1161,
+            "frames": 2163,
+            "held": 1002,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260819_115103_05fddb/query_frames"
+        },
+        {
+          "id": "patrol2_hybrid_baseline_20260819",
+          "title": "Patrol 2 Hybrid Baseline \u00b7 P2/P3 from Patrol 1",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/patrol2_hybrid_baseline_20260819",
+          "created_at": "2026-08-19 12:11:45",
+          "source_video": "Live ATLAS 15:47:14 full manual patrol frames",
+          "source_replay_id": "dji_live_20260809_154714_d26c33",
+          "kind": "route_constrained_taught_baseline",
+          "counts": {
+            "poses": 3424,
+            "processed": 3424,
+            "accepted": 3424,
+            "frames": 3424,
+            "held": 0,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260809_154714_d26c33/query_frames",
+          "route_constraints": {
+            "monotonic_leg_progress": true,
+            "rotation_position_locked": true,
+            "direct_flight_command_trace": false,
+            "requires_fresh_live_localization_for_translation": true,
+            "weak_leg_progress_clock": "recorded_forward_image_pulses"
+          }
+        },
+        {
+          "id": "dji_live_20260819_122441_c6ad9d",
+          "title": "Live ATLAS 12:24:41",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260819_122441_c6ad9d",
+          "created_at": "2026-08-19 12:30:43",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 1376,
+            "accepted": 1376,
+            "frames": 1534,
+            "held": 158,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260819_122441_c6ad9d/query_frames"
+        },
+        {
+          "id": "dji_live_20260819_124009_de83c7",
+          "title": "Live ATLAS 12:40:09",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260819_124009_de83c7",
+          "created_at": "2026-08-19 12:40:29",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 0,
+            "accepted": 0,
+            "frames": 0,
+            "held": 0,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260819_124009_de83c7/query_frames"
+        },
+        {
+          "id": "dji_live_20260819_124223_be6df2",
+          "title": "Live ATLAS 12:42:23",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260819_124223_be6df2",
+          "created_at": "2026-08-19 12:48:35",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 1454,
+            "accepted": 1454,
+            "frames": 2136,
+            "held": 682,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260819_124223_be6df2/query_frames"
+        },
+        {
+          "id": "dji_live_20260819_131610_8516b9",
+          "title": "Live ATLAS 13:16:10",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260819_131610_8516b9",
+          "created_at": "2026-08-19 13:20:29",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 1422,
+            "accepted": 1422,
+            "frames": 1470,
+            "held": 48,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260819_131610_8516b9/query_frames"
+        },
+        {
+          "id": "dji_live_20260819_132045_f374e7",
+          "title": "Live ATLAS 13:20:45",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260819_132045_f374e7",
+          "created_at": "2026-08-19 13:26:05",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 1443,
+            "accepted": 1443,
+            "frames": 1475,
+            "held": 32,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260819_132045_f374e7/query_frames"
+        },
+        {
+          "id": "dji_live_20260819_134228_5e11bf",
+          "title": "Live ATLAS 13:42:28",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260819_134228_5e11bf",
+          "created_at": "2026-08-19 13:47:37",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 1165,
+            "accepted": 1165,
+            "frames": 1168,
+            "held": 3,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260819_134228_5e11bf/query_frames"
+        },
+        {
+          "id": "dji_live_20260819_135427_d81fb3",
+          "title": "Live ATLAS 13:54:27",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260819_135427_d81fb3",
+          "created_at": "2026-08-19 14:00:43",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 1618,
+            "accepted": 1618,
+            "frames": 1679,
+            "held": 61,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260819_135427_d81fb3/query_frames"
+        },
+        {
+          "id": "dji_live_20260819_140330_87e7d0",
+          "title": "Live ATLAS 14:03:30",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260819_140330_87e7d0",
+          "created_at": "2026-08-19 14:07:31",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 1115,
+            "accepted": 1115,
+            "frames": 1164,
+            "held": 49,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260819_140330_87e7d0/query_frames"
+        },
+        {
+          "id": "dji_live_20260819_150529_0e443b",
+          "title": "Live ATLAS 15:05:29",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260819_150529_0e443b",
+          "created_at": "2026-08-19 15:10:19",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 938,
+            "accepted": 938,
+            "frames": 1250,
+            "held": 312,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260819_150529_0e443b/query_frames"
+        },
+        {
+          "id": "dji_live_20260819_151542_10759e",
+          "title": "Live ATLAS 15:15:42",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260819_151542_10759e",
+          "created_at": "2026-08-19 15:22:36",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 1313,
+            "accepted": 1313,
+            "frames": 1865,
+            "held": 552,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260819_151542_10759e/query_frames"
+        },
+        {
+          "id": "dji_live_20260819_152645_3344db",
+          "title": "Live ATLAS 15:26:45",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260819_152645_3344db",
+          "created_at": "2026-08-19 15:35:20",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 1444,
+            "accepted": 1444,
+            "frames": 2382,
+            "held": 937,
+            "failed": 1
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260819_152645_3344db/query_frames"
+        },
+        {
+          "id": "dji_live_20260819_162012_99e3c3",
+          "title": "Live ATLAS 16:20:12",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260819_162012_99e3c3",
+          "created_at": "2026-08-19 16:25:27",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 972,
+            "accepted": 972,
+            "frames": 1052,
+            "held": 80,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260819_162012_99e3c3/query_frames"
+        },
+        {
+          "id": "dji_live_20260819_162931_1330d3",
+          "title": "Live ATLAS 16:29:31",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260819_162931_1330d3",
+          "created_at": "2026-08-19 16:34:55",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 1150,
+            "accepted": 1150,
+            "frames": 1164,
+            "held": 14,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260819_162931_1330d3/query_frames"
+        },
+        {
+          "id": "dji_live_20260819_163614_96be8e",
+          "title": "Live ATLAS 16:36:14",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260819_163614_96be8e",
+          "created_at": "2026-08-19 16:42:55",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 1048,
+            "accepted": 1048,
+            "frames": 1392,
+            "held": 343,
+            "failed": 1
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260819_163614_96be8e/query_frames"
+        },
+        {
+          "id": "dji_live_20260819_164415_524a50",
+          "title": "Live ATLAS 16:44:15",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260819_164415_524a50",
+          "created_at": "2026-08-19 16:50:32",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 1350,
+            "accepted": 1350,
+            "frames": 1859,
+            "held": 509,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260819_164415_524a50/query_frames"
+        },
+        {
+          "id": "dji_live_20260820_090933_f810cf",
+          "title": "Live ATLAS 09:09:33",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260820_090933_f810cf",
+          "created_at": "2026-08-20 09:11:42",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 196,
+            "accepted": 196,
+            "frames": 321,
+            "held": 125,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260820_090933_f810cf/query_frames"
+        },
+        {
+          "id": "dji_live_20260820_091232_6e4452",
+          "title": "Live ATLAS 09:12:32",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260820_091232_6e4452",
+          "created_at": "2026-08-20 09:17:07",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 1486,
+            "accepted": 1486,
+            "frames": 1489,
+            "held": 3,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260820_091232_6e4452/query_frames"
+        },
+        {
+          "id": "dji_live_20260820_092912_4de043",
+          "title": "Live ATLAS 09:29:12",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260820_092912_4de043",
+          "created_at": "2026-08-20 09:33:54",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 919,
+            "accepted": 919,
+            "frames": 1613,
+            "held": 694,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260820_092912_4de043/query_frames"
+        },
+        {
+          "id": "dji_live_20260820_095043_85a3b7",
+          "title": "Live ATLAS 09:50:43",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260820_095043_85a3b7",
+          "created_at": "2026-08-20 09:57:06",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 1159,
+            "accepted": 1159,
+            "frames": 1682,
+            "held": 523,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260820_095043_85a3b7/query_frames"
+        },
+        {
+          "id": "dji_live_20260820_101710_4154b5",
+          "title": "Live ATLAS 10:17:10",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260820_101710_4154b5",
+          "created_at": "2026-08-20 10:20:23",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 1016,
+            "accepted": 1016,
+            "frames": 1016,
+            "held": 0,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260820_101710_4154b5/query_frames"
+        },
+        {
+          "id": "dji_live_20260820_102047_17ecc5",
+          "title": "Live ATLAS 10:20:47",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260820_102047_17ecc5",
+          "created_at": "2026-08-20 10:23:42",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 379,
+            "accepted": 379,
+            "frames": 765,
+            "held": 386,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260820_102047_17ecc5/query_frames"
+        },
+        {
+          "id": "dji_live_20260820_102432_e9c557",
+          "title": "Live ATLAS 10:24:32",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260820_102432_e9c557",
+          "created_at": "2026-08-20 10:27:47",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 464,
+            "accepted": 464,
+            "frames": 782,
+            "held": 318,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260820_102432_e9c557/query_frames"
+        },
+        {
+          "id": "dji_live_20260820_103311_699eea",
+          "title": "Live ATLAS 10:33:11",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260820_103311_699eea",
+          "created_at": "2026-08-20 10:37:33",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 1182,
+            "accepted": 1182,
+            "frames": 1182,
+            "held": 0,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260820_103311_699eea/query_frames"
+        },
+        {
+          "id": "dji_live_20260820_104848_fa77e4",
+          "title": "Live ATLAS 10:48:48",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260820_104848_fa77e4",
+          "created_at": "2026-08-20 10:51:13",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 582,
+            "accepted": 582,
+            "frames": 615,
+            "held": 33,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260820_104848_fa77e4/query_frames"
+        },
+        {
+          "id": "dji_live_20260820_105133_f839a7",
+          "title": "Live ATLAS 10:51:33",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260820_105133_f839a7",
+          "created_at": "2026-08-20 10:56:32",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 1108,
+            "accepted": 1108,
+            "frames": 1351,
+            "held": 243,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260820_105133_f839a7/query_frames"
+        },
+        {
+          "id": "dji_live_20260820_110134_6d8776",
+          "title": "Live ATLAS 11:01:34",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260820_110134_6d8776",
+          "created_at": "2026-08-20 11:03:40",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 345,
+            "accepted": 345,
+            "frames": 569,
+            "held": 224,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260820_110134_6d8776/query_frames"
+        },
+        {
+          "id": "dji_live_20260820_110436_8bc6ae",
+          "title": "Live ATLAS 11:04:36",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260820_110436_8bc6ae",
+          "created_at": "2026-08-20 11:08:50",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 1163,
+            "accepted": 1163,
+            "frames": 1249,
+            "held": 86,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260820_110436_8bc6ae/query_frames"
+        },
+        {
+          "id": "dji_live_20260820_112940_5692d5",
+          "title": "Live ATLAS 11:29:40",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260820_112940_5692d5",
+          "created_at": "2026-08-20 11:34:31",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 768,
+            "accepted": 768,
+            "frames": 1157,
+            "held": 389,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260820_112940_5692d5/query_frames"
+        },
+        {
+          "id": "dji_live_20260820_114112_72dcc4",
+          "title": "Live ATLAS 11:41:12",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260820_114112_72dcc4",
+          "created_at": "2026-08-20 11:45:41",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 1162,
+            "accepted": 1162,
+            "frames": 1266,
+            "held": 103,
+            "failed": 1
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260820_114112_72dcc4/query_frames"
+        },
+        {
+          "id": "dji_live_20260820_115117_4e129f",
+          "title": "Live ATLAS 11:51:17",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260820_115117_4e129f",
+          "created_at": "2026-08-20 11:58:36",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 2748,
+            "accepted": 2748,
+            "frames": 2748,
+            "held": 0,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260820_115117_4e129f/query_frames"
+        },
+        {
+          "id": "dji_live_20260820_120839_d704f0",
+          "title": "Live ATLAS 12:08:39",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260820_120839_d704f0",
+          "created_at": "2026-08-20 12:10:59",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 344,
+            "accepted": 344,
+            "frames": 452,
+            "held": 108,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260820_120839_d704f0/query_frames"
+        },
+        {
+          "id": "dji_live_20260820_121156_b6ef3c",
+          "title": "Live ATLAS 12:11:56",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260820_121156_b6ef3c",
+          "created_at": "2026-08-20 12:19:07",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 901,
+            "accepted": 901,
+            "frames": 1480,
+            "held": 578,
+            "failed": 1
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260820_121156_b6ef3c/query_frames"
+        },
+        {
+          "id": "dji_live_20260820_131714_4041ee",
+          "title": "Live ATLAS 13:17:14",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260820_131714_4041ee",
+          "created_at": "2026-08-20 13:20:52",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 474,
+            "accepted": 474,
+            "frames": 986,
+            "held": 512,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260820_131714_4041ee/query_frames"
+        },
+        {
+          "id": "dji_live_20260820_132145_a5f354",
+          "title": "Live ATLAS 13:21:45",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260820_132145_a5f354",
+          "created_at": "2026-08-20 13:27:15",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 1142,
+            "accepted": 1142,
+            "frames": 1213,
+            "held": 71,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260820_132145_a5f354/query_frames"
+        },
+        {
+          "id": "dji_live_20260820_132808_b30409",
+          "title": "Live ATLAS 13:28:08",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260820_132808_b30409",
+          "created_at": "2026-08-20 13:38:47",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 1393,
+            "accepted": 1393,
+            "frames": 2129,
+            "held": 731,
+            "failed": 5
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260820_132808_b30409/query_frames"
+        },
+        {
+          "id": "dji_live_20260820_135627_c757be",
+          "title": "Live ATLAS 13:56:27",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260820_135627_c757be",
+          "created_at": "2026-08-20 14:03:12",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 1755,
+            "accepted": 1755,
+            "frames": 1839,
+            "held": 84,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260820_135627_c757be/query_frames"
+        },
+        {
+          "id": "dji_live_20260820_141129_a326c5",
+          "title": "Live ATLAS 14:11:29",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260820_141129_a326c5",
+          "created_at": "2026-08-20 14:18:08",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 1237,
+            "accepted": 1237,
+            "frames": 1581,
+            "held": 343,
+            "failed": 1
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260820_141129_a326c5/query_frames"
+        },
+        {
+          "id": "dji_live_20260820_150331_44d5f2",
+          "title": "Live ATLAS 15:03:31",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260820_150331_44d5f2",
+          "created_at": "2026-08-20 15:06:37",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 674,
+            "accepted": 674,
+            "frames": 838,
+            "held": 164,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260820_150331_44d5f2/query_frames"
+        },
+        {
+          "id": "dji_live_20260820_150927_ad22a9",
+          "title": "Live ATLAS 15:09:27",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260820_150927_ad22a9",
+          "created_at": "2026-08-20 15:15:31",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 859,
+            "accepted": 859,
+            "frames": 1499,
+            "held": 640,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260820_150927_ad22a9/query_frames"
+        },
+        {
+          "id": "dji_live_20260820_152429_fb1f20",
+          "title": "Live ATLAS 15:24:29",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260820_152429_fb1f20",
+          "created_at": "2026-08-20 15:29:34",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 296,
+            "accepted": 296,
+            "frames": 1588,
+            "held": 1292,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260820_152429_fb1f20/query_frames"
+        },
+        {
+          "id": "dji_live_20260823_091734_840631",
+          "title": "Live ATLAS 09:17:34",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260823_091734_840631",
+          "created_at": "2026-08-23 09:20:12",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 237,
+            "accepted": 237,
+            "frames": 2966,
+            "held": 2729,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260823_091734_840631/query_frames"
+        },
+        {
+          "id": "dji_live_20260823_101938_ba8451",
+          "title": "Live ATLAS 10:19:38",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260823_101938_ba8451",
+          "created_at": "2026-08-23 10:27:04",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 1335,
+            "accepted": 1335,
+            "frames": 1829,
+            "held": 494,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260823_101938_ba8451/query_frames"
+        },
+        {
+          "id": "dji_live_20260823_110346_db2403",
+          "title": "Live ATLAS 11:03:46",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260823_110346_db2403",
+          "created_at": "2026-08-23 11:14:48",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 1074,
+            "accepted": 1074,
+            "frames": 1984,
+            "held": 910,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260823_110346_db2403/query_frames"
+        },
+        {
+          "id": "dji_live_20260823_114852_beb6a1",
+          "title": "Live ATLAS 11:48:52",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260823_114852_beb6a1",
+          "created_at": "2026-08-23 11:52:20",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 351,
+            "accepted": 351,
+            "frames": 585,
+            "held": 234,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260823_114852_beb6a1/query_frames"
+        },
+        {
+          "id": "dji_live_20260823_115241_a6afec",
+          "title": "Live ATLAS 11:52:41",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260823_115241_a6afec",
+          "created_at": "2026-08-23 11:56:28",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 597,
+            "accepted": 597,
+            "frames": 1231,
+            "held": 633,
+            "failed": 1
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260823_115241_a6afec/query_frames"
+        },
+        {
+          "id": "dji_live_20260823_115821_8e4a29",
+          "title": "Live ATLAS 11:58:21",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260823_115821_8e4a29",
+          "created_at": "2026-08-23 12:07:19",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 1281,
+            "accepted": 1281,
+            "frames": 2067,
+            "held": 786,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260823_115821_8e4a29/query_frames"
+        },
+        {
+          "id": "dji_live_20260823_122709_e8df83",
+          "title": "Live ATLAS 12:27:09",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260823_122709_e8df83",
+          "created_at": "2026-08-23 12:29:14",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 2,
+            "accepted": 2,
+            "frames": 2,
+            "held": 0,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260823_122709_e8df83/query_frames"
+        },
+        {
+          "id": "dji_live_20260823_123007_6ab36a",
+          "title": "Live ATLAS 12:30:07",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260823_123007_6ab36a",
+          "created_at": "2026-08-23 12:37:19",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 1106,
+            "accepted": 1106,
+            "frames": 1465,
+            "held": 358,
+            "failed": 1
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260823_123007_6ab36a/query_frames"
+        },
+        {
+          "id": "dji_live_20260823_124634_841adf",
+          "title": "Live ATLAS 12:46:34",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260823_124634_841adf",
+          "created_at": "2026-08-23 12:53:04",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 1004,
+            "accepted": 1004,
+            "frames": 1520,
+            "held": 516,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260823_124634_841adf/query_frames"
+        },
+        {
+          "id": "dji_live_20260823_131917_bee939",
+          "title": "Live ATLAS 13:19:17",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260823_131917_bee939",
+          "created_at": "2026-08-23 13:24:52",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 918,
+            "accepted": 918,
+            "frames": 990,
+            "held": 72,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260823_131917_bee939/query_frames"
+        },
+        {
+          "id": "dji_live_20260823_133406_b4dc85",
+          "title": "Live ATLAS 13:34:06",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260823_133406_b4dc85",
+          "created_at": "2026-08-23 13:39:21",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 897,
+            "accepted": 897,
+            "frames": 975,
+            "held": 78,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260823_133406_b4dc85/query_frames"
+        },
+        {
+          "id": "dji_live_20260823_134446_8e419c",
+          "title": "Live ATLAS 13:44:46",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260823_134446_8e419c",
+          "created_at": "2026-08-23 13:45:09",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 0,
+            "accepted": 0,
+            "frames": 0,
+            "held": 0,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260823_134446_8e419c/query_frames"
+        },
+        {
+          "id": "dji_live_20260823_134548_3c0104",
+          "title": "Live ATLAS 13:45:48",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260823_134548_3c0104",
+          "created_at": "2026-08-23 13:50:52",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 1191,
+            "accepted": 1191,
+            "frames": 1551,
+            "held": 360,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260823_134548_3c0104/query_frames"
+        },
+        {
+          "id": "dji_live_20260823_140912_ec7630",
+          "title": "Live ATLAS 14:09:12",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260823_140912_ec7630",
+          "created_at": "2026-08-23 14:12:26",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 799,
+            "accepted": 799,
+            "frames": 817,
+            "held": 17,
+            "failed": 1
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260823_140912_ec7630/query_frames"
+        },
+        {
+          "id": "dji_live_20260823_141416_17c21d",
+          "title": "Live ATLAS 14:14:16",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260823_141416_17c21d",
+          "created_at": "2026-08-23 14:20:29",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 2030,
+            "accepted": 2030,
+            "frames": 2051,
+            "held": 21,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260823_141416_17c21d/query_frames"
+        },
+        {
+          "id": "dji_live_20260823_144943_b3aea7",
+          "title": "Live ATLAS 14:49:43",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260823_144943_b3aea7",
+          "created_at": "2026-08-23 14:51:16",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 534,
+            "accepted": 534,
+            "frames": 534,
+            "held": 0,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260823_144943_b3aea7/query_frames"
+        },
+        {
+          "id": "dji_live_20260823_145145_397484",
+          "title": "Live ATLAS 14:51:45",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260823_145145_397484",
+          "created_at": "2026-08-23 14:52:33",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 143,
+            "accepted": 143,
+            "frames": 143,
+            "held": 0,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260823_145145_397484/query_frames"
+        },
+        {
+          "id": "dji_live_20260823_145338_d33b4f",
+          "title": "Live ATLAS 14:53:38",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260823_145338_d33b4f",
+          "created_at": "2026-08-23 14:58:21",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 805,
+            "accepted": 805,
+            "frames": 1116,
+            "held": 59,
+            "failed": 252
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260823_145338_d33b4f/query_frames"
+        },
+        {
+          "id": "dji_live_20260823_150241_cf7759",
+          "title": "Live ATLAS 15:02:41",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260823_150241_cf7759",
+          "created_at": "2026-08-23 15:09:37",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 1372,
+            "accepted": 1372,
+            "frames": 2400,
+            "held": 1027,
+            "failed": 1
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260823_150241_cf7759/query_frames"
+        },
+        {
+          "id": "dji_live_20260823_151931_a88446",
+          "title": "Live ATLAS 15:19:31",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260823_151931_a88446",
+          "created_at": "2026-08-23 15:25:58",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 1034,
+            "accepted": 1034,
+            "frames": 1480,
+            "held": 445,
+            "failed": 1
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260823_151931_a88446/query_frames"
+        },
+        {
+          "id": "dji_live_20260823_153626_5bec63",
+          "title": "Live ATLAS 15:36:26",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260823_153626_5bec63",
+          "created_at": "2026-08-23 15:39:53",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 798,
+            "accepted": 798,
+            "frames": 799,
+            "held": 1,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260823_153626_5bec63/query_frames"
+        },
+        {
+          "id": "dji_live_20260823_154451_94903f",
+          "title": "best ATLAS 15:44:51",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260823_154451_94903f",
+          "created_at": "2026-08-23 15:53:04",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 1064,
+            "accepted": 1064,
+            "frames": 2253,
+            "held": 1188,
+            "failed": 1
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260823_154451_94903f/query_frames"
+        },
+        {
+          "id": "dji_live_20260824_091236_b83291",
+          "title": "Live ATLAS 09:12:36",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260824_091236_b83291",
+          "created_at": "2026-08-24 09:20:51",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 1723,
+            "accepted": 1723,
+            "frames": 2604,
+            "held": 881,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260824_091236_b83291/query_frames"
+        },
+        {
+          "id": "dji_live_20260824_095403_76848e",
+          "title": "Live ATLAS 09:54:03",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260824_095403_76848e",
+          "created_at": "2026-08-24 09:59:20",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 1986,
+            "accepted": 1986,
+            "frames": 1986,
+            "held": 0,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260824_095403_76848e/query_frames"
+        },
+        {
+          "id": "dji_live_20260824_100036_156635",
+          "title": "Live ATLAS 10:00:36",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260824_100036_156635",
+          "created_at": "2026-08-24 10:04:34",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 719,
+            "accepted": 719,
+            "frames": 1096,
+            "held": 377,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260824_100036_156635/query_frames"
+        },
+        {
+          "id": "dji_live_20260824_100512_8b63fd",
+          "title": "Live ATLAS 10:05:12",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260824_100512_8b63fd",
+          "created_at": "2026-08-24 10:07:13",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 855,
+            "accepted": 855,
+            "frames": 856,
+            "held": 0,
+            "failed": 1
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260824_100512_8b63fd/query_frames"
+        },
+        {
+          "id": "dji_live_20260824_101224_a8250a",
+          "title": "Live ATLAS 10:12:24",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260824_101224_a8250a",
+          "created_at": "2026-08-24 10:19:43",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 1382,
+            "accepted": 1382,
+            "frames": 2637,
+            "held": 1254,
+            "failed": 1
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260824_101224_a8250a/query_frames"
+        },
+        {
+          "id": "dji_live_20260824_111129_141c18",
+          "title": "BEST 11:11:29",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260824_111129_141c18",
+          "created_at": "2026-08-24 11:23:47",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 2336,
+            "accepted": 2336,
+            "frames": 2575,
+            "held": 239,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260824_111129_141c18/query_frames"
+        },
+        {
+          "id": "dji_live_20260824_125959_91f4ea",
+          "title": "Live ATLAS 12:59:59",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260824_125959_91f4ea",
+          "created_at": "2026-08-24 13:09:01",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 1191,
+            "accepted": 1191,
+            "frames": 2508,
+            "held": 1317,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260824_125959_91f4ea/query_frames"
+        },
+        {
+          "id": "dji_live_20260825_090616_f0762b",
+          "title": "Live ATLAS 09:06:16",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260825_090616_f0762b",
+          "created_at": "2026-08-25 09:14:58",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 1013,
+            "accepted": 1013,
+            "frames": 2433,
+            "held": 1420,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260825_090616_f0762b/query_frames"
+        },
+        {
+          "id": "dji_live_20260825_140635_064c3f",
+          "title": "Live ATLAS 14:06:35",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260825_140635_064c3f",
+          "created_at": "2026-08-25 14:13:45",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 1915,
+            "accepted": 1915,
+            "frames": 1933,
+            "held": 16,
+            "failed": 2
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260825_140635_064c3f/query_frames"
+        },
+        {
+          "id": "dji_live_20260825_142046_c8a511",
+          "title": "Live ATLAS 14:20:46",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260825_142046_c8a511",
+          "created_at": "2026-08-25 14:25:44",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 1505,
+            "accepted": 1505,
+            "frames": 1510,
+            "held": 5,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260825_142046_c8a511/query_frames"
+        },
+        {
+          "id": "dji_live_20260825_142949_779adb",
+          "title": "Live ATLAS 14:29:49",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260825_142949_779adb",
+          "created_at": "2026-08-25 14:36:09",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 1733,
+            "accepted": 1733,
+            "frames": 1976,
+            "held": 242,
+            "failed": 1
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260825_142949_779adb/query_frames"
+        },
+        {
+          "id": "dji_live_20260825_144134_eb2322",
+          "title": "Live ATLAS 14:41:34",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260825_144134_eb2322",
+          "created_at": "2026-08-25 14:45:13",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 808,
+            "accepted": 808,
+            "frames": 1067,
+            "held": 259,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260825_144134_eb2322/query_frames"
+        },
+        {
+          "id": "dji_live_20260825_144923_f9f91a",
+          "title": "Live ATLAS 14:49:23",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260825_144923_f9f91a",
+          "created_at": "2026-08-25 14:51:59",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 500,
+            "accepted": 500,
+            "frames": 722,
+            "held": 222,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260825_144923_f9f91a/query_frames"
+        },
+        {
+          "id": "dji_live_20260825_145303_9479df",
+          "title": "Live ATLAS 14:53:03",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260825_145303_9479df",
+          "created_at": "2026-08-25 14:57:15",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 274,
+            "accepted": 274,
+            "frames": 1326,
+            "held": 1052,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260825_145303_9479df/query_frames"
+        },
+        {
+          "id": "dji_live_20260825_150746_1ea884",
+          "title": "Live ATLAS 15:07:46",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260825_150746_1ea884",
+          "created_at": "2026-08-25 15:08:45",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 0,
+            "accepted": 0,
+            "frames": 0,
+            "held": 0,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260825_150746_1ea884/query_frames"
+        },
+        {
+          "id": "dji_live_20260825_150940_ba1faf",
+          "title": "Live ATLAS 15:09:40",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260825_150940_ba1faf",
+          "created_at": "2026-08-25 15:12:49",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 1271,
+            "accepted": 1271,
+            "frames": 1272,
+            "held": 1,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260825_150940_ba1faf/query_frames"
+        },
+        {
+          "id": "dji_live_20260825_151716_3106a8",
+          "title": "Live ATLAS 15:17:16",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260825_151716_3106a8",
+          "created_at": "2026-08-25 15:23:11",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 783,
+            "accepted": 783,
+            "frames": 1695,
+            "held": 912,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260825_151716_3106a8/query_frames"
+        },
+        {
+          "id": "dji_live_20260825_152949_6be6e7",
+          "title": "Live ATLAS 15:29:49",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260825_152949_6be6e7",
+          "created_at": "2026-08-25 15:30:30",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 1,
+            "accepted": 1,
+            "frames": 1,
+            "held": 0,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260825_152949_6be6e7/query_frames"
+        },
+        {
+          "id": "dji_live_20260825_153051_51fa72",
+          "title": "Live ATLAS 15:30:51",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260825_153051_51fa72",
+          "created_at": "2026-08-25 15:31:14",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 0,
+            "accepted": 0,
+            "frames": 0,
+            "held": 0,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260825_153051_51fa72/query_frames"
+        },
+        {
+          "id": "dji_live_20260825_153223_90ce14",
+          "title": "Live ATLAS 15:32:23",
+          "asset_base": "public/maps/map_copy_20260730_114851_cfefdc/replays/dji_live_20260825_153223_90ce14",
+          "created_at": "2026-08-25 15:37:57",
+          "source_video": "DJI MSDK live stream",
+          "counts": {
+            "poses": 1248,
+            "accepted": 1248,
+            "frames": 1655,
+            "held": 407,
+            "failed": 0
+          },
+          "query_frame_base_url": "public/live_dji_sessions/atlas_dji_live_20260825_153223_90ce14/query_frames"
+        }
+      ],
+      "active_replay_id": "dji_live_20260825_153223_90ce14"
+    },
+    {
+      "id": "video_map_20260823_191301_f1572f",
+      "title": "Video Map 19:13:10",
+      "description": "COLMAP point-cloud map from map_upload_4fb61c25.mp4.",
+      "asset_base": "public/maps/video_map_20260823_191301_f1572f",
+      "frames_path": "/Users/yamromano/Documents/PythonF4/PythonF4/drone_phase1_replay_demo_20260706/data/maps/video_map_20260823_191301_f1572f/frames",
+      "deletable": true,
+      "kind": "map",
+      "created_at": "2026-08-23 19:22:12",
+      "updated_at": "2026-08-24 11:03:21",
+      "counts": {
+        "points": 64591,
+        "dense_points": 0,
+        "cameras": 408,
+        "poses": 0,
+        "frames": 0,
+        "held": 0,
+        "accepted": 0,
+        "failed": 0
+      },
+      "validation": {
+        "frames": "/Users/yamromano/Documents/PythonF4/PythonF4/drone_phase1_replay_demo_20260706/data/maps/video_map_20260823_191301_f1572f/frames",
+        "colmap_root": "/Users/yamromano/Documents/PythonF4/PythonF4/drone_phase1_replay_demo_20260706/results/maps/video_map_20260823_191301_f1572f/colmap",
+        "asset_dir": "/Users/yamromano/Documents/PythonF4/PythonF4/drone_phase1_replay_demo_20260706/viewer/public/maps/video_map_20260823_191301_f1572f",
+        "matcher": "exhaustive",
+        "frame_bank": {
+          "frame_file_count": 421,
+          "unique_frame_hash_count": 421,
+          "duplicate_file_count": 0,
+          "duplicate_group_count": 0,
+          "duplicate_examples": [],
+          "prefix_counts": {
+            "map00_0ac49e": 421
+          }
+        },
+        "chosen_model": {
+          "registered_images": 408,
+          "points3D": 64591,
+          "median_points2d_to_3d": 828.5,
+          "registered_prefixes": {
+            "map00_0ac49e": {
+              "registered_images": 408,
+              "median_points2d_to_3d": 828.5
+            }
+          }
+        },
+        "sparse_components": [
+          {
+            "component": "0",
+            "registered_images": 408,
+            "points3D_bin_bytes": 6433013
+          }
+        ],
+        "notes": [
+          "No obvious frame-bank or COLMAP component warning detected."
+        ]
+      },
+      "display_z_sign": -1,
+      "source_map_id": null,
+      "localization_map_id": null,
+      "coordinate_frame_id": "map_copy_20260730_114851_cfefdc",
+      "has_drone_demo": false,
+      "room_alignment": {
+        "matrix": [
+          [
+            0.3423215195105145,
+            0.04458461698589068,
+            0.10088025837663095,
+            1.3214064683002085
+          ],
+          [
+            0.061716013291371434,
+            -0.3500665836672047,
+            -0.05470976169654882,
+            0.20512382939815305
+          ],
+          [
+            0.09140978232844472,
+            0.0693846975182231,
+            -0.3408498977070009,
+            -0.008349991127238332
+          ]
+        ],
+        "method": "reference-map-sim3-from-cross-camera-sift-pnp",
+        "reference_map_id": "map_copy_20260730_114851_cfefdc",
+        "alignment_audit": {
+          "report": "/Users/yamromano/Documents/PythonF4/PythonF4/drone_phase1_replay_demo_20260706/runtime/map_reference_alignment/video_map_20260823_191301_f1572f_to_copy_audit.json",
+          "localized_images": 29,
+          "inliers": 28,
+          "inlier_ratio": 0.9655172413793104,
+          "median_position_error_m": 0.015171425341425755,
+          "p90_position_error_m": 0.02865404477157908,
+          "median_rotation_error_deg": 0.35947209632740296,
+          "scale_source_to_reference": 0.3596507157255521
+        }
+      }
+    }
+  ],
+  "hidden_builtin_ids": [
+    "default_demo"
+  ]
+}

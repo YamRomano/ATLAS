@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.atlas.demo.server</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/yamromano/Documents/PythonF4/PythonF4/.venv-metis/bin/python</string>
+    <string>scripts/atlas_app_server.py</string>
+    <string>--port</string>
+    <string>8767</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>/Users/yamromano/Documents/PythonF4/PythonF4/drone_phase1_replay_demo_20260706</string>
+
+  <key>RunAtLoad</key>
+  <true/>
+
+  <key>KeepAlive</key>
+  <true/>
+
+  <key>StandardOutPath</key>
+  <string>/Users/yamromano/Documents/PythonF4/PythonF4/drone_phase1_replay_demo_20260706/.atlas_runtime/launchd_atlas_server.out.log</string>
+
+  <key>StandardErrorPath</key>
+  <string>/Users/yamromano/Documents/PythonF4/PythonF4/drone_phase1_replay_demo_20260706/.atlas_runtime/launchd_atlas_server.err.log</string>
+</dict>
+</plist>

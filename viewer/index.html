@@ -4,16 +4,19 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>ATLAS Demo</title>
-  <link rel="stylesheet" href="style.css?v=89" />
+  <link rel="stylesheet" href="style.css?v=114" />
 </head>
 <body class="show-start">
   <header class="atlas-topbar" aria-label="ATLAS navigation">
     <img class="atlas-corner-app-icon" src="public/branding/atlas-topbar-app-icon.png" alt="" />
     <button id="nav-back" class="nav-back" type="button" disabled>Back</button>
+    <a class="topbar-film-review" href="video-review.html">Film Review</a>
     <button id="atlas-home" class="atlas-home" type="button" aria-label="Return to ATLAS start page">
       <img class="atlas-top-wordmark" src="public/branding/atlas-wordmark-clean.png" alt="ATLAS" />
       <span class="atlas-top-caption">Autonomous Tracking and Localization using Aerial Sensing</span>
     </button>
+    <button id="fleet-monitor-button" class="topbar-fleet-monitor" type="button">Monitor</button>
+    <button id="enemy-lab-button" class="topbar-enemy-lab" type="button">Enemy Drone Lab</button>
     <span id="atlas-screen-label"></span>
     <img class="atlas-corner-symbol" src="public/branding/atlas-space-symbol.png" alt="" />
   </header>
@@ -93,6 +96,206 @@
     </section>
   </section>
 
+  <section id="enemy-page" class="enemy-page" aria-hidden="true">
+    <div class="enemy-shell">
+      <section class="enemy-hero" aria-labelledby="enemy-title">
+        <div>
+          <p class="enemy-kicker">Detection calibration</p>
+          <h1 id="enemy-title">Enemy Drone Calibration</h1>
+          <p>
+            Register target drones, upload calibration videos, and prepare one YOLO dataset that can detect every enemy-drone profile in ATLAS.
+          </p>
+        </div>
+        <div class="enemy-model-state">
+          <span>YOLO model state</span>
+          <strong id="enemy-model-status">not trained</strong>
+          <small id="enemy-model-note">Upload videos to begin detector calibration.</small>
+          <div class="enemy-train-controls">
+            <label>
+              Epochs
+              <input id="enemy-train-epochs" type="number" min="1" max="300" step="1" value="50" />
+            </label>
+            <label>
+              Image Size
+              <select id="enemy-train-imgsz">
+                <option value="416">416</option>
+                <option value="512">512</option>
+                <option value="640" selected>640</option>
+                <option value="768">768</option>
+              </select>
+            </label>
+            <button id="enemy-train-model" class="primary-action compact-action" type="button">Fine Tune YOLO</button>
+          </div>
+        </div>
+      </section>
+
+      <div class="enemy-grid">
+        <section class="enemy-upload-panel" aria-labelledby="enemy-upload-title">
+          <div class="enemy-panel-head">
+            <div>
+              <p class="enemy-kicker">New target class</p>
+              <h2 id="enemy-upload-title">Add Enemy Drone</h2>
+            </div>
+            <button id="enemy-refresh" class="ghost-action" type="button">Refresh</button>
+          </div>
+          <label>
+            Drone name
+            <input id="enemy-name" type="text" placeholder="Example: FPV quad, Mini scout, Racer 5 inch" />
+          </label>
+          <label class="enemy-dropzone">
+            <span class="enemy-drop-icon">+</span>
+            <strong>Upload calibration videos</strong>
+            <small>Use short clips from several angles, distances, and backgrounds.</small>
+            <input id="enemy-video-upload" type="file" accept="video/*" multiple />
+          </label>
+          <button id="enemy-upload-submit" class="primary-action" type="button">Add Calibration Videos</button>
+          <p id="enemy-upload-status" class="enemy-status-line">No upload selected.</p>
+          <div class="enemy-training-note">
+            <strong>Training note</strong>
+            <span>ATLAS stores the video bank now. YOLO fine-tuning still needs frame extraction and labels or a trusted auto-labeling pass.</span>
+          </div>
+        </section>
+
+        <section class="enemy-library-panel" aria-labelledby="enemy-library-title">
+          <div class="enemy-panel-head">
+            <div>
+              <p class="enemy-kicker">Detector bank</p>
+              <h2 id="enemy-library-title">Registered Enemy Drones</h2>
+            </div>
+            <button id="enemy-prepare-all" class="primary-action compact-action" type="button">Prepare YOLO Dataset</button>
+          </div>
+          <div id="enemy-drone-list" class="enemy-drone-list" aria-live="polite"></div>
+        </section>
+
+        <section class="enemy-annotation-panel" aria-labelledby="enemy-annotation-title">
+          <div class="enemy-panel-head">
+            <div>
+              <p class="enemy-kicker">YOLO labels</p>
+              <h2 id="enemy-annotation-title">Frame Annotation Workbench</h2>
+            </div>
+            <div class="enemy-annotation-actions">
+              <select id="enemy-annotation-profile" aria-label="Enemy drone profile for annotation"></select>
+              <button id="enemy-extract-frames" class="primary-action compact-action" type="button">Extract Frames</button>
+            </div>
+          </div>
+          <p id="enemy-annotation-status" class="enemy-status-line">Choose an enemy drone profile to extract frames and draw bounding boxes.</p>
+          <div class="enemy-annotation-workbench">
+            <div id="enemy-frame-strip" class="enemy-frame-strip" aria-label="Extracted calibration frames"></div>
+            <div class="enemy-canvas-card">
+              <canvas id="enemy-annotation-canvas" width="960" height="540" aria-label="Enemy drone bounding-box annotation canvas"></canvas>
+              <div class="enemy-annotation-toolbar">
+                <button id="enemy-save-box" class="primary-action compact-action" type="button">Save Box</button>
+                <button id="enemy-track-box" class="primary-action compact-action" type="button">Auto Track Clip</button>
+                <button id="enemy-copy-prev-box" class="ghost-action compact-action" type="button">Copy Previous</button>
+                <button id="enemy-negative-frame" class="ghost-action compact-action" type="button">No Drone</button>
+                <button id="enemy-skip-frame" class="ghost-action compact-action" type="button">Skip Frame</button>
+                <button id="enemy-clear-box" class="ghost-action compact-action" type="button">Clear</button>
+              </div>
+            </div>
+          </div>
+        </section>
+      </div>
+    </div>
+  </section>
+
+  <section id="fleet-page" class="fleet-page" aria-hidden="true">
+    <div class="fleet-shell">
+      <section class="fleet-hero" aria-labelledby="fleet-title">
+        <div class="fleet-hero-copy">
+          <p class="fleet-kicker">Multi-aircraft operations</p>
+          <h1 id="fleet-title">Fleet Monitor</h1>
+          <p>Dispatch independent DJI endpoints to saved patrols, supervise every live map session, and intervene without leaving this console.</p>
+        </div>
+        <div class="fleet-summary" aria-label="Fleet summary">
+          <div><strong id="fleet-summary-registered">0</strong><span>Registered</span></div>
+          <div><strong id="fleet-summary-active">0</strong><span>Active</span></div>
+          <div><strong id="fleet-summary-airborne">0</strong><span>Airborne</span></div>
+          <div class="fleet-attention"><strong id="fleet-summary-attention">0</strong><span>Attention</span></div>
+        </div>
+      </section>
+
+      <div class="fleet-hardware-note">
+        <span class="fleet-note-icon">i</span>
+        <div><strong>Independent links by design</strong><p>Each physical drone uses its own Android phone/controller and IP. ATLAS isolates its stream, TSolve localization, commands, and logs.</p></div>
+      </div>
+
+      <div class="fleet-layout">
+        <aside class="fleet-dispatch-card">
+          <div class="fleet-panel-head">
+            <div><p class="fleet-kicker">Assignment desk</p><h2>Dispatch Drone</h2></div>
+            <button id="fleet-stop-all" class="fleet-danger" type="button">Stop All</button>
+          </div>
+          <label>Drone endpoint<select id="fleet-drone-select"></select></label>
+          <label>Map<select id="fleet-map-select"></select></label>
+          <label>Saved patrol<select id="fleet-patrol-select"></select></label>
+          <label>Localization rate<select id="fleet-fps-select"><option value="2">2 FPS</option><option value="3">3 FPS</option><option value="5" selected>5 FPS</option><option value="10">10 FPS</option></select></label>
+          <button id="fleet-dispatch" class="fleet-primary" type="button">Connect &amp; Dispatch</button>
+          <p id="fleet-dispatch-status" class="fleet-status-line">Choose a registered endpoint, map, and patrol.</p>
+
+          <div class="fleet-register">
+            <div><p class="fleet-kicker">Endpoint registry</p><h3>Add Drone</h3></div>
+            <label>Display name<input id="fleet-drone-name" type="text" placeholder="Example: Atlas Scout 2" /></label>
+            <label>Android phone IP<input id="fleet-drone-ip" type="text" inputmode="decimal" placeholder="192.168.50.236" /></label>
+            <button id="fleet-save-drone" class="fleet-secondary" type="button">Save Endpoint</button>
+          </div>
+        </aside>
+
+        <main class="fleet-operations">
+          <section class="fleet-overview" aria-labelledby="fleet-overview-title">
+            <div class="fleet-overview-head">
+              <div><p class="fleet-kicker">Simultaneous command view</p><h2 id="fleet-overview-title">Live Fleet Overview</h2></div>
+              <span id="fleet-overview-count">0 dispatched</span>
+            </div>
+            <div id="fleet-overview-grid" class="fleet-overview-grid" aria-live="polite">
+              <div class="fleet-overview-empty"><span>⌁</span><strong>No dispatched drones</strong><p>Every active drone will appear here at the same time.</p></div>
+            </div>
+          </section>
+          <div class="fleet-detail-heading">
+            <div><p class="fleet-kicker">Detailed inspector</p><h2>Selected Drone</h2></div>
+            <p>Use the cards above for simultaneous supervision or select one for its complete timeline.</p>
+          </div>
+          <div id="fleet-switcher" class="fleet-switcher" aria-label="Select monitored drone"></div>
+          <section id="fleet-focus" class="fleet-focus empty">
+            <div class="fleet-empty-state">
+              <span>⌁</span><h2>No drone selected</h2><p>Register an endpoint or choose a drone above to open its live operations card.</p>
+            </div>
+            <div class="fleet-focus-content">
+              <div class="fleet-focus-head">
+                <div><p id="fleet-focus-overline" class="fleet-kicker">Standby</p><h2 id="fleet-focus-name">Drone</h2><p id="fleet-focus-assignment">No active assignment</p></div>
+                <div id="fleet-focus-badge" class="fleet-state-badge">Offline</div>
+              </div>
+              <div class="fleet-live-grid">
+                <div class="fleet-video-card">
+                  <img id="fleet-live-preview" alt="Selected drone live camera" />
+                  <div class="fleet-video-overlay"><span id="fleet-live-indicator">Offline</span><strong id="fleet-live-frame-count">0 frames</strong></div>
+                </div>
+                <div class="fleet-telemetry">
+                  <div><span>Localization</span><strong id="fleet-metric-localization">Waiting</strong></div>
+                  <div><span>Accepted poses</span><strong id="fleet-metric-poses">0</strong></div>
+                  <div><span>Map</span><strong id="fleet-metric-map">—</strong></div>
+                  <div><span>Patrol</span><strong id="fleet-metric-patrol">—</strong></div>
+                  <div><span>Bridge</span><strong id="fleet-metric-bridge">Offline</strong></div>
+                  <div><span>Last action</span><strong id="fleet-metric-action">None</strong></div>
+                </div>
+              </div>
+              <div class="fleet-flight-controls" aria-label="Selected drone flight controls">
+                <button id="fleet-takeoff" type="button"><span>Take Off</span><small>1.0 m</small></button>
+                <button id="fleet-start-patrol" class="fleet-go" type="button"><span>Start Patrol</span><small>Nearest point</small></button>
+                <button id="fleet-hover" class="fleet-warn" type="button"><span>Stop Patrol</span><small>Hover now</small></button>
+                <button id="fleet-land" type="button"><span>Land</span><small>Controlled</small></button>
+                <button id="fleet-end-session" class="fleet-danger" type="button"><span>End Session</span><small>Save path</small></button>
+              </div>
+              <div class="fleet-log-card">
+                <div class="fleet-panel-head"><div><p class="fleet-kicker">Explainable operations</p><h3>Smart Log</h3></div><span id="fleet-log-count">0 events</span></div>
+                <div id="fleet-smart-log" class="fleet-smart-log" aria-live="polite"></div>
+              </div>
+            </div>
+          </section>
+        </main>
+      </div>
+    </div>
+  </section>
+
   <div id="map-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="map-modal-title">
     <div class="modal-card">
       <h2 id="map-modal-title">Create Dense 3D Map</h2>
@@ -121,36 +324,252 @@
     </div>
   </div>
 
+  <div id="patrol-import-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="patrol-import-title">
+    <div class="modal-card patrol-import-card">
+      <div class="modal-title-row">
+        <div>
+          <h2 id="patrol-import-title">Import Patrol</h2>
+          <p id="patrol-import-subtitle">Choose a saved patrol from a compatible map.</p>
+        </div>
+        <button id="close-patrol-import-modal" class="modal-close" type="button" aria-label="Close patrol importer">×</button>
+      </div>
+      <div id="patrol-import-list" class="patrol-import-list" aria-live="polite"></div>
+      <p class="patrol-import-note">Import copies the patrol only. The source patrol and source map are never changed.</p>
+    </div>
+  </div>
+
   <main id="demo-app" class="app" aria-hidden="true">
     <section class="map-pane">
+      <canvas id="map-mesh" aria-hidden="true"></canvas>
       <canvas id="map"></canvas>
       <canvas id="drone3d" aria-hidden="true"></canvas>
       <details id="live-localization-control" class="live-localization-control live-control-tab" open>
         <summary>
           <span>Live Localization Control</span>
-          <b id="live-control-summary">2 FPS</b>
+          <b id="live-control-summary">10 FPS</b>
+          <button id="pin-live-control" class="live-pin-button" type="button" aria-pressed="false" title="Pin this control panel to the left edge">Pin</button>
         </summary>
         <div class="live-atlas-panel">
           <div class="live-control-copy">
             <strong>Live ATLAS</strong>
-            <span>Android DJI stream to TSolve R,t. Future flight commands will live here.</span>
+            <span>Guarded DJI stream, takeoff/land, localization confirmation, and mission setup.</span>
+          </div>
+          <div class="phone-api-row">
+            <label>
+              Phone API / IP
+              <input id="live-atlas-phone-ip" type="text" list="phone-ip-options" value="192.168.50.235" inputmode="decimal" aria-label="Android phone IP" />
+              <datalist id="phone-ip-options"></datalist>
+            </label>
+            <button id="save-phone-ip" type="button" title="Save this phone API/IP">+ IP</button>
           </div>
           <label>
-            Phone IP
-            <input id="live-atlas-phone-ip" type="text" value="192.168.50.235" inputmode="decimal" aria-label="Android phone IP" />
+            Saved Phone APIs
+            <select id="phone-ip-select" aria-label="Saved phone API/IP options"></select>
           </label>
           <label>
             Frame Rate
             <select id="live-atlas-fps" aria-label="Live stream frame rate">
               <option value="0.5">0.5 FPS</option>
               <option value="1">1 FPS</option>
-              <option value="2" selected>2 FPS</option>
+              <option value="2">2 FPS</option>
               <option value="3">3 FPS</option>
               <option value="5">5 FPS</option>
+              <option value="8">8 FPS</option>
+              <option value="10" selected>10 FPS (maximum)</option>
             </select>
           </label>
-          <button id="start-live-atlas" type="button">Start Live ATLAS</button>
-          <button id="stop-live-atlas" class="danger-action" type="button">Stop Live Localization</button>
+          <label>
+            Live Patrol Profile
+            <select id="live-atlas-patrol" aria-label="Live patrol profile"></select>
+            <span class="control-help">The selected patrol loads only its own points and visual recovery bank.</span>
+          </label>
+          <label>
+            Drone Model Direction
+            <input id="drone-heading-trim" type="range" min="-180" max="180" step="5" value="-45" aria-label="Drone model direction">
+            <span id="drone-heading-trim-value">-45 deg</span>
+          </label>
+          <label>
+            <input id="use-model-heading-for-flight" type="checkbox" checked>
+            Use aligned model as initial flight heading
+          </label>
+          <section id="enemy-detector-section" class="enemy-live-detection-block live-control-section" data-live-section="enemy-detector">
+            <button id="toggle-enemy-detector-section" class="flight-control-title live-control-section-toggle" type="button" aria-expanded="true" aria-controls="enemy-detector-section-body">
+              <span class="live-control-section-title">Enemy Detector</span>
+              <span id="enemy-live-detector-state" class="live-control-section-state">No trained model loaded.</span>
+              <span class="live-control-section-chevron" aria-hidden="true">⌄</span>
+            </button>
+            <label class="enemy-detection-toggle">
+              <input id="enemy-detection-enabled" type="checkbox" aria-label="Enable enemy detection and automatic patrol response" />
+              <span>Enable enemy detection and automatic patrol response</span>
+            </label>
+            <div id="enemy-live-detection" class="enemy-live-detection">Live patrol detection will appear here after YOLO training.</div>
+            <div id="enemy-response-status" class="enemy-response-status">Patrol response is armed only after live localization starts.</div>
+            <div id="enemy-detector-section-body" class="live-control-section-body">
+              <div class="enemy-range-calibration">
+                <div class="flight-control-title">
+                  <strong>Range Calibration</strong>
+                  <span id="enemy-range-status">No validated range model.</span>
+                </div>
+                <label>
+                  Measured body clearance
+                  <input id="enemy-measured-clearance" type="number" min="0.2" max="10" step="0.05" value="1.50" aria-label="Measured body-to-body enemy drone clearance in meters" />
+                </label>
+                <label>
+                  Pursuit stop clearance
+                  <input id="enemy-stop-clearance" type="number" min="0.5" max="2" step="0.05" value="0.50" aria-label="Enemy pursuit stop clearance in meters" />
+                </label>
+                <label>
+                  Camera-right target
+                  <select id="enemy-pursuit-yaw-direction" aria-label="Yaw direction when the enemy appears on the camera right">
+                    <option value="1" selected>Rotate right</option>
+                    <option value="-1">Rotate left</option>
+                  </select>
+                </label>
+                <div class="enemy-range-actions">
+                  <button id="enemy-save-range-sample" type="button">Save Live Sample</button>
+                  <button id="enemy-validate-range" type="button">Validate Range</button>
+                  <button id="enemy-reset-range" type="button">Reset Samples</button>
+                </div>
+                <p id="enemy-range-help">Record at least 8 samples at 4 measured distances spanning 0.75 m. Forward pursuit stays locked until validation passes.</p>
+              </div>
+              <div class="enemy-response-actions">
+                <button id="enemy-confirm-lock" type="button" disabled>Confirm Lock-On</button>
+                <button id="enemy-start-pursuit" type="button" disabled>Start Guarded Pursuit</button>
+                <button id="enemy-clear-alert" type="button" disabled>Clear Alert</button>
+              </div>
+            </div>
+          </section>
+          <div class="live-atlas-actions">
+            <button id="start-live-atlas" type="button">Start Localization</button>
+            <button id="stop-live-atlas" class="danger-action" type="button">Stop Live</button>
+          </div>
+          <section id="flight-guard-section" class="flight-control-block live-control-section" data-live-section="flight-guard">
+            <button id="toggle-flight-guard-section" class="flight-control-title live-control-section-toggle" type="button" aria-expanded="true" aria-controls="flight-guard-section-body">
+              <span class="live-control-section-title">Flight Guard</span>
+              <span id="dji-command-status" class="live-control-section-state">Drone control idle.</span>
+              <span class="live-control-section-chevron" aria-hidden="true">⌄</span>
+            </button>
+            <div id="flight-guard-section-body" class="live-control-section-body">
+              <label>
+                Takeoff Height
+                <input id="takeoff-height-m" type="number" min="0.1" max="2" step="0.1" value="1.0" aria-label="Takeoff height in meters" />
+              </label>
+              <div class="flight-actions">
+                <button id="dji-takeoff" type="button" disabled>Take Off</button>
+                <button id="dji-land" class="danger-action" type="button" disabled>Land</button>
+                <button id="dji-emergency-hover" class="danger-action" type="button" disabled>Hover Now</button>
+              </div>
+              <label class="guided-motion-arm">
+                <input id="guided-motion-enable" type="checkbox" />
+                <span>Enable guided movement after first localization confirmation</span>
+              </label>
+            </div>
+          </section>
+          <section id="localization-gate-section" class="localization-gate-block live-control-section" data-live-section="localization-gate">
+            <button id="toggle-localization-gate-section" class="flight-control-title live-control-section-toggle" type="button" aria-expanded="true" aria-controls="localization-gate-section-body">
+              <span class="live-control-section-title">Localization Gate</span>
+              <span id="localization-gate-status" class="live-control-section-state">Waiting for first TSolve R,t.</span>
+              <span class="live-control-section-chevron" aria-hidden="true">⌄</span>
+            </button>
+            <div id="initial-position-status" class="mission-status">No manual position correction.</div>
+            <div id="localization-gate-section-body" class="live-control-section-body">
+              <button id="confirm-localization" type="button" disabled>Confirm First Localization</button>
+              <button id="correct-initial-position" type="button" disabled>Correct Initial Position</button>
+              <button id="reset-initial-position" type="button" disabled>Reset Position Correction</button>
+            </div>
+          </section>
+          <section id="drone-control-panel" class="mission-panel drone-control-panel live-control-section is-locked" data-live-section="mission-target">
+            <div class="mission-head live-control-section-head">
+              <button id="toggle-mission-target-section" class="live-control-section-toggle" type="button" aria-expanded="true" aria-controls="mission-target-section-body">
+                <span class="live-control-section-title">Mission Target</span>
+                <span class="live-control-section-chevron" aria-hidden="true">⌄</span>
+              </button>
+              <button id="select-target" class="live-control-section-action" type="button">Pick COLMAP Point</button>
+            </div>
+            <div id="target-status" class="mission-status">Pick a destination before live localization, then confirm the first R,t before execution.</div>
+            <div id="mission-target-section-body" class="live-control-section-body">
+              <label class="mission-speed">
+                Speed
+                <select id="mission-speed" aria-label="Mission speed">
+                  <option value="0.08">0.08 m/s</option>
+                  <option value="0.12" selected>0.12 m/s</option>
+                  <option value="0.16">0.16 m/s</option>
+                  <option value="0.20">0.20 m/s</option>
+                </select>
+              </label>
+              <div id="mission-command-list" class="mission-command-list" aria-live="polite">
+                <div class="mission-command-empty">Plan a path to preview guarded slow movement commands.</div>
+              </div>
+              <div class="mission-actions">
+                <button id="clear-target" type="button" disabled>Clear</button>
+                <button id="plan-mission" type="button" disabled>Plan Path</button>
+                <button id="start-mission" type="button" disabled>Confirm Mission</button>
+              </div>
+            </div>
+          </section>
+          <section id="patrol-control-panel" class="mission-panel patrol-control-panel live-control-section" data-live-section="patrol-editor">
+            <div class="mission-head live-control-section-head">
+              <button id="toggle-patrol-editor-section" class="live-control-section-toggle" type="button" aria-expanded="true" aria-controls="patrol-editor-section-body">
+                <span class="live-control-section-title">Patrol Editor</span>
+                <span class="live-control-section-chevron" aria-hidden="true">⌄</span>
+              </button>
+              <button id="edit-patrol" class="live-control-section-action" type="button">Edit Patrol</button>
+            </div>
+            <div id="patrol-status" class="mission-status">Press Edit Patrol, then click 2 or more map points to create a stable scan route.</div>
+            <div id="patrol-editor-section-body" class="live-control-section-body">
+              <label class="patrol-name-field">
+                Name
+                <input id="patrol-name" type="text" maxlength="80" value="Room Patrol" aria-label="Patrol name" />
+              </label>
+              <div class="patrol-settings">
+                <label>
+                  Speed
+                  <select id="patrol-speed" aria-label="Patrol speed">
+                    <option value="0.06">0.06 m/s</option>
+                    <option value="0.08">0.08 m/s</option>
+                    <option value="0.10" selected>0.10 m/s</option>
+                    <option value="0.12">0.12 m/s</option>
+                  </select>
+                </label>
+                <label>
+                  Altitude
+                  <input id="patrol-altitude-m" type="number" min="0.3" max="2" step="0.1" value="1.0" aria-label="Patrol altitude in meters" />
+                </label>
+                <label>
+                  Dwell
+                  <select id="patrol-dwell-s" aria-label="Patrol dwell time">
+                    <option value="1.5">1.5 s</option>
+                    <option value="2.0" selected>2.0 s</option>
+                    <option value="3.0">3.0 s</option>
+                    <option value="5.0">5.0 s</option>
+                  </select>
+                </label>
+                <label>
+                  Scan
+                  <select id="patrol-scan-mode" aria-label="Patrol scan mode">
+                    <option value="yaw-sweep" selected>left/right sweep</option>
+                    <option value="forward">forward only</option>
+                  </select>
+                </label>
+                <label>
+                  Mode
+                  <select id="patrol-mode" aria-label="Patrol route mode">
+                    <option value="circle" selected>circle: last to first</option>
+                    <option value="back-and-forth">back and forth</option>
+                  </select>
+                </label>
+              </div>
+              <div id="patrol-command-list" class="mission-command-list" aria-live="polite">
+                <div class="mission-command-empty">Validate patrol to preview slow point-to-point and scan commands.</div>
+              </div>
+              <div class="mission-actions patrol-actions">
+                <button id="clear-patrol" type="button" disabled>Clear</button>
+                <button id="validate-patrol" type="button" disabled>Validate</button>
+                <button id="start-patrol" type="button" disabled>Save Patrol</button>
+                <button id="stop-patrol" class="danger-action" type="button" disabled>Stop Patrol</button>
+              </div>
+            </div>
+          </section>
         </div>
       </details>
       <div class="axis-controls map-axis-dock" aria-label="axis zoom controls">
@@ -165,6 +584,7 @@
       </div>
       <div class="controls map-control-dock">
         <button id="start">Play Live Replay</button>
+        <button id="simulate-live-path" type="button">Create New Live Path</button>
         <button id="back-library">Map Library</button>
         <button id="reset">Reset View</button>
         <button id="view-iso">3D</button>
@@ -172,8 +592,14 @@
         <button id="view-side">Side</button>
         <button id="view-drone">Drone View</button>
         <button id="flip-z">Flip Z</button>
+        <button id="toggle-mesh" type="button" hidden disabled>Show Mesh</button>
+        <button id="align-map-mesh" type="button" hidden disabled>Align Mesh</button>
+        <button id="lock-map-mesh" type="button" hidden disabled>Lock Mesh</button>
+        <button id="toggle-mesh-ceiling" type="button" hidden disabled aria-pressed="false">Hide Ceiling</button>
+        <button id="restore-mesh-wall" type="button" hidden disabled>Restore Wall</button>
         <button id="toggle-points">Hide Points</button>
         <button id="toggle-cameras">Hide Cameras</button>
+        <button id="toggle-coverage-risk">Coverage Risk</button>
       </div>
     </section>
     <aside class="side">
@@ -204,21 +630,62 @@
         </div>
         <div id="replay-tab-list" class="replay-tab-list"></div>
       </div>
-      <div class="side-section mission-panel">
-        <div class="mission-head">
-          <span>Mission Target</span>
-          <button id="select-target">Pick on Map</button>
+      <section id="saved-patrols-panel" class="side-section saved-patrols-panel">
+        <div class="replay-tabs-head">
+          <span>Saved Patrols</span>
+          <div class="saved-patrol-head-actions">
+            <button id="import-patrol" type="button">Import Patrol</button>
+            <button id="new-patrol" type="button">+ New Patrol</button>
+          </div>
         </div>
-        <div id="target-status" class="mission-status">No destination selected.</div>
-        <div class="mission-actions">
-          <button id="clear-target">Clear</button>
-          <button id="start-mission">Start Guided Patrol</button>
+        <p class="saved-patrols-copy">Start once from any localized position. ATLAS will enter Point 1, verify it online, then fly exactly two complete circles.</p>
+        <div id="saved-patrol-list" class="saved-patrol-list" aria-live="polite"></div>
+      </section>
+      <div class="panel localization-diagnostics-panel">
+        <div class="localization-diagnostics-head">
+          <h1>Localization Diagnostics</h1>
+          <span id="diag-state" class="localization-diagnostics-state">waiting</span>
         </div>
+        <div id="diag-frame-method" class="localization-diagnostics-method">Waiting for a localization frame</div>
+        <h2>Features</h2>
+        <dl class="localization-diagnostics-grid">
+          <dt title="SIFT descriptors detected in a global/recovery query frame">SIFT extracted</dt><dd id="diag-extracted">-</dd>
+          <dt title="Unique descriptor-to-3D candidates after matching and ambiguity filtering">2D→3D matched</dt><dd id="diag-matched">-</dd>
+          <dt title="Feature tracks entering the current Lucas–Kanade optical-flow update">Flow input</dt><dd id="diag-flow-input">-</dd>
+          <dt title="Feature tracks surviving optical-flow checks">Flow tracked</dt><dd id="diag-tracked">-</dd>
+          <dt title="Geometrically verified PnP inliers during global recovery">PnP inliers</dt><dd id="diag-pnp">-</dd>
+          <dt title="Bounded correspondence subset passed into TSolve">TSolve selected</dt><dd id="diag-selected">-</dd>
+          <dt title="Rejected between the relevant upstream feature set and the next stage">Pruned/rejected</dt><dd id="diag-pruned">-</dd>
+        </dl>
+        <h2>Frame timing</h2>
+        <dl class="localization-diagnostics-grid localization-timing-grid">
+          <dt>Total processing</dt><dd id="diag-total-ms">-</dd>
+          <dt>Frame load/decode</dt><dd id="diag-frame-load-ms">-</dd>
+          <dt>Heading optical flow</dt><dd id="diag-heading-flow-ms">-</dd>
+          <dt>Global SIFT extraction</dt><dd id="diag-feature-ms">-</dd>
+          <dt>Descriptor match</dt><dd id="diag-match-ms">-</dd>
+          <dt>Registration/PnP</dt><dd id="diag-register-ms">-</dd>
+          <dt>Position optical flow</dt><dd id="diag-flow-ms">-</dd>
+          <dt title="ORB matching against recorded route anchors">Route visual match</dt><dd id="diag-visual-route-ms">-</dd>
+          <dt title="ORB matching against departure-heading anchors">Heading visual match</dt><dd id="diag-visual-heading-ms">-</dd>
+          <dt>Route/turn logic</dt><dd id="diag-route-logic-ms">-</dd>
+          <dt title="Taught or online local-anchor recovery attempts">Local anchor recovery</dt><dd id="diag-local-recovery-ms">-</dd>
+          <dt>TSolve case build</dt><dd id="diag-case-build-ms">-</dd>
+          <dt title="Manifest append and TSolve case copy">Case/output I/O</dt><dd id="diag-case-output-ms">-</dd>
+          <dt>TSolve</dt><dd id="diag-tsolve-ms">-</dd>
+          <dt title="Foreground integration or catch-up of a completed global worker">Background integration</dt><dd id="diag-background-apply-ms">-</dd>
+          <dt>Pose &amp; safety update</dt><dd id="diag-pose-update-ms">-</dd>
+          <dt title="Append pose event and publish the bounded live JSON window">Live stream publish</dt><dd id="diag-stream-publish-ms">-</dd>
+          <dt>Pacing wait</dt><dd id="diag-pace-ms">-</dd>
+          <dt title="Wall-clock latency of asynchronous SIFT/matching/PnP; shown separately and not charged to foreground frame processing">Async recovery worker</dt><dd id="diag-background-worker-ms">-</dd>
+          <dt title="Foreground frame time not yet attributed to a measured stage">Other residual</dt><dd id="diag-other-ms">-</dd>
+        </dl>
+        <div id="diag-reason" class="localization-diagnostics-reason">No diagnostics received yet.</div>
       </div>
       <div class="panel">
         <h1>Live Pose</h1>
         <dl>
-          <dt>Frame time</dt><dd id="pose-time">-</dd>
+          <dt>Frame timestamp</dt><dd id="pose-time">-</dd>
           <dt>TSolve total</dt><dd id="pose-total">-</dd>
           <dt>Action stage</dt><dd id="pose-action">-</dd>
           <dt>Root stage</dt><dd id="pose-root">-</dd>
@@ -233,10 +700,79 @@
         <span><i class="dot mapcam"></i> map cameras</span>
         <span><i class="dot path"></i> height-coded TSolve route</span>
         <span><i class="dot drone"></i> current DJI drone</span>
+        <span><i class="dot coverage-risk"></i> weak patrol coverage</span>
       </div>
+      <section id="safety-barrier-panel" class="side-section safety-barrier-panel">
+        <div class="mission-head">
+          <span>Safety Barriers</span>
+        </div>
+        <div class="safety-tabs" role="tablist" aria-label="safety barrier type">
+          <button id="safety-tab-walls" class="active" type="button" role="tab" aria-selected="true">Walls</button>
+          <button id="safety-tab-obstacles" type="button" role="tab" aria-selected="false">Obstacles</button>
+        </div>
+        <div id="wall-tools" class="safety-tab-panel active">
+          <div class="mission-head compact-head">
+            <span>Wall Tools</span>
+            <button id="add-barrier" type="button">Add Wall</button>
+          </div>
+          <label class="barrier-clearance">
+            Stop before wall
+            <input id="barrier-clearance-m" type="number" min="0.15" max="2" step="0.05" value="0.45" aria-label="Safety clearance from wall in map units" />
+          </label>
+          <div class="safety-style-tools">
+            <label>
+              Wall color
+              <input id="barrier-color" type="color" value="#cfd8df" aria-label="Safety wall color" />
+            </label>
+            <label>
+              Wall opacity
+              <input id="barrier-opacity" type="range" min="0.08" max="0.75" step="0.01" value="0.24" aria-label="Safety wall opacity" />
+            </label>
+          </div>
+          <div id="barrier-status" class="mission-status">Add manual walls so mission targets stay away from obstacles.</div>
+          <div id="barrier-list" class="barrier-list" aria-live="polite"></div>
+          <div class="mission-actions">
+            <button id="adjust-walls" type="button">Adjust Walls</button>
+            <button id="undo-wall-edit" type="button" disabled>Undo</button>
+            <button id="save-wall-adjustments" type="button" disabled>Save Walls</button>
+            <button id="cancel-barrier" type="button" disabled>Cancel</button>
+            <button id="clear-barriers" class="danger-action" type="button">Clear Walls</button>
+          </div>
+        </div>
+        <div id="obstacle-tools" class="safety-tab-panel">
+          <div class="mission-head compact-head">
+            <span>3D Objects</span>
+            <button id="add-obstacle" type="button">Add Object</button>
+          </div>
+          <label class="barrier-clearance">
+            Object clearance
+            <input id="obstacle-clearance-m" type="number" min="0.1" max="2" step="0.05" value="0.35" aria-label="Safety clearance from finite obstacle in map units" />
+          </label>
+          <div class="safety-style-tools">
+            <label>
+              Object color
+              <input id="obstacle-color" type="color" value="#86dfff" aria-label="Safety object color" />
+            </label>
+            <label>
+              Object opacity
+              <input id="obstacle-opacity" type="range" min="0.08" max="0.82" step="0.01" value="0.24" aria-label="Safety object opacity" />
+            </label>
+          </div>
+          <div id="obstacle-status" class="mission-status">Pick existing COLMAP points around furniture or objects. ATLAS fills a finite 3D safety structure.</div>
+          <div id="obstacle-list" class="barrier-list obstacle-list" aria-live="polite"></div>
+          <div class="mission-actions">
+            <button id="clear-obstacle-points" type="button" disabled>Clear Points</button>
+            <button id="undo-obstacle-edit" type="button" disabled>Undo</button>
+            <button id="finish-obstacle" type="button" disabled>Save Object</button>
+            <button id="cancel-obstacle" type="button" disabled>Cancel</button>
+            <button id="clear-obstacles" class="danger-action" type="button">Clear Objects</button>
+          </div>
+        </div>
+      </section>
     </aside>
   </main>
-  <script src="app.js?v=128"></script>
-  <script type="module" src="drone_glb_overlay.js?v=18"></script>
+  <script src="app.js?v=211"></script>
+  <script type="module" src="drone_glb_overlay.js?v=23"></script>
+  <script type="module" src="map_mesh_overlay.js?v=20260806-one-time-placement-v8"></script>
 </body>
 </html>

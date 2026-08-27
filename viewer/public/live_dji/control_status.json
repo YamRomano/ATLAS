@@ -1,0 +1,69 @@
+{
+  "ok": false,
+  "id": "dc2582a53ea04318b8669b986784757a",
+  "command": "mission",
+  "status": "cancelled",
+  "message": "ATLAS live localization stop requested; saving current path.",
+  "started_at": 1787661169.696633,
+  "updated_at": 1787661476.796293,
+  "progress": {
+    "map_id": "map_copy_20260730_114851_cfefdc",
+    "patrol_id": "patrol_ms4br5xr_4xclts",
+    "baseline_replay_id": "patrol_baseline_precision_20260813",
+    "lap": 2,
+    "patrol_laps": 2,
+    "segment_start": [
+      -0.6480244338911889,
+      -0.0802621969998909,
+      -0.48774887233005093
+    ],
+    "target": [
+      -0.4886978074319452,
+      -0.0802621969998909,
+      0.9560112230666532
+    ],
+    "translation_locked": true,
+    "position_anchor": [
+      -0.6480244338911889,
+      -0.0802621969998909,
+      -0.48774887233005093
+    ],
+    "route_progress_command_ceiling": 0.0,
+    "route_progress_command_sequence": 0,
+    "route_progress_command_budget_m": 0.18,
+    "route_pose_epoch": 2,
+    "route_pose_epoch_unix": 1787661385.2390132,
+    "route_pose_epoch_reason": "verified_point1_handoff",
+    "phase": "pose_recovery",
+    "recovery_phase": "taught_turn_position_recovery",
+    "pose_gate": {
+      "ok": false,
+      "reason": "latest TSolve frame is held/rejected and the hold streak is too long (hold_002728, streak=72)",
+      "age_seconds": 0.039237022399902344,
+      "processed_count": 1652,
+      "latest_instance_id": "hold_002728",
+      "trailing_hold_frames": 72,
+      "hold_reason": "no_good_tracks_taught_recovery_no_consensus_tracked_0_lt_15_background_recovery_pending"
+    },
+    "continuous_relocalization": true,
+    "require_metric_pose": false,
+    "lap_start_metric_rebootstrap": false,
+    "metric_position_recovery_allowed": false,
+    "endpoint_position_recovery_allowed": false,
+    "post_translation_progress_recovery": false,
+    "recovery_elapsed_seconds": 10.07073616599996,
+    "route_visual_recovery_allowed": true,
+    "rotation_release_requested": true,
+    "body_forward_gain": 0.0,
+    "body_lateral_gain": 0.0,
+    "message": "Hovering with physical movement locked while ATLAS releases the stale turn anchor and relocalizes online (10.1s): latest TSolve frame is held/rejected and the hold streak is too long (hold_002728, streak=72)",
+    "executed_pulses": 338,
+    "executed_steps": 18,
+    "skipped_steps": 8,
+    "elapsed_seconds": 303.43394708633423,
+    "updated_at": 1787661476.639035
+  },
+  "error": "ATLAS live localization stop requested; saving current path.",
+  "aborted": true,
+  "cancelled_at": 1787661476.796293
+}

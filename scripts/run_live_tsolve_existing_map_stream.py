@@ -129,9 +129,26 @@ class ReferenceSelector:
         self.bootstrap_count = max(1, int(bootstrap_count))
         self.tracking_count = max(1, int(tracking_count))
         self.centers: dict[str, np.ndarray] = {}
+        self.heading_bins: dict[str, int] = {}
         for im in self.images_by_points:
             try:
                 self.centers[im.name] = camera_center(im)
+            except Exception:
+                continue
+            try:
+                # COLMAP cameras look along +Z.  Keep only a coarse horizontal
+                # orientation bin: global recovery needs nearby keyframes that
+                # look in different directions around an in-place patrol turn,
+                # not ten nearly identical cameras chosen by distance alone.
+                forward = qvec_to_rotmat(im.qvec).T @ np.array(
+                    [0.0, 0.0, 1.0],
+                    dtype=float,
+                )
+                if float(np.linalg.norm(forward[[0, 2]])) > 1e-9:
+                    angle = float(np.arctan2(forward[0], forward[2]))
+                    self.heading_bins[im.name] = int(
+                        np.floor(((angle + np.pi) % (2.0 * np.pi)) / (np.pi / 6.0))
+                    )
             except Exception:
                 continue
         self.images_by_spread = self._spatial_spread()
@@ -170,9 +187,50 @@ class ReferenceSelector:
             self.centers.items(),
             key=lambda kv: float(np.linalg.norm(kv[1] - center)),
         )
-        local = [name for name, _ in ranked[:self.tracking_count]]
-        # Keep a few globally strong keyframes as a cheap recovery net.
-        for name in self.bootstrap()[: max(3, self.tracking_count // 3)]:
+        global_reserve = min(
+            self.tracking_count - 1,
+            max(3, self.tracking_count // 4),
+        )
+        local_budget = max(1, self.tracking_count - global_reserve)
+        candidate_count = min(
+            len(ranked),
+            max(64, self.tracking_count * 8),
+        )
+        candidates = ranked[:candidate_count]
+
+        # Preserve the closest cameras, then spend the rest of the local
+        # budget on different viewing directions from the same neighborhood.
+        # This is critical at point 3: position is unchanged while the camera
+        # turns roughly 90 degrees toward point 4.
+        nearest_count = min(local_budget, max(3, local_budget // 3))
+        local = [name for name, _ in candidates[:nearest_count]]
+        used_heading_bins = {
+            self.heading_bins[name]
+            for name in local
+            if name in self.heading_bins
+        }
+        for name, _camera_center in candidates:
+            if len(local) >= local_budget:
+                break
+            heading_bin = self.heading_bins.get(name)
+            if (
+                name not in local
+                and heading_bin is not None
+                and heading_bin not in used_heading_bins
+            ):
+                local.append(name)
+                used_heading_bins.add(heading_bin)
+        for name, _camera_center in candidates:
+            if len(local) >= local_budget:
+                break
+            if name not in local:
+                local.append(name)
+
+        # Keep a few globally strong keyframes as a cheap recovery net while
+        # respecting the configured total reference-image cap.
+        for name in self.bootstrap():
+            if len(local) >= self.tracking_count:
+                break
             if name not in local:
                 local.append(name)
         return local
@@ -313,8 +371,18 @@ def solve_case(
     action_weights: str,
     fallback_action_weights: str,
     fork_seed: int,
+    fork_on_miss: bool = True,
+    root_candidate_profile: str = "full",
 ) -> dict[str, Any]:
     solve_static_persistent = runtime_api["solve_static_persistent"]
+    instance_meta = json.loads((instance_dir / "input.json").read_text(encoding="utf-8"))
+    pose_prior_kwargs: dict[str, Any] = {}
+    if instance_meta.get("pose_prior_center") is not None:
+        pose_prior_kwargs = {
+            "pose_prior_center": instance_meta.get("pose_prior_center"),
+            "pose_prior_rotation": instance_meta.get("pose_prior_R"),
+            "pose_prior_max_step": float(instance_meta.get("recovery_max_step") or 0.85),
+        }
     result = solve_static_persistent(
         PnPSolver=runtime_api["PnPSolver"],
         solver_dir=solver_dir,
@@ -329,9 +397,47 @@ def solve_case(
         action_weights=action_weights,
         root_residual_tol=1e-8,
         max_roots=80,
-        fork_on_miss=True,
+        fork_on_miss=bool(fork_on_miss),
         direct_coeff_builder=direct_coeff_builder,
+        root_candidate_profile=root_candidate_profile,
+        **pose_prior_kwargs,
     )
+    fast_result = result if root_candidate_profile == "live_fast" else None
+    fast_objective = fast_result.get("objective") if fast_result else None
+    fast_acceptable = bool(
+        fast_result
+        and fast_result.get("success")
+        and fast_objective is not None
+        and float(fast_objective) <= 26.0
+    )
+    if root_candidate_profile == "live_fast" and not fast_acceptable:
+        result = solve_static_persistent(
+            PnPSolver=runtime_api["PnPSolver"],
+            solver_dir=solver_dir,
+            branches=branches,
+            double_sos=double_sos,
+            branch_dir=branch_dir,
+            prime=prime,
+            degree=degree,
+            fork_seed=fork_seed,
+            root_refiner=root_refiner,
+            instance_dir=instance_dir,
+            action_weights=action_weights,
+            root_residual_tol=1e-8,
+            max_roots=80,
+            fork_on_miss=bool(fork_on_miss),
+            direct_coeff_builder=direct_coeff_builder,
+            root_candidate_profile="full",
+            **pose_prior_kwargs,
+        )
+        result["live_fast_fallback_used"] = True
+        result["live_fast_result"] = {
+            "success": bool(fast_result.get("success")),
+            "objective": fast_objective,
+            "total_ms": fast_result.get("total_ms"),
+        }
+    elif root_candidate_profile == "live_fast":
+        result["live_fast_fallback_used"] = False
     if not result.get("success") and fallback_action_weights:
         fallback = solve_static_persistent(
             PnPSolver=runtime_api["PnPSolver"],
@@ -347,8 +453,12 @@ def solve_case(
             action_weights=fallback_action_weights,
             root_residual_tol=1e-8,
             max_roots=80,
-            fork_on_miss=True,
+            fork_on_miss=bool(fork_on_miss),
             direct_coeff_builder=direct_coeff_builder,
+            root_candidate_profile=(
+                "full" if root_candidate_profile == "live_fast" else root_candidate_profile
+            ),
+            **pose_prior_kwargs,
         )
         fallback["fallback_used"] = True
         if fallback.get("success"):
@@ -382,6 +492,9 @@ def main() -> None:
     ap.add_argument("--degree", type=int, default=11)
     ap.add_argument("--action-weights", default="branch")
     ap.add_argument("--fallback-action-weights", default="")
+    ap.add_argument("--scene-json", type=Path, default=None, help=argparse.SUPPRESS)
+    ap.add_argument("--display-z-sign", type=float, default=-1.0, help=argparse.SUPPRESS)
+    ap.add_argument("--room-alignment-json", default=None, help=argparse.SUPPRESS)
     args = ap.parse_args()
 
     if not args.colmap.exists():

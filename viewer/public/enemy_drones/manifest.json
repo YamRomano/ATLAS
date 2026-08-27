@@ -1,0 +1,3295 @@
+{
+  "version": 1,
+  "updated_at": "2026-08-02 11:32:25",
+  "selected_model": "public/enemy_drones/training_runs/enemy_yolo_20260802_112232_a73069/best.pt",
+  "model_status": "trained",
+  "enemies": [
+    {
+      "id": "enemy_20260802_104805_b94cef",
+      "name": "NEO1",
+      "class_name": "neo1",
+      "created_at": "2026-08-02 10:48:05",
+      "updated_at": "2026-08-02 11:22:32",
+      "videos": [
+        {
+          "id": "clip_025459d2",
+          "filename": "neo1.MOV",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/videos/enemy_calib_211d7230.MOV",
+          "size_bytes": 351784329,
+          "uploaded_at": "2026-08-02 10:48:05"
+        },
+        {
+          "id": "clip_bcf413cb",
+          "filename": "neo2.MOV",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/videos/enemy_calib_3f046629.MOV",
+          "size_bytes": 745809167,
+          "uploaded_at": "2026-08-02 10:48:05"
+        }
+      ],
+      "frames": [
+        {
+          "id": "clip_025459d2_000000",
+          "filename": "clip_025459d2_000000.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_025459d2_000000.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_025459d2_000000.txt",
+          "source_video_id": "clip_025459d2",
+          "source_filename": "neo1.MOV",
+          "time_sec": 0.0,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.45271497595411003,
+            "y_center": 0.4552623165035587,
+            "width": 0.38995474435232386,
+            "height": 0.05687694617437722
+          }
+        },
+        {
+          "id": "clip_025459d2_000060",
+          "filename": "clip_025459d2_000060.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_025459d2_000060.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_025459d2_000060.txt",
+          "source_video_id": "clip_025459d2",
+          "source_filename": "neo1.MOV",
+          "time_sec": 0.5002320858717726,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.4319911019274657,
+            "y_center": 0.4559678047153025,
+            "width": 0.3702747852915521,
+            "height": 0.03920151245551601
+          }
+        },
+        {
+          "id": "clip_025459d2_000120",
+          "filename": "clip_025459d2_000120.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_025459d2_000120.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_025459d2_000120.txt",
+          "source_video_id": "clip_025459d2",
+          "source_filename": "neo1.MOV",
+          "time_sec": 1.0004641717435452,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.44500606543689636,
+            "y_center": 0.4598462522241993,
+            "width": 0.33559704198735546,
+            "height": 0.04287144128113879
+          }
+        },
+        {
+          "id": "clip_025459d2_000180",
+          "filename": "clip_025459d2_000180.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_025459d2_000180.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_025459d2_000180.txt",
+          "source_video_id": "clip_025459d2",
+          "source_filename": "neo1.MOV",
+          "time_sec": 1.5006962576153176,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.43270763527682227,
+            "y_center": 0.4630574399466192,
+            "width": 0.2988932388677371,
+            "height": 0.04506783807829179
+          }
+        },
+        {
+          "id": "clip_025459d2_000240",
+          "filename": "clip_025459d2_000240.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_025459d2_000240.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_025459d2_000240.txt",
+          "source_video_id": "clip_025459d2",
+          "source_filename": "neo1.MOV",
+          "time_sec": 2.0009283434870904,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.47212932351468895,
+            "y_center": 0.46631033140569395,
+            "width": 0.311469634551268,
+            "height": 0.03949343861209964
+          }
+        },
+        {
+          "id": "clip_025459d2_000300",
+          "filename": "clip_025459d2_000300.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_025459d2_000300.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_025459d2_000300.txt",
+          "source_video_id": "clip_025459d2",
+          "source_filename": "neo1.MOV",
+          "time_sec": 2.5011604293588627,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.48164809844019074,
+            "y_center": 0.4810387010676157,
+            "width": 0.324750209560891,
+            "height": 0.04023020462633459
+          }
+        },
+        {
+          "id": "clip_025459d2_000360",
+          "filename": "clip_025459d2_000360.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_025459d2_000360.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_025459d2_000360.txt",
+          "source_video_id": "clip_025459d2",
+          "source_filename": "neo1.MOV",
+          "time_sec": 3.001392515230635,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.5131632117886077,
+            "y_center": 0.4906131839412812,
+            "width": 0.32057454969740046,
+            "height": 0.034787866992882555
+          }
+        },
+        {
+          "id": "clip_025459d2_000420",
+          "filename": "clip_025459d2_000420.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_025459d2_000420.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_025459d2_000420.txt",
+          "source_video_id": "clip_025459d2",
+          "source_filename": "neo1.MOV",
+          "time_sec": 3.501624601102408,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.5305555555555556,
+            "y_center": 0.475,
+            "width": 0.32037037037037036,
+            "height": 0.035416666666666666
+          }
+        },
+        {
+          "id": "clip_025459d2_000480",
+          "filename": "clip_025459d2_000480.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_025459d2_000480.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_025459d2_000480.txt",
+          "source_video_id": "clip_025459d2",
+          "source_filename": "neo1.MOV",
+          "time_sec": 4.001856686974181,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.5305555555555556,
+            "y_center": 0.4395833333333333,
+            "width": 0.32037037037037036,
+            "height": 0.035416666666666666
+          }
+        },
+        {
+          "id": "clip_025459d2_000540",
+          "filename": "clip_025459d2_000540.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_025459d2_000540.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_025459d2_000540.txt",
+          "source_video_id": "clip_025459d2",
+          "source_filename": "neo1.MOV",
+          "time_sec": 4.502088772845953,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.5342592592592592,
+            "y_center": 0.45,
+            "width": 0.32037037037037036,
+            "height": 0.035416666666666666
+          }
+        },
+        {
+          "id": "clip_025459d2_000600",
+          "filename": "clip_025459d2_000600.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_025459d2_000600.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_025459d2_000600.txt",
+          "source_video_id": "clip_025459d2",
+          "source_filename": "neo1.MOV",
+          "time_sec": 5.0023208587177255,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.5212962962962963,
+            "y_center": 0.42083333333333334,
+            "width": 0.32037037037037036,
+            "height": 0.035416666666666666
+          }
+        },
+        {
+          "id": "clip_025459d2_000660",
+          "filename": "clip_025459d2_000660.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_025459d2_000660.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_025459d2_000660.txt",
+          "source_video_id": "clip_025459d2",
+          "source_filename": "neo1.MOV",
+          "time_sec": 5.502552944589498,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.5191240280138569,
+            "y_center": 0.39388831739323843,
+            "width": 0.4337250487793878,
+            "height": 0.0762135787366548
+          }
+        },
+        {
+          "id": "clip_025459d2_000720",
+          "filename": "clip_025459d2_000720.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_025459d2_000720.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_025459d2_000720.txt",
+          "source_video_id": "clip_025459d2",
+          "source_filename": "neo1.MOV",
+          "time_sec": 6.00278503046127,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.4828155536387111,
+            "y_center": 0.4055306105427047,
+            "width": 0.4880086270047673,
+            "height": 0.08189918816725977
+          }
+        },
+        {
+          "id": "clip_025459d2_000780",
+          "filename": "clip_025459d2_000780.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_025459d2_000780.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_025459d2_000780.txt",
+          "source_video_id": "clip_025459d2",
+          "source_filename": "neo1.MOV",
+          "time_sec": 6.5030171163330435,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.5007659494424155,
+            "y_center": 0.39747483874555156,
+            "width": 0.49282669607802626,
+            "height": 0.1278706072064057
+          }
+        },
+        {
+          "id": "clip_025459d2_000840",
+          "filename": "clip_025459d2_000840.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_025459d2_000840.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_025459d2_000840.txt",
+          "source_video_id": "clip_025459d2",
+          "source_filename": "neo1.MOV",
+          "time_sec": 7.003249202204816,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.5826237075947518,
+            "y_center": 0.37845445951957296,
+            "width": 0.40187637680282257,
+            "height": 0.07034030249110323
+          }
+        },
+        {
+          "id": "clip_025459d2_000900",
+          "filename": "clip_025459d2_000900.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_025459d2_000900.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_025459d2_000900.txt",
+          "source_video_id": "clip_025459d2",
+          "source_filename": "neo1.MOV",
+          "time_sec": 7.503481288076588,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.5546296296296296,
+            "y_center": 0.36614583333333334,
+            "width": 0.40185185185185185,
+            "height": 0.06979166666666667
+          }
+        },
+        {
+          "id": "clip_025459d2_000960",
+          "filename": "clip_025459d2_000960.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_025459d2_000960.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_025459d2_000960.txt",
+          "source_video_id": "clip_025459d2",
+          "source_filename": "neo1.MOV",
+          "time_sec": 8.003713373948361,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.5563343460873308,
+            "y_center": 0.3658425544928826,
+            "width": 0.36073747933115324,
+            "height": 0.06936026467971529
+          }
+        },
+        {
+          "id": "clip_025459d2_001020",
+          "filename": "clip_025459d2_001020.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_025459d2_001020.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_025459d2_001020.txt",
+          "source_video_id": "clip_025459d2",
+          "source_filename": "neo1.MOV",
+          "time_sec": 8.503945459820134,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.5646424267328856,
+            "y_center": 0.3899299377224199,
+            "width": 0.3647525368922019,
+            "height": 0.054743104982206414
+          }
+        },
+        {
+          "id": "clip_025459d2_001080",
+          "filename": "clip_025459d2_001080.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_025459d2_001080.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_025459d2_001080.txt",
+          "source_video_id": "clip_025459d2",
+          "source_filename": "neo1.MOV",
+          "time_sec": 9.004177545691906,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.5457593021726914,
+            "y_center": 0.4081405693950178,
+            "width": 0.32715924409752034,
+            "height": 0.02691281138790036
+          }
+        },
+        {
+          "id": "clip_025459d2_001140",
+          "filename": "clip_025459d2_001140.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_025459d2_001140.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_025459d2_001140.txt",
+          "source_video_id": "clip_025459d2",
+          "source_filename": "neo1.MOV",
+          "time_sec": 9.504409631563679,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.5859284088180767,
+            "y_center": 0.42253878447508897,
+            "width": 0.3218099520238769,
+            "height": 0.058989935498220625
+          }
+        },
+        {
+          "id": "clip_025459d2_001200",
+          "filename": "clip_025459d2_001200.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_025459d2_001200.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_025459d2_001200.txt",
+          "source_video_id": "clip_025459d2",
+          "source_filename": "neo1.MOV",
+          "time_sec": 10.004641717435451,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.6119768668718346,
+            "y_center": 0.44286588078291816,
+            "width": 0.3123838322728611,
+            "height": 0.06092915925266906
+          }
+        },
+        {
+          "id": "clip_025459d2_001260",
+          "filename": "clip_025459d2_001260.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_025459d2_001260.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_025459d2_001260.txt",
+          "source_video_id": "clip_025459d2",
+          "source_filename": "neo1.MOV",
+          "time_sec": 10.504873803307223,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.6305555555555555,
+            "y_center": 0.45625,
+            "width": 0.31296296296296294,
+            "height": 0.06041666666666667
+          }
+        },
+        {
+          "id": "clip_025459d2_001320",
+          "filename": "clip_025459d2_001320.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_025459d2_001320.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_025459d2_001320.txt",
+          "source_video_id": "clip_025459d2",
+          "source_filename": "neo1.MOV",
+          "time_sec": 11.005105889178996,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.575,
+            "y_center": 0.44479166666666664,
+            "width": 0.31296296296296294,
+            "height": 0.06041666666666667
+          }
+        },
+        {
+          "id": "clip_025459d2_001380",
+          "filename": "clip_025459d2_001380.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_025459d2_001380.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_025459d2_001380.txt",
+          "source_video_id": "clip_025459d2",
+          "source_filename": "neo1.MOV",
+          "time_sec": 11.505337975050768,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.515671078511355,
+            "y_center": 0.4332149410587188,
+            "width": 0.2900354041869,
+            "height": 0.0596710965302491
+          }
+        },
+        {
+          "id": "clip_025459d2_001440",
+          "filename": "clip_025459d2_001440.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_025459d2_001440.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_025459d2_001440.txt",
+          "source_video_id": "clip_025459d2",
+          "source_filename": "neo1.MOV",
+          "time_sec": 12.00557006092254,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.5048427771197881,
+            "y_center": 0.43306550266903915,
+            "width": 0.3509283848589294,
+            "height": 0.053922931494661874
+          }
+        },
+        {
+          "id": "clip_025459d2_001500",
+          "filename": "clip_025459d2_001500.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_025459d2_001500.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_025459d2_001500.txt",
+          "source_video_id": "clip_025459d2",
+          "source_filename": "neo1.MOV",
+          "time_sec": 12.505802146794313,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.5497620057104755,
+            "y_center": 0.45134216525800713,
+            "width": 0.34116870647976444,
+            "height": 0.05737739101423489
+          }
+        },
+        {
+          "id": "clip_025459d2_001560",
+          "filename": "clip_025459d2_001560.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_025459d2_001560.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_025459d2_001560.txt",
+          "source_video_id": "clip_025459d2",
+          "source_filename": "neo1.MOV",
+          "time_sec": 13.006034232666087,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.5856627973178842,
+            "y_center": 0.4650592193060498,
+            "width": 0.343639511132718,
+            "height": 0.04950233540925264
+          }
+        },
+        {
+          "id": "clip_025459d2_001620",
+          "filename": "clip_025459d2_001620.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_025459d2_001620.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_025459d2_001620.txt",
+          "source_video_id": "clip_025459d2",
+          "source_filename": "neo1.MOV",
+          "time_sec": 13.50626631853786,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.5120081106133522,
+            "y_center": 0.43996052046263345,
+            "width": 0.36088572761033055,
+            "height": 0.0592054048042705
+          }
+        },
+        {
+          "id": "clip_025459d2_001680",
+          "filename": "clip_025459d2_001680.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_025459d2_001680.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_025459d2_001680.txt",
+          "source_video_id": "clip_025459d2",
+          "source_filename": "neo1.MOV",
+          "time_sec": 14.006498404409632,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.481796346719368,
+            "y_center": 0.4296145184608541,
+            "width": 0.3669515530333301,
+            "height": 0.0664271018683274
+          }
+        },
+        {
+          "id": "clip_025459d2_001740",
+          "filename": "clip_025459d2_001740.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_025459d2_001740.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_025459d2_001740.txt",
+          "source_video_id": "clip_025459d2",
+          "source_filename": "neo1.MOV",
+          "time_sec": 14.506730490281404,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.4720922614448946,
+            "y_center": 0.40338634341637014,
+            "width": 0.43414508557038983,
+            "height": 0.11909197064056937
+          }
+        },
+        {
+          "id": "clip_025459d2_001800",
+          "filename": "clip_025459d2_001800.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_025459d2_001800.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_025459d2_001800.txt",
+          "source_video_id": "clip_025459d2",
+          "source_filename": "neo1.MOV",
+          "time_sec": 15.006962576153176,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.4704738843972104,
+            "y_center": 0.4074281305604982,
+            "width": 0.5429840305329743,
+            "height": 0.15335159030249107
+          }
+        },
+        {
+          "id": "clip_025459d2_001860",
+          "filename": "clip_025459d2_001860.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_025459d2_001860.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_025459d2_001860.txt",
+          "source_video_id": "clip_025459d2",
+          "source_filename": "neo1.MOV",
+          "time_sec": 15.507194662024949,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.4017546299869522,
+            "y_center": 0.39683190613879005,
+            "width": 0.5904852499859976,
+            "height": 0.18142515569395018
+          }
+        },
+        {
+          "id": "clip_025459d2_001920",
+          "filename": "clip_025459d2_001920.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_025459d2_001920.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_025459d2_001920.txt",
+          "source_video_id": "clip_025459d2",
+          "source_filename": "neo1.MOV",
+          "time_sec": 16.007426747896723,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.4388888888888889,
+            "y_center": 0.4041666666666667,
+            "width": 0.5888888888888889,
+            "height": 0.18125
+          }
+        },
+        {
+          "id": "clip_025459d2_001980",
+          "filename": "clip_025459d2_001980.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_025459d2_001980.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_025459d2_001980.txt",
+          "source_video_id": "clip_025459d2",
+          "source_filename": "neo1.MOV",
+          "time_sec": 16.507658833768495,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.5037037037037037,
+            "y_center": 0.46145833333333336,
+            "width": 0.5888888888888889,
+            "height": 0.18125
+          }
+        },
+        {
+          "id": "clip_025459d2_002040",
+          "filename": "clip_025459d2_002040.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_025459d2_002040.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_025459d2_002040.txt",
+          "source_video_id": "clip_025459d2",
+          "source_filename": "neo1.MOV",
+          "time_sec": 17.007890919640268,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.5272900373918671,
+            "y_center": 0.5206642015124555,
+            "width": 0.5579323986833404,
+            "height": 0.1665230204626334
+          }
+        },
+        {
+          "id": "clip_025459d2_002100",
+          "filename": "clip_025459d2_002100.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_025459d2_002100.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_025459d2_002100.txt",
+          "source_video_id": "clip_025459d2",
+          "source_filename": "neo1.MOV",
+          "time_sec": 17.50812300551204,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.545172486067615,
+            "y_center": 0.6148694673042705,
+            "width": 0.6096586940929136,
+            "height": 0.11086938389679712
+          }
+        },
+        {
+          "id": "clip_025459d2_002160",
+          "filename": "clip_025459d2_002160.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_025459d2_002160.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_025459d2_002160.txt",
+          "source_video_id": "clip_025459d2",
+          "source_filename": "neo1.MOV",
+          "time_sec": 18.008355091383812,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.4820496041962957,
+            "y_center": 0.6003009619661922,
+            "width": 0.6240511311963653,
+            "height": 0.06438361877224197
+          }
+        },
+        {
+          "id": "clip_025459d2_002220",
+          "filename": "clip_025459d2_002220.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_025459d2_002220.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_025459d2_002220.txt",
+          "source_video_id": "clip_025459d2",
+          "source_filename": "neo1.MOV",
+          "time_sec": 18.508587177255585,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.45910200598199374,
+            "y_center": 0.5760189612989324,
+            "width": 0.6562827778941388,
+            "height": 0.13634341637010672
+          }
+        },
+        {
+          "id": "clip_025459d2_002280",
+          "filename": "clip_025459d2_002280.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_025459d2_002280.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_025459d2_002280.txt",
+          "source_video_id": "clip_025459d2",
+          "source_filename": "neo1.MOV",
+          "time_sec": 19.008819263127357,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.47721300408813994,
+            "y_center": 0.5000834074733096,
+            "width": 0.6800025025624886,
+            "height": 0.17767181939501775
+          }
+        },
+        {
+          "id": "clip_025459d2_002340",
+          "filename": "clip_025459d2_002340.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_025459d2_002340.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_025459d2_002340.txt",
+          "source_video_id": "clip_025459d2",
+          "source_filename": "neo1.MOV",
+          "time_sec": 19.50905134899913,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.5001235402326476,
+            "y_center": 0.40586424043594305,
+            "width": 0.7153473631229827,
+            "height": 0.2037158029359431
+          }
+        },
+        {
+          "id": "clip_025459d2_002400",
+          "filename": "clip_025459d2_002400.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_025459d2_002400.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_025459d2_002400.txt",
+          "source_video_id": "clip_025459d2",
+          "source_filename": "neo1.MOV",
+          "time_sec": 20.009283434870902,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.5256222442511236,
+            "y_center": 0.40973226201067614,
+            "width": 0.7201654321962412,
+            "height": 0.19118383007117434
+          }
+        },
+        {
+          "id": "clip_025459d2_002460",
+          "filename": "clip_025459d2_002460.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_025459d2_002460.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_025459d2_002460.txt",
+          "source_video_id": "clip_025459d2",
+          "source_filename": "neo1.MOV",
+          "time_sec": 20.509515520742674,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.5254739959719464,
+            "y_center": 0.618410809608541,
+            "width": 0.7259471150841514,
+            "height": 0.0874805382562277
+          }
+        },
+        {
+          "id": "clip_025459d2_002520",
+          "filename": "clip_025459d2_002520.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_025459d2_002520.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_025459d2_002520.txt",
+          "source_video_id": "clip_025459d2",
+          "source_filename": "neo1.MOV",
+          "time_sec": 21.009747606614447,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.4353637502787469,
+            "y_center": 0.5574503725533808,
+            "width": 0.6049271031825086,
+            "height": 0.10222280916370108
+          }
+        },
+        {
+          "id": "clip_025459d2_002580",
+          "filename": "clip_025459d2_002580.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_025459d2_002580.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_025459d2_002580.txt",
+          "source_video_id": "clip_025459d2",
+          "source_filename": "neo1.MOV",
+          "time_sec": 21.50997969248622,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.5011365701403584,
+            "y_center": 0.47227396574733094,
+            "width": 0.5097764159972844,
+            "height": 0.08832851423487548
+          }
+        },
+        {
+          "id": "clip_025459d2_002640",
+          "filename": "clip_025459d2_002640.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_025459d2_002640.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_025459d2_002640.txt",
+          "source_video_id": "clip_025459d2",
+          "source_filename": "neo1.MOV",
+          "time_sec": 22.01021177835799,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.6318544903048424,
+            "y_center": 0.4542579515124555,
+            "width": 0.4869461810039977,
+            "height": 0.0826846085409253
+          }
+        },
+        {
+          "id": "clip_025459d2_002700",
+          "filename": "clip_025459d2_002700.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_025459d2_002700.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_025459d2_002700.txt",
+          "source_video_id": "clip_025459d2",
+          "source_filename": "neo1.MOV",
+          "time_sec": 22.510443864229764,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.6107476415569904,
+            "y_center": 0.4395817115213523,
+            "width": 0.472010166876896,
+            "height": 0.08840497108540929
+          }
+        },
+        {
+          "id": "clip_025459d2_002760",
+          "filename": "clip_025459d2_002760.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_025459d2_002760.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_025459d2_002760.txt",
+          "source_video_id": "clip_025459d2",
+          "source_filename": "neo1.MOV",
+          "time_sec": 23.010675950101536,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.6147997611878336,
+            "y_center": 0.4702652357651246,
+            "width": 0.4779648060905131,
+            "height": 0.10861043149466193
+          }
+        },
+        {
+          "id": "clip_025459d2_002820",
+          "filename": "clip_025459d2_002820.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_025459d2_002820.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_025459d2_002820.txt",
+          "source_video_id": "clip_025459d2",
+          "source_filename": "neo1.MOV",
+          "time_sec": 23.51090803597331,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.6217303682393671,
+            "y_center": 0.4821299488434163,
+            "width": 0.4463632145792427,
+            "height": 0.05819061387900354
+          }
+        },
+        {
+          "id": "clip_025459d2_002880",
+          "filename": "clip_025459d2_002880.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_025459d2_002880.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_025459d2_002880.txt",
+          "source_video_id": "clip_025459d2",
+          "source_filename": "neo1.MOV",
+          "time_sec": 24.01114012184508,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.6344673662253402,
+            "y_center": 0.47893613767793597,
+            "width": 0.35647534130480907,
+            "height": 0.05865630560498225
+          }
+        },
+        {
+          "id": "clip_025459d2_002940",
+          "filename": "clip_025459d2_002940.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_025459d2_002940.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_025459d2_002940.txt",
+          "source_video_id": "clip_025459d2",
+          "source_filename": "neo1.MOV",
+          "time_sec": 24.511372207716853,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.6317556581187243,
+            "y_center": 0.4474776189946619,
+            "width": 0.33390454080008236,
+            "height": 0.0664688056049822
+          }
+        },
+        {
+          "id": "clip_025459d2_003000",
+          "filename": "clip_025459d2_003000.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_025459d2_003000.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_025459d2_003000.txt",
+          "source_video_id": "clip_025459d2",
+          "source_filename": "neo1.MOV",
+          "time_sec": 25.011604293588626,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.668725072738535,
+            "y_center": 0.4660601089857651,
+            "width": 0.38353065225464544,
+            "height": 0.0656138790035587
+          }
+        },
+        {
+          "id": "clip_025459d2_003060",
+          "filename": "clip_025459d2_003060.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_025459d2_003060.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_025459d2_003060.txt",
+          "source_video_id": "clip_025459d2",
+          "source_filename": "neo1.MOV",
+          "time_sec": 25.5118363794604,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.6528995689363705,
+            "y_center": 0.47796305048932386,
+            "width": 0.4063361792014026,
+            "height": 0.04478286254448399
+          }
+        },
+        {
+          "id": "clip_025459d2_003120",
+          "filename": "clip_025459d2_003120.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_025459d2_003120.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_025459d2_003120.txt",
+          "source_video_id": "clip_025459d2",
+          "source_filename": "neo1.MOV",
+          "time_sec": 26.012068465332174,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.6093083978466453,
+            "y_center": 0.4571841637010676,
+            "width": 0.40800397234214625,
+            "height": 0.0665869661921708
+          }
+        },
+        {
+          "id": "clip_025459d2_003180",
+          "filename": "clip_025459d2_003180.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_025459d2_003180.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_025459d2_003180.txt",
+          "source_video_id": "clip_025459d2",
+          "source_filename": "neo1.MOV",
+          "time_sec": 26.512300551203946,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.6023839678067442,
+            "y_center": 0.4593597086298932,
+            "width": 0.41925848753634753,
+            "height": 0.050266903914590766
+          }
+        },
+        {
+          "id": "clip_025459d2_003240",
+          "filename": "clip_025459d2_003240.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_025459d2_003240.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_025459d2_003240.txt",
+          "source_video_id": "clip_025459d2",
+          "source_filename": "neo1.MOV",
+          "time_sec": 27.01253263707572,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.5587866197053868,
+            "y_center": 0.46047180827402134,
+            "width": 0.3893864592821446,
+            "height": 0.0596502446619217
+          }
+        },
+        {
+          "id": "clip_025459d2_003300",
+          "filename": "clip_025459d2_003300.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_025459d2_003300.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_025459d2_003300.txt",
+          "source_video_id": "clip_025459d2",
+          "source_filename": "neo1.MOV",
+          "time_sec": 27.51276472294749,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.43671033881460636,
+            "y_center": 0.45440043927935947,
+            "width": 0.4107465655069241,
+            "height": 0.05119133674377224
+          }
+        },
+        {
+          "id": "clip_025459d2_003360",
+          "filename": "clip_025459d2_003360.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_025459d2_003360.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_025459d2_003360.txt",
+          "source_video_id": "clip_025459d2",
+          "source_filename": "neo1.MOV",
+          "time_sec": 28.012996808819263,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.3685185185185185,
+            "y_center": 0.44427083333333334,
+            "width": 0.4111111111111111,
+            "height": 0.051041666666666666
+          }
+        },
+        {
+          "id": "clip_025459d2_003420",
+          "filename": "clip_025459d2_003420.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_025459d2_003420.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_025459d2_003420.txt",
+          "source_video_id": "clip_025459d2",
+          "source_filename": "neo1.MOV",
+          "time_sec": 28.513228894691036,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.412962962962963,
+            "y_center": 0.4359375,
+            "width": 0.4111111111111111,
+            "height": 0.051041666666666666
+          }
+        },
+        {
+          "id": "clip_bcf413cb_000000",
+          "filename": "clip_bcf413cb_000000.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_bcf413cb_000000.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_bcf413cb_000000.txt",
+          "source_video_id": "clip_bcf413cb",
+          "source_filename": "neo2.MOV",
+          "time_sec": 0.0,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.5119957565900873,
+            "y_center": 0.408376890569395,
+            "width": 0.28920768462816077,
+            "height": 0.0386176601423488
+          }
+        },
+        {
+          "id": "clip_bcf413cb_000060",
+          "filename": "clip_bcf413cb_000060.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_bcf413cb_000060.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_bcf413cb_000060.txt",
+          "source_video_id": "clip_bcf413cb",
+          "source_filename": "neo2.MOV",
+          "time_sec": 0.5002308752584425,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.5157407407407407,
+            "y_center": 0.40989583333333335,
+            "width": 0.29074074074074074,
+            "height": 0.03854166666666667
+          }
+        },
+        {
+          "id": "clip_bcf413cb_000120",
+          "filename": "clip_bcf413cb_000120.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_bcf413cb_000120.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_bcf413cb_000120.txt",
+          "source_video_id": "clip_bcf413cb",
+          "source_filename": "neo2.MOV",
+          "time_sec": 1.000461750516885,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.5361111111111111,
+            "y_center": 0.4203125,
+            "width": 0.29074074074074074,
+            "height": 0.03854166666666667
+          }
+        },
+        {
+          "id": "clip_bcf413cb_000180",
+          "filename": "clip_bcf413cb_000180.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_bcf413cb_000180.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_bcf413cb_000180.txt",
+          "source_video_id": "clip_bcf413cb",
+          "source_filename": "neo2.MOV",
+          "time_sec": 1.5006926257753275,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.5415465802394065,
+            "y_center": 0.4344452012900356,
+            "width": 0.4011845514999956,
+            "height": 0.07387816948398579
+          }
+        },
+        {
+          "id": "clip_bcf413cb_000240",
+          "filename": "clip_bcf413cb_000240.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_bcf413cb_000240.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_bcf413cb_000240.txt",
+          "source_video_id": "clip_bcf413cb",
+          "source_filename": "neo2.MOV",
+          "time_sec": 2.00092350103377,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.612037037037037,
+            "y_center": 0.43802083333333336,
+            "width": 0.40185185185185185,
+            "height": 0.07395833333333333
+          }
+        },
+        {
+          "id": "clip_bcf413cb_000300",
+          "filename": "clip_bcf413cb_000300.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_bcf413cb_000300.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_bcf413cb_000300.txt",
+          "source_video_id": "clip_bcf413cb",
+          "source_filename": "neo2.MOV",
+          "time_sec": 2.5011543762922126,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.5587927967170192,
+            "y_center": 0.45771588634341637,
+            "width": 0.420333287560382,
+            "height": 0.0693741659252669
+          }
+        },
+        {
+          "id": "clip_bcf413cb_000360",
+          "filename": "clip_bcf413cb_000360.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_bcf413cb_000360.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_bcf413cb_000360.txt",
+          "source_video_id": "clip_bcf413cb",
+          "source_filename": "neo2.MOV",
+          "time_sec": 3.001385251550655,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.569923771678573,
+            "y_center": 0.47254504003558717,
+            "width": 0.3908565880506515,
+            "height": 0.06281972864768681
+          }
+        },
+        {
+          "id": "clip_bcf413cb_000420",
+          "filename": "clip_bcf413cb_000420.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_bcf413cb_000420.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_bcf413cb_000420.txt",
+          "source_video_id": "clip_bcf413cb",
+          "source_filename": "neo2.MOV",
+          "time_sec": 3.5016161268090973,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.5879629629629629,
+            "y_center": 0.47760416666666666,
+            "width": 0.3907407407407407,
+            "height": 0.06354166666666666
+          }
+        },
+        {
+          "id": "clip_bcf413cb_000480",
+          "filename": "clip_bcf413cb_000480.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_bcf413cb_000480.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_bcf413cb_000480.txt",
+          "source_video_id": "clip_bcf413cb",
+          "source_filename": "neo2.MOV",
+          "time_sec": 4.00184700206754,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.6268518518518519,
+            "y_center": 0.48385416666666664,
+            "width": 0.3907407407407407,
+            "height": 0.06354166666666666
+          }
+        },
+        {
+          "id": "clip_bcf413cb_000540",
+          "filename": "clip_bcf413cb_000540.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_bcf413cb_000540.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_bcf413cb_000540.txt",
+          "source_video_id": "clip_bcf413cb",
+          "source_filename": "neo2.MOV",
+          "time_sec": 4.502077877325982,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.6660257186551838,
+            "y_center": 0.49146115991992884,
+            "width": 0.411265434484044,
+            "height": 0.06199260453736655
+          }
+        },
+        {
+          "id": "clip_bcf413cb_000600",
+          "filename": "clip_bcf413cb_000600.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_bcf413cb_000600.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_bcf413cb_000600.txt",
+          "source_video_id": "clip_bcf413cb",
+          "source_filename": "neo2.MOV",
+          "time_sec": 5.002308752584425,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.6282532925231633,
+            "y_center": 0.505581350088968,
+            "width": 0.3773042245292039,
+            "height": 0.08727201957295372
+          }
+        },
+        {
+          "id": "clip_bcf413cb_000660",
+          "filename": "clip_bcf413cb_000660.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_bcf413cb_000660.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_bcf413cb_000660.txt",
+          "source_video_id": "clip_bcf413cb",
+          "source_filename": "neo2.MOV",
+          "time_sec": 5.502539627842867,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.6316815339791356,
+            "y_center": 0.5096370384786477,
+            "width": 0.32115518879084415,
+            "height": 0.07957768016014233
+          }
+        },
+        {
+          "id": "clip_bcf413cb_000720",
+          "filename": "clip_bcf413cb_000720.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_bcf413cb_000720.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_bcf413cb_000720.txt",
+          "source_video_id": "clip_bcf413cb",
+          "source_filename": "neo2.MOV",
+          "time_sec": 6.00277050310131,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.6222801222746491,
+            "y_center": 0.5019739768683273,
+            "width": 0.3188326324170685,
+            "height": 0.08230927491103202
+          }
+        },
+        {
+          "id": "clip_bcf413cb_000780",
+          "filename": "clip_bcf413cb_000780.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_bcf413cb_000780.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_bcf413cb_000780.txt",
+          "source_video_id": "clip_bcf413cb",
+          "source_filename": "neo2.MOV",
+          "time_sec": 6.503001378359753,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.587037037037037,
+            "y_center": 0.5046875,
+            "width": 0.31851851851851853,
+            "height": 0.08229166666666667
+          }
+        },
+        {
+          "id": "clip_bcf413cb_000840",
+          "filename": "clip_bcf413cb_000840.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_bcf413cb_000840.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_bcf413cb_000840.txt",
+          "source_video_id": "clip_bcf413cb",
+          "source_filename": "neo2.MOV",
+          "time_sec": 7.003232253618195,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.5407407407407407,
+            "y_center": 0.5026041666666666,
+            "width": 0.31851851851851853,
+            "height": 0.08229166666666667
+          }
+        },
+        {
+          "id": "clip_bcf413cb_000900",
+          "filename": "clip_bcf413cb_000900.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_bcf413cb_000900.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_bcf413cb_000900.txt",
+          "source_video_id": "clip_bcf413cb",
+          "source_filename": "neo2.MOV",
+          "time_sec": 7.503463128876637,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.5648148148148148,
+            "y_center": 0.4901041666666667,
+            "width": 0.31851851851851853,
+            "height": 0.08229166666666667
+          }
+        },
+        {
+          "id": "clip_bcf413cb_000960",
+          "filename": "clip_bcf413cb_000960.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_bcf413cb_000960.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_bcf413cb_000960.txt",
+          "source_video_id": "clip_bcf413cb",
+          "source_filename": "neo2.MOV",
+          "time_sec": 8.00369400413508,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.6296296296296297,
+            "y_center": 0.49114583333333334,
+            "width": 0.31851851851851853,
+            "height": 0.08229166666666667
+          }
+        },
+        {
+          "id": "clip_bcf413cb_001020",
+          "filename": "clip_bcf413cb_001020.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_bcf413cb_001020.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_bcf413cb_001020.txt",
+          "source_video_id": "clip_bcf413cb",
+          "source_filename": "neo2.MOV",
+          "time_sec": 8.503924879393523,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.6298716695708477,
+            "y_center": 0.4919268516459075,
+            "width": 0.39961559054537027,
+            "height": 0.08017543371886127
+          }
+        },
+        {
+          "id": "clip_bcf413cb_001080",
+          "filename": "clip_bcf413cb_001080.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_bcf413cb_001080.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_bcf413cb_001080.txt",
+          "source_video_id": "clip_bcf413cb",
+          "source_filename": "neo2.MOV",
+          "time_sec": 9.004155754651965,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.6259259259259259,
+            "y_center": 0.5026041666666666,
+            "width": 0.4,
+            "height": 0.08020833333333334
+          }
+        },
+        {
+          "id": "clip_bcf413cb_001140",
+          "filename": "clip_bcf413cb_001140.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_bcf413cb_001140.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_bcf413cb_001140.txt",
+          "source_video_id": "clip_bcf413cb",
+          "source_filename": "neo2.MOV",
+          "time_sec": 9.504386629910407,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.6203703703703703,
+            "y_center": 0.5015625,
+            "width": 0.4,
+            "height": 0.08020833333333334
+          }
+        },
+        {
+          "id": "clip_bcf413cb_001200",
+          "filename": "clip_bcf413cb_001200.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_bcf413cb_001200.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_bcf413cb_001200.txt",
+          "source_video_id": "clip_bcf413cb",
+          "source_filename": "neo2.MOV",
+          "time_sec": 10.00461750516885,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.5796296296296296,
+            "y_center": 0.4890625,
+            "width": 0.4,
+            "height": 0.08020833333333334
+          }
+        },
+        {
+          "id": "clip_bcf413cb_001260",
+          "filename": "clip_bcf413cb_001260.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_bcf413cb_001260.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_bcf413cb_001260.txt",
+          "source_video_id": "clip_bcf413cb",
+          "source_filename": "neo2.MOV",
+          "time_sec": 10.504848380427292,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.5888888888888889,
+            "y_center": 0.4609375,
+            "width": 0.4,
+            "height": 0.08020833333333334
+          }
+        },
+        {
+          "id": "clip_bcf413cb_001320",
+          "filename": "clip_bcf413cb_001320.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_bcf413cb_001320.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_bcf413cb_001320.txt",
+          "source_video_id": "clip_bcf413cb",
+          "source_filename": "neo2.MOV",
+          "time_sec": 11.005079255685734,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.5722222222222222,
+            "y_center": 0.4453125,
+            "width": 0.4,
+            "height": 0.08020833333333334
+          }
+        },
+        {
+          "id": "clip_bcf413cb_001380",
+          "filename": "clip_bcf413cb_001380.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_bcf413cb_001380.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_bcf413cb_001380.txt",
+          "source_video_id": "clip_bcf413cb",
+          "source_filename": "neo2.MOV",
+          "time_sec": 11.505310130944178,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.6086103955321861,
+            "y_center": 0.4630087855871886,
+            "width": 0.4746292198090265,
+            "height": 0.08137789145907476
+          }
+        },
+        {
+          "id": "clip_bcf413cb_001440",
+          "filename": "clip_bcf413cb_001440.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_bcf413cb_001440.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_bcf413cb_001440.txt",
+          "source_video_id": "clip_bcf413cb",
+          "source_filename": "neo2.MOV",
+          "time_sec": 12.00554100620262,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.582141900687426,
+            "y_center": 0.46218513678825623,
+            "width": 0.49658231915051493,
+            "height": 0.1004851534697509
+          }
+        },
+        {
+          "id": "clip_bcf413cb_001500",
+          "filename": "clip_bcf413cb_001500.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_bcf413cb_001500.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_bcf413cb_001500.txt",
+          "source_video_id": "clip_bcf413cb",
+          "source_filename": "neo2.MOV",
+          "time_sec": 12.505771881461062,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.5540550287949815,
+            "y_center": 0.48711702068505336,
+            "width": 0.48782331665579615,
+            "height": 0.13491853870106763
+          }
+        },
+        {
+          "id": "clip_bcf413cb_001560",
+          "filename": "clip_bcf413cb_001560.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_bcf413cb_001560.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_bcf413cb_001560.txt",
+          "source_video_id": "clip_bcf413cb",
+          "source_filename": "neo2.MOV",
+          "time_sec": 13.006002756719505,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.5537037037037037,
+            "y_center": 0.5067708333333333,
+            "width": 0.4888888888888889,
+            "height": 0.134375
+          }
+        },
+        {
+          "id": "clip_bcf413cb_001620",
+          "filename": "clip_bcf413cb_001620.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_bcf413cb_001620.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_bcf413cb_001620.txt",
+          "source_video_id": "clip_bcf413cb",
+          "source_filename": "neo2.MOV",
+          "time_sec": 13.506233631977947,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.575925925925926,
+            "y_center": 0.4984375,
+            "width": 0.4888888888888889,
+            "height": 0.134375
+          }
+        },
+        {
+          "id": "clip_bcf413cb_001680",
+          "filename": "clip_bcf413cb_001680.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_bcf413cb_001680.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_bcf413cb_001680.txt",
+          "source_video_id": "clip_bcf413cb",
+          "source_filename": "neo2.MOV",
+          "time_sec": 14.00646450723639,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.5796296296296296,
+            "y_center": 0.5192708333333333,
+            "width": 0.4888888888888889,
+            "height": 0.134375
+          }
+        },
+        {
+          "id": "clip_bcf413cb_001740",
+          "filename": "clip_bcf413cb_001740.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_bcf413cb_001740.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_bcf413cb_001740.txt",
+          "source_video_id": "clip_bcf413cb",
+          "source_filename": "neo2.MOV",
+          "time_sec": 14.506695382494833,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.539600821575206,
+            "y_center": 0.543980065613879,
+            "width": 0.6016779950638751,
+            "height": 0.14382923709964412
+          }
+        },
+        {
+          "id": "clip_bcf413cb_001800",
+          "filename": "clip_bcf413cb_001800.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_bcf413cb_001800.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_bcf413cb_001800.txt",
+          "source_video_id": "clip_bcf413cb",
+          "source_filename": "neo2.MOV",
+          "time_sec": 15.006926257753275,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.6194444444444445,
+            "y_center": 0.5604166666666667,
+            "width": 0.6018518518518519,
+            "height": 0.14375
+          }
+        },
+        {
+          "id": "clip_bcf413cb_001860",
+          "filename": "clip_bcf413cb_001860.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_bcf413cb_001860.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_bcf413cb_001860.txt",
+          "source_video_id": "clip_bcf413cb",
+          "source_filename": "neo2.MOV",
+          "time_sec": 15.507157133011717,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.6546296296296297,
+            "y_center": 0.546875,
+            "width": 0.6018518518518519,
+            "height": 0.14375
+          }
+        },
+        {
+          "id": "clip_bcf413cb_001920",
+          "filename": "clip_bcf413cb_001920.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_bcf413cb_001920.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_bcf413cb_001920.txt",
+          "source_video_id": "clip_bcf413cb",
+          "source_filename": "neo2.MOV",
+          "time_sec": 16.00738800827016,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.6509599872838023,
+            "y_center": 0.5352222809163701,
+            "width": 0.6744679001398737,
+            "height": 0.15315697286476865
+          }
+        },
+        {
+          "id": "clip_bcf413cb_001980",
+          "filename": "clip_bcf413cb_001980.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_bcf413cb_001980.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_bcf413cb_001980.txt",
+          "source_video_id": "clip_bcf413cb",
+          "source_filename": "neo2.MOV",
+          "time_sec": 16.5076188835286,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.6871797916986673,
+            "y_center": 0.5286226645907474,
+            "width": 0.6256404166026652,
+            "height": 0.15334463967971534
+          }
+        },
+        {
+          "id": "clip_bcf413cb_002040",
+          "filename": "clip_bcf413cb_002040.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_bcf413cb_002040.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_bcf413cb_002040.txt",
+          "source_video_id": "clip_bcf413cb",
+          "source_filename": "neo2.MOV",
+          "time_sec": 17.007849758787046,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.6848347190757895,
+            "y_center": 0.5140472086298933,
+            "width": 0.626979034710115,
+            "height": 0.14161198843416367
+          }
+        },
+        {
+          "id": "clip_bcf413cb_002100",
+          "filename": "clip_bcf413cb_002100.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_bcf413cb_002100.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_bcf413cb_002100.txt",
+          "source_video_id": "clip_bcf413cb",
+          "source_filename": "neo2.MOV",
+          "time_sec": 17.508080634045488,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.6481481481481481,
+            "y_center": 0.5171875,
+            "width": 0.6259259259259259,
+            "height": 0.140625
+          }
+        },
+        {
+          "id": "clip_bcf413cb_002160",
+          "filename": "clip_bcf413cb_002160.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_bcf413cb_002160.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_bcf413cb_002160.txt",
+          "source_video_id": "clip_bcf413cb",
+          "source_filename": "neo2.MOV",
+          "time_sec": 18.00831150930393,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.6385689019492427,
+            "y_center": 0.500799321619217,
+            "width": 0.6097328182325024,
+            "height": 0.11483818950177932
+          }
+        },
+        {
+          "id": "clip_bcf413cb_002220",
+          "filename": "clip_bcf413cb_002220.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_bcf413cb_002220.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_bcf413cb_002220.txt",
+          "source_video_id": "clip_bcf413cb",
+          "source_filename": "neo2.MOV",
+          "time_sec": 18.50854238456237,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.6953703703703704,
+            "y_center": 0.525,
+            "width": 0.6092592592592593,
+            "height": 0.11458333333333333
+          }
+        },
+        {
+          "id": "clip_bcf413cb_002280",
+          "filename": "clip_bcf413cb_002280.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_bcf413cb_002280.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_bcf413cb_002280.txt",
+          "source_video_id": "clip_bcf413cb",
+          "source_filename": "neo2.MOV",
+          "time_sec": 19.008773259820813,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.6842592592592592,
+            "y_center": 0.534375,
+            "width": 0.6092592592592593,
+            "height": 0.11458333333333333
+          }
+        },
+        {
+          "id": "clip_bcf413cb_002340",
+          "filename": "clip_bcf413cb_002340.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_bcf413cb_002340.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_bcf413cb_002340.txt",
+          "source_video_id": "clip_bcf413cb",
+          "source_filename": "neo2.MOV",
+          "time_sec": 19.509004135079255,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.6453703703703704,
+            "y_center": 0.5416666666666666,
+            "width": 0.6092592592592593,
+            "height": 0.11458333333333333
+          }
+        },
+        {
+          "id": "clip_bcf413cb_002400",
+          "filename": "clip_bcf413cb_002400.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_bcf413cb_002400.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_bcf413cb_002400.txt",
+          "source_video_id": "clip_bcf413cb",
+          "source_filename": "neo2.MOV",
+          "time_sec": 20.0092350103377,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.637962962962963,
+            "y_center": 0.540625,
+            "width": 0.6092592592592593,
+            "height": 0.11458333333333333
+          }
+        },
+        {
+          "id": "clip_bcf413cb_002460",
+          "filename": "clip_bcf413cb_002460.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_bcf413cb_002460.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_bcf413cb_002460.txt",
+          "source_video_id": "clip_bcf413cb",
+          "source_filename": "neo2.MOV",
+          "time_sec": 20.509465885596143,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.6953703703703704,
+            "y_center": 0.5385416666666667,
+            "width": 0.6092592592592593,
+            "height": 0.11458333333333333
+          }
+        },
+        {
+          "id": "clip_bcf413cb_002520",
+          "filename": "clip_bcf413cb_002520.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_bcf413cb_002520.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_bcf413cb_002520.txt",
+          "source_video_id": "clip_bcf413cb",
+          "source_filename": "neo2.MOV",
+          "time_sec": 21.009696760854585,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.6953703703703704,
+            "y_center": 0.509375,
+            "width": 0.6092592592592593,
+            "height": 0.11458333333333333
+          }
+        },
+        {
+          "id": "clip_bcf413cb_002580",
+          "filename": "clip_bcf413cb_002580.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_bcf413cb_002580.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_bcf413cb_002580.txt",
+          "source_video_id": "clip_bcf413cb",
+          "source_filename": "neo2.MOV",
+          "time_sec": 21.509927636113026,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.6787037037037037,
+            "y_center": 0.490625,
+            "width": 0.6092592592592593,
+            "height": 0.11458333333333333
+          }
+        },
+        {
+          "id": "clip_bcf413cb_002640",
+          "filename": "clip_bcf413cb_002640.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_bcf413cb_002640.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_bcf413cb_002640.txt",
+          "source_video_id": "clip_bcf413cb",
+          "source_filename": "neo2.MOV",
+          "time_sec": 22.01015851137147,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.6638888888888889,
+            "y_center": 0.49583333333333335,
+            "width": 0.6092592592592593,
+            "height": 0.11458333333333333
+          }
+        },
+        {
+          "id": "clip_bcf413cb_002700",
+          "filename": "clip_bcf413cb_002700.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_bcf413cb_002700.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_bcf413cb_002700.txt",
+          "source_video_id": "clip_bcf413cb",
+          "source_filename": "neo2.MOV",
+          "time_sec": 22.51038938662991,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.6953703703703704,
+            "y_center": 0.5135416666666667,
+            "width": 0.6092592592592593,
+            "height": 0.11458333333333333
+          }
+        },
+        {
+          "id": "clip_bcf413cb_002760",
+          "filename": "clip_bcf413cb_002760.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_bcf413cb_002760.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_bcf413cb_002760.txt",
+          "source_video_id": "clip_bcf413cb",
+          "source_filename": "neo2.MOV",
+          "time_sec": 23.010620261888356,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.6932786939772566,
+            "y_center": 0.5166189390569395,
+            "width": 0.5876314706118371,
+            "height": 0.1181049822064057
+          }
+        },
+        {
+          "id": "clip_bcf413cb_002820",
+          "filename": "clip_bcf413cb_002820.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_bcf413cb_002820.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_bcf413cb_002820.txt",
+          "source_video_id": "clip_bcf413cb",
+          "source_filename": "neo2.MOV",
+          "time_sec": 23.510851137146798,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.6675925925925926,
+            "y_center": 0.5322916666666667,
+            "width": 0.587037037037037,
+            "height": 0.11875
+          }
+        },
+        {
+          "id": "clip_bcf413cb_002880",
+          "filename": "clip_bcf413cb_002880.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_bcf413cb_002880.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_bcf413cb_002880.txt",
+          "source_video_id": "clip_bcf413cb",
+          "source_filename": "neo2.MOV",
+          "time_sec": 24.01108201240524,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.6138888888888889,
+            "y_center": 0.5302083333333333,
+            "width": 0.587037037037037,
+            "height": 0.11875
+          }
+        },
+        {
+          "id": "clip_bcf413cb_002940",
+          "filename": "clip_bcf413cb_002940.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_bcf413cb_002940.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_bcf413cb_002940.txt",
+          "source_video_id": "clip_bcf413cb",
+          "source_filename": "neo2.MOV",
+          "time_sec": 24.51131288766368,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.6787037037037037,
+            "y_center": 0.5135416666666667,
+            "width": 0.587037037037037,
+            "height": 0.11875
+          }
+        },
+        {
+          "id": "clip_bcf413cb_003000",
+          "filename": "clip_bcf413cb_003000.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_bcf413cb_003000.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_bcf413cb_003000.txt",
+          "source_video_id": "clip_bcf413cb",
+          "source_filename": "neo2.MOV",
+          "time_sec": 25.011543762922123,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.6787037037037037,
+            "y_center": 0.5052083333333334,
+            "width": 0.587037037037037,
+            "height": 0.11875
+          }
+        },
+        {
+          "id": "clip_bcf413cb_003060",
+          "filename": "clip_bcf413cb_003060.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_bcf413cb_003060.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_bcf413cb_003060.txt",
+          "source_video_id": "clip_bcf413cb",
+          "source_filename": "neo2.MOV",
+          "time_sec": 25.511774638180565,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.6842592592592592,
+            "y_center": 0.4979166666666667,
+            "width": 0.587037037037037,
+            "height": 0.11875
+          }
+        },
+        {
+          "id": "clip_bcf413cb_003120",
+          "filename": "clip_bcf413cb_003120.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_bcf413cb_003120.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_bcf413cb_003120.txt",
+          "source_video_id": "clip_bcf413cb",
+          "source_filename": "neo2.MOV",
+          "time_sec": 26.01200551343901,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.7046296296296296,
+            "y_center": 0.4947916666666667,
+            "width": 0.587037037037037,
+            "height": 0.11875
+          }
+        },
+        {
+          "id": "clip_bcf413cb_003180",
+          "filename": "clip_bcf413cb_003180.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_bcf413cb_003180.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_bcf413cb_003180.txt",
+          "source_video_id": "clip_bcf413cb",
+          "source_filename": "neo2.MOV",
+          "time_sec": 26.512236388697453,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.7046296296296296,
+            "y_center": 0.484375,
+            "width": 0.587037037037037,
+            "height": 0.11875
+          }
+        },
+        {
+          "id": "clip_bcf413cb_003240",
+          "filename": "clip_bcf413cb_003240.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_bcf413cb_003240.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_bcf413cb_003240.txt",
+          "source_video_id": "clip_bcf413cb",
+          "source_filename": "neo2.MOV",
+          "time_sec": 27.012467263955894,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.6898148148148148,
+            "y_center": 0.4864583333333333,
+            "width": 0.587037037037037,
+            "height": 0.11875
+          }
+        },
+        {
+          "id": "clip_bcf413cb_003300",
+          "filename": "clip_bcf413cb_003300.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_bcf413cb_003300.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_bcf413cb_003300.txt",
+          "source_video_id": "clip_bcf413cb",
+          "source_filename": "neo2.MOV",
+          "time_sec": 27.512698139214336,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.6435185185185185,
+            "y_center": 0.465625,
+            "width": 0.587037037037037,
+            "height": 0.11875
+          }
+        },
+        {
+          "id": "clip_bcf413cb_003360",
+          "filename": "clip_bcf413cb_003360.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_bcf413cb_003360.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_bcf413cb_003360.txt",
+          "source_video_id": "clip_bcf413cb",
+          "source_filename": "neo2.MOV",
+          "time_sec": 28.01292901447278,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.59708409182616,
+            "y_center": 0.48849324399466193,
+            "width": 0.652798943333475,
+            "height": 0.10902051823843417
+          }
+        },
+        {
+          "id": "clip_bcf413cb_003420",
+          "filename": "clip_bcf413cb_003420.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_bcf413cb_003420.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_bcf413cb_003420.txt",
+          "source_video_id": "clip_bcf413cb",
+          "source_filename": "neo2.MOV",
+          "time_sec": 28.51315988973122,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.6046296296296296,
+            "y_center": 0.4947916666666667,
+            "width": 0.6537037037037037,
+            "height": 0.10833333333333334
+          }
+        },
+        {
+          "id": "clip_bcf413cb_003480",
+          "filename": "clip_bcf413cb_003480.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_bcf413cb_003480.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_bcf413cb_003480.txt",
+          "source_video_id": "clip_bcf413cb",
+          "source_filename": "neo2.MOV",
+          "time_sec": 29.013390764989666,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.6564814814814814,
+            "y_center": 0.4708333333333333,
+            "width": 0.6537037037037037,
+            "height": 0.10833333333333334
+          }
+        },
+        {
+          "id": "clip_bcf413cb_003540",
+          "filename": "clip_bcf413cb_003540.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_bcf413cb_003540.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_bcf413cb_003540.txt",
+          "source_video_id": "clip_bcf413cb",
+          "source_filename": "neo2.MOV",
+          "time_sec": 29.513621640248108,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.6564814814814814,
+            "y_center": 0.46770833333333334,
+            "width": 0.6537037037037037,
+            "height": 0.10833333333333334
+          }
+        },
+        {
+          "id": "clip_bcf413cb_003600",
+          "filename": "clip_bcf413cb_003600.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_bcf413cb_003600.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_bcf413cb_003600.txt",
+          "source_video_id": "clip_bcf413cb",
+          "source_filename": "neo2.MOV",
+          "time_sec": 30.01385251550655,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.6055555555555555,
+            "y_center": 0.4552083333333333,
+            "width": 0.5888888888888889,
+            "height": 0.08125
+          }
+        },
+        {
+          "id": "clip_bcf413cb_003660",
+          "filename": "clip_bcf413cb_003660.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_bcf413cb_003660.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_bcf413cb_003660.txt",
+          "source_video_id": "clip_bcf413cb",
+          "source_filename": "neo2.MOV",
+          "time_sec": 30.51408339076499,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.6653338933523569,
+            "y_center": 0.45634313834519574,
+            "width": 0.588842164891784,
+            "height": 0.08140569395017794
+          }
+        },
+        {
+          "id": "clip_bcf413cb_003720",
+          "filename": "clip_bcf413cb_003720.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_bcf413cb_003720.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_bcf413cb_003720.txt",
+          "source_video_id": "clip_bcf413cb",
+          "source_filename": "neo2.MOV",
+          "time_sec": 31.014314266023433,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.6407407407407407,
+            "y_center": 0.4635416666666667,
+            "width": 0.5888888888888889,
+            "height": 0.08125
+          }
+        },
+        {
+          "id": "clip_bcf413cb_003780",
+          "filename": "clip_bcf413cb_003780.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_bcf413cb_003780.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_bcf413cb_003780.txt",
+          "source_video_id": "clip_bcf413cb",
+          "source_filename": "neo2.MOV",
+          "time_sec": 31.514545141281875,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.6370370370370371,
+            "y_center": 0.4875,
+            "width": 0.5888888888888889,
+            "height": 0.08125
+          }
+        },
+        {
+          "id": "clip_bcf413cb_003840",
+          "filename": "clip_bcf413cb_003840.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_bcf413cb_003840.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_bcf413cb_003840.txt",
+          "source_video_id": "clip_bcf413cb",
+          "source_filename": "neo2.MOV",
+          "time_sec": 32.01477601654032,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.6351851851851852,
+            "y_center": 0.48333333333333334,
+            "width": 0.5888888888888889,
+            "height": 0.08125
+          }
+        },
+        {
+          "id": "clip_bcf413cb_003900",
+          "filename": "clip_bcf413cb_003900.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_bcf413cb_003900.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_bcf413cb_003900.txt",
+          "source_video_id": "clip_bcf413cb",
+          "source_filename": "neo2.MOV",
+          "time_sec": 32.51500689179876,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.6111111111111112,
+            "y_center": 0.49270833333333336,
+            "width": 0.5888888888888889,
+            "height": 0.08125
+          }
+        },
+        {
+          "id": "clip_bcf413cb_003960",
+          "filename": "clip_bcf413cb_003960.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_bcf413cb_003960.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_bcf413cb_003960.txt",
+          "source_video_id": "clip_bcf413cb",
+          "source_filename": "neo2.MOV",
+          "time_sec": 33.0152377670572,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.5425925925925926,
+            "y_center": 0.5072916666666667,
+            "width": 0.5888888888888889,
+            "height": 0.08125
+          }
+        },
+        {
+          "id": "clip_bcf413cb_004020",
+          "filename": "clip_bcf413cb_004020.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_bcf413cb_004020.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_bcf413cb_004020.txt",
+          "source_video_id": "clip_bcf413cb",
+          "source_filename": "neo2.MOV",
+          "time_sec": 33.515468642315646,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.5481481481481482,
+            "y_center": 0.5135416666666667,
+            "width": 0.5888888888888889,
+            "height": 0.08125
+          }
+        },
+        {
+          "id": "clip_bcf413cb_004080",
+          "filename": "clip_bcf413cb_004080.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_bcf413cb_004080.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_bcf413cb_004080.txt",
+          "source_video_id": "clip_bcf413cb",
+          "source_filename": "neo2.MOV",
+          "time_sec": 34.01569951757409,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.562962962962963,
+            "y_center": 0.5291666666666667,
+            "width": 0.5888888888888889,
+            "height": 0.08125
+          }
+        },
+        {
+          "id": "clip_bcf413cb_004140",
+          "filename": "clip_bcf413cb_004140.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_bcf413cb_004140.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_bcf413cb_004140.txt",
+          "source_video_id": "clip_bcf413cb",
+          "source_filename": "neo2.MOV",
+          "time_sec": 34.51593039283253,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.582191316780485,
+            "y_center": 0.5409773965747331,
+            "width": 0.6214814943572942,
+            "height": 0.0907820840747331
+          }
+        },
+        {
+          "id": "clip_bcf413cb_004200",
+          "filename": "clip_bcf413cb_004200.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_bcf413cb_004200.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_bcf413cb_004200.txt",
+          "source_video_id": "clip_bcf413cb",
+          "source_filename": "neo2.MOV",
+          "time_sec": 35.016161268090976,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.6212962962962963,
+            "y_center": 0.5473958333333333,
+            "width": 0.6203703703703703,
+            "height": 0.090625
+          }
+        },
+        {
+          "id": "clip_bcf413cb_004260",
+          "filename": "clip_bcf413cb_004260.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_bcf413cb_004260.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_bcf413cb_004260.txt",
+          "source_video_id": "clip_bcf413cb",
+          "source_filename": "neo2.MOV",
+          "time_sec": 35.516392143349414,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.6165972715728572,
+            "y_center": 0.5438341025355872,
+            "width": 0.6160951402138566,
+            "height": 0.09951206628113879
+          }
+        },
+        {
+          "id": "clip_bcf413cb_004320",
+          "filename": "clip_bcf413cb_004320.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_bcf413cb_004320.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_bcf413cb_004320.txt",
+          "source_video_id": "clip_bcf413cb",
+          "source_filename": "neo2.MOV",
+          "time_sec": 36.01662301860786,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.5499349620361824,
+            "y_center": 0.5568734708629893,
+            "width": 0.5580065228229292,
+            "height": 0.11049405026690384
+          }
+        },
+        {
+          "id": "clip_bcf413cb_004380",
+          "filename": "clip_bcf413cb_004380.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_bcf413cb_004380.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_bcf413cb_004380.txt",
+          "source_video_id": "clip_bcf413cb",
+          "source_filename": "neo2.MOV",
+          "time_sec": 36.5168538938663,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.5395761135286763,
+            "y_center": 0.5506943672153025,
+            "width": 0.4526143503512144,
+            "height": 0.10319589635231319
+          }
+        },
+        {
+          "id": "clip_bcf413cb_004440",
+          "filename": "clip_bcf413cb_004440.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_bcf413cb_004440.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_bcf413cb_004440.txt",
+          "source_video_id": "clip_bcf413cb",
+          "source_filename": "neo2.MOV",
+          "time_sec": 37.01708476912474,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.5277841983224577,
+            "y_center": 0.5450330849644128,
+            "width": 0.5691004357146885,
+            "height": 0.10517682384341637
+          }
+        },
+        {
+          "id": "clip_bcf413cb_004500",
+          "filename": "clip_bcf413cb_004500.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_bcf413cb_004500.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_bcf413cb_004500.txt",
+          "source_video_id": "clip_bcf413cb",
+          "source_filename": "neo2.MOV",
+          "time_sec": 37.51731564438319,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.4830193950225798,
+            "y_center": 0.545443171708185,
+            "width": 0.617169940237891,
+            "height": 0.1159085854092527
+          }
+        },
+        {
+          "id": "clip_bcf413cb_004560",
+          "filename": "clip_bcf413cb_004560.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_bcf413cb_004560.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_bcf413cb_004560.txt",
+          "source_video_id": "clip_bcf413cb",
+          "source_filename": "neo2.MOV",
+          "time_sec": 38.01754651964163,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.4745692431094803,
+            "y_center": 0.5238510620551602,
+            "width": 0.5158669494668139,
+            "height": 0.14477452179715306
+          }
+        },
+        {
+          "id": "clip_bcf413cb_004620",
+          "filename": "clip_bcf413cb_004620.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_bcf413cb_004620.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_bcf413cb_004620.txt",
+          "source_video_id": "clip_bcf413cb",
+          "source_filename": "neo2.MOV",
+          "time_sec": 38.51777739490007,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.47913405470581094,
+            "y_center": 0.5235521852758007,
+            "width": 0.5962051627575838,
+            "height": 0.1372261454626334
+          }
+        },
+        {
+          "id": "clip_bcf413cb_004680",
+          "filename": "clip_bcf413cb_004680.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_bcf413cb_004680.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_bcf413cb_004680.txt",
+          "source_video_id": "clip_bcf413cb",
+          "source_filename": "neo2.MOV",
+          "time_sec": 39.01800827015851,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.4888888888888889,
+            "y_center": 0.5151041666666667,
+            "width": 0.5962962962962963,
+            "height": 0.13645833333333332
+          }
+        },
+        {
+          "id": "clip_bcf413cb_004740",
+          "filename": "clip_bcf413cb_004740.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_bcf413cb_004740.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_bcf413cb_004740.txt",
+          "source_video_id": "clip_bcf413cb",
+          "source_filename": "neo2.MOV",
+          "time_sec": 39.518239145416956,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.49444444444444446,
+            "y_center": 0.5182291666666666,
+            "width": 0.5962962962962963,
+            "height": 0.13645833333333332
+          }
+        },
+        {
+          "id": "clip_bcf413cb_004800",
+          "filename": "clip_bcf413cb_004800.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_bcf413cb_004800.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_bcf413cb_004800.txt",
+          "source_video_id": "clip_bcf413cb",
+          "source_filename": "neo2.MOV",
+          "time_sec": 40.0184700206754,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.5488354539656181,
+            "y_center": 0.5217067949288257,
+            "width": 0.4748886542975865,
+            "height": 0.09907417704626337
+          }
+        },
+        {
+          "id": "clip_bcf413cb_004860",
+          "filename": "clip_bcf413cb_004860.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_bcf413cb_004860.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_bcf413cb_004860.txt",
+          "source_video_id": "clip_bcf413cb",
+          "source_filename": "neo2.MOV",
+          "time_sec": 40.51870089593384,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.5539870816670251,
+            "y_center": 0.526613934608541,
+            "width": 0.5654436448283178,
+            "height": 0.10206294483985767
+          }
+        },
+        {
+          "id": "clip_bcf413cb_004920",
+          "filename": "clip_bcf413cb_004920.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_bcf413cb_004920.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_bcf413cb_004920.txt",
+          "source_video_id": "clip_bcf413cb",
+          "source_filename": "neo2.MOV",
+          "time_sec": 41.018931771192285,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.5361416950610716,
+            "y_center": 0.5392397408807829,
+            "width": 0.6017768272499934,
+            "height": 0.12404776467971529
+          }
+        },
+        {
+          "id": "clip_bcf413cb_004980",
+          "filename": "clip_bcf413cb_004980.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_bcf413cb_004980.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_bcf413cb_004980.txt",
+          "source_video_id": "clip_bcf413cb",
+          "source_filename": "neo2.MOV",
+          "time_sec": 41.519162646450724,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.5133979382306382,
+            "y_center": 0.5367792204181494,
+            "width": 0.5424528075325892,
+            "height": 0.1211563056049822
+          }
+        },
+        {
+          "id": "clip_bcf413cb_005040",
+          "filename": "clip_bcf413cb_005040.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_bcf413cb_005040.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_bcf413cb_005040.txt",
+          "source_video_id": "clip_bcf413cb",
+          "source_filename": "neo2.MOV",
+          "time_sec": 42.01939352170917,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.5224225522255495,
+            "y_center": 0.5435108985765125,
+            "width": 0.5397472764376056,
+            "height": 0.09515402580071175
+          }
+        },
+        {
+          "id": "clip_bcf413cb_005100",
+          "filename": "clip_bcf413cb_005100.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_bcf413cb_005100.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_bcf413cb_005100.txt",
+          "source_video_id": "clip_bcf413cb",
+          "source_filename": "neo2.MOV",
+          "time_sec": 42.51962439696761,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.5051454506897748,
+            "y_center": 0.5392501668149466,
+            "width": 0.5663949046197048,
+            "height": 0.10135398131672596
+          }
+        },
+        {
+          "id": "clip_bcf413cb_005160",
+          "filename": "clip_bcf413cb_005160.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_bcf413cb_005160.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_bcf413cb_005160.txt",
+          "source_video_id": "clip_bcf413cb",
+          "source_filename": "neo2.MOV",
+          "time_sec": 43.01985527222605,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.48173457660304414,
+            "y_center": 0.4835165980871886,
+            "width": 0.575388633556454,
+            "height": 0.09136593638790041
+          }
+        },
+        {
+          "id": "clip_bcf413cb_005220",
+          "filename": "clip_bcf413cb_005220.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_bcf413cb_005220.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_bcf413cb_005220.txt",
+          "source_video_id": "clip_bcf413cb",
+          "source_filename": "neo2.MOV",
+          "time_sec": 43.5200861474845,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.4703703703703704,
+            "y_center": 0.4510416666666667,
+            "width": 0.5740740740740741,
+            "height": 0.09166666666666666
+          }
+        },
+        {
+          "id": "clip_bcf413cb_005280",
+          "filename": "clip_bcf413cb_005280.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_bcf413cb_005280.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_bcf413cb_005280.txt",
+          "source_video_id": "clip_bcf413cb",
+          "source_filename": "neo2.MOV",
+          "time_sec": 44.02031702274294,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.4759259259259259,
+            "y_center": 0.4479166666666667,
+            "width": 0.5740740740740741,
+            "height": 0.09166666666666666
+          }
+        },
+        {
+          "id": "clip_bcf413cb_005340",
+          "filename": "clip_bcf413cb_005340.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_bcf413cb_005340.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_bcf413cb_005340.txt",
+          "source_video_id": "clip_bcf413cb",
+          "source_filename": "neo2.MOV",
+          "time_sec": 44.52054789800138,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.4981481481481482,
+            "y_center": 0.4479166666666667,
+            "width": 0.5740740740740741,
+            "height": 0.09166666666666666
+          }
+        },
+        {
+          "id": "clip_bcf413cb_005400",
+          "filename": "clip_bcf413cb_005400.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_bcf413cb_005400.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_bcf413cb_005400.txt",
+          "source_video_id": "clip_bcf413cb",
+          "source_filename": "neo2.MOV",
+          "time_sec": 45.02077877325982,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.48703703703703705,
+            "y_center": 0.48541666666666666,
+            "width": 0.5740740740740741,
+            "height": 0.09166666666666666
+          }
+        },
+        {
+          "id": "clip_bcf413cb_005460",
+          "filename": "clip_bcf413cb_005460.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_bcf413cb_005460.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_bcf413cb_005460.txt",
+          "source_video_id": "clip_bcf413cb",
+          "source_filename": "neo2.MOV",
+          "time_sec": 45.521009648518266,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.4918401676336224,
+            "y_center": 0.4302053213967971,
+            "width": 0.5681985920163607,
+            "height": 0.08790452624555162
+          }
+        },
+        {
+          "id": "clip_bcf413cb_005520",
+          "filename": "clip_bcf413cb_005520.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_bcf413cb_005520.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_bcf413cb_005520.txt",
+          "source_video_id": "clip_bcf413cb",
+          "source_filename": "neo2.MOV",
+          "time_sec": 46.02124052377671,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.49166666666666664,
+            "y_center": 0.40520833333333334,
+            "width": 0.5685185185185185,
+            "height": 0.0875
+          }
+        },
+        {
+          "id": "clip_bcf413cb_005580",
+          "filename": "clip_bcf413cb_005580.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_bcf413cb_005580.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_bcf413cb_005580.txt",
+          "source_video_id": "clip_bcf413cb",
+          "source_filename": "neo2.MOV",
+          "time_sec": 46.52147139903515,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.4675925925925926,
+            "y_center": 0.440625,
+            "width": 0.5685185185185185,
+            "height": 0.0875
+          }
+        },
+        {
+          "id": "clip_bcf413cb_005640",
+          "filename": "clip_bcf413cb_005640.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_bcf413cb_005640.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_bcf413cb_005640.txt",
+          "source_video_id": "clip_bcf413cb",
+          "source_filename": "neo2.MOV",
+          "time_sec": 47.021702274293595,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.47867077883338244,
+            "y_center": 0.41369064168149466,
+            "width": 0.4680321713856418,
+            "height": 0.07754809830960852
+          }
+        },
+        {
+          "id": "clip_bcf413cb_005700",
+          "filename": "clip_bcf413cb_005700.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_bcf413cb_005700.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_bcf413cb_005700.txt",
+          "source_video_id": "clip_bcf413cb",
+          "source_filename": "neo2.MOV",
+          "time_sec": 47.521933149552034,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.35196173921831464,
+            "y_center": 0.38225645017793597,
+            "width": 0.3975277606136248,
+            "height": 0.0666703736654804
+          }
+        },
+        {
+          "id": "clip_bcf413cb_005760",
+          "filename": "clip_bcf413cb_005760.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_bcf413cb_005760.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_bcf413cb_005760.txt",
+          "source_video_id": "clip_bcf413cb",
+          "source_filename": "neo2.MOV",
+          "time_sec": 48.02216402481048,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.3696774085799886,
+            "y_center": 0.39326971196619215,
+            "width": 0.2835495419728983,
+            "height": 0.06175628336298933
+          }
+        },
+        {
+          "id": "clip_bcf413cb_005820",
+          "filename": "clip_bcf413cb_005820.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_bcf413cb_005820.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_bcf413cb_005820.txt",
+          "source_video_id": "clip_bcf413cb",
+          "source_filename": "neo2.MOV",
+          "time_sec": 48.52239490006892,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.44722222222222224,
+            "y_center": 0.3921875,
+            "width": 0.2833333333333333,
+            "height": 0.06145833333333333
+          }
+        },
+        {
+          "id": "clip_bcf413cb_005880",
+          "filename": "clip_bcf413cb_005880.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_bcf413cb_005880.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_bcf413cb_005880.txt",
+          "source_video_id": "clip_bcf413cb",
+          "source_filename": "neo2.MOV",
+          "time_sec": 49.02262577532736,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.5177712624663652,
+            "y_center": 0.3891306161032029,
+            "width": 0.32126637500022714,
+            "height": 0.05247720195729538
+          }
+        },
+        {
+          "id": "clip_bcf413cb_005940",
+          "filename": "clip_bcf413cb_005940.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_bcf413cb_005940.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_bcf413cb_005940.txt",
+          "source_video_id": "clip_bcf413cb",
+          "source_filename": "neo2.MOV",
+          "time_sec": 49.52285665058581,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.5157407407407407,
+            "y_center": 0.38697916666666665,
+            "width": 0.32037037037037036,
+            "height": 0.053125
+          }
+        },
+        {
+          "id": "clip_bcf413cb_006000",
+          "filename": "clip_bcf413cb_006000.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_bcf413cb_006000.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_bcf413cb_006000.txt",
+          "source_video_id": "clip_bcf413cb",
+          "source_filename": "neo2.MOV",
+          "time_sec": 50.02308752584425,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.5074927151100803,
+            "y_center": 0.4376598643238434,
+            "width": 0.337623101802777,
+            "height": 0.05424266014234874
+          }
+        },
+        {
+          "id": "clip_bcf413cb_006060",
+          "filename": "clip_bcf413cb_006060.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_bcf413cb_006060.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_bcf413cb_006060.txt",
+          "source_video_id": "clip_bcf413cb",
+          "source_filename": "neo2.MOV",
+          "time_sec": 50.52331840110269,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.5289331224860809,
+            "y_center": 0.5084832350978647,
+            "width": 0.32350245321115,
+            "height": 0.053471141014234946
+          }
+        },
+        {
+          "id": "clip_bcf413cb_006120",
+          "filename": "clip_bcf413cb_006120.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_bcf413cb_006120.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_bcf413cb_006120.txt",
+          "source_video_id": "clip_bcf413cb",
+          "source_filename": "neo2.MOV",
+          "time_sec": 51.02354927636113,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.575,
+            "y_center": 0.5166666666666667,
+            "width": 0.32407407407407407,
+            "height": 0.05416666666666667
+          }
+        },
+        {
+          "id": "clip_bcf413cb_006180",
+          "filename": "clip_bcf413cb_006180.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_bcf413cb_006180.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_bcf413cb_006180.txt",
+          "source_video_id": "clip_bcf413cb",
+          "source_filename": "neo2.MOV",
+          "time_sec": 51.523780151619576,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.5916666666666667,
+            "y_center": 0.49375,
+            "width": 0.32407407407407407,
+            "height": 0.05416666666666667
+          }
+        },
+        {
+          "id": "clip_bcf413cb_006240",
+          "filename": "clip_bcf413cb_006240.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_bcf413cb_006240.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_bcf413cb_006240.txt",
+          "source_video_id": "clip_bcf413cb",
+          "source_filename": "neo2.MOV",
+          "time_sec": 52.02401102687802,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.5675925925925925,
+            "y_center": 0.478125,
+            "width": 0.32407407407407407,
+            "height": 0.05416666666666667
+          }
+        },
+        {
+          "id": "clip_bcf413cb_006300",
+          "filename": "clip_bcf413cb_006300.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_bcf413cb_006300.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_bcf413cb_006300.txt",
+          "source_video_id": "clip_bcf413cb",
+          "source_filename": "neo2.MOV",
+          "time_sec": 52.52424190213646,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.5953703703703703,
+            "y_center": 0.50625,
+            "width": 0.32407407407407407,
+            "height": 0.05416666666666667
+          }
+        },
+        {
+          "id": "clip_bcf413cb_006360",
+          "filename": "clip_bcf413cb_006360.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_bcf413cb_006360.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_bcf413cb_006360.txt",
+          "source_video_id": "clip_bcf413cb",
+          "source_filename": "neo2.MOV",
+          "time_sec": 53.024472777394905,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.600925925925926,
+            "y_center": 0.4625,
+            "width": 0.32407407407407407,
+            "height": 0.05416666666666667
+          }
+        },
+        {
+          "id": "clip_bcf413cb_006420",
+          "filename": "clip_bcf413cb_006420.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_bcf413cb_006420.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_bcf413cb_006420.txt",
+          "source_video_id": "clip_bcf413cb",
+          "source_filename": "neo2.MOV",
+          "time_sec": 53.52470365265334,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.5583333333333333,
+            "y_center": 0.5145833333333333,
+            "width": 0.32407407407407407,
+            "height": 0.05416666666666667
+          }
+        },
+        {
+          "id": "clip_bcf413cb_006480",
+          "filename": "clip_bcf413cb_006480.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_bcf413cb_006480.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_bcf413cb_006480.txt",
+          "source_video_id": "clip_bcf413cb",
+          "source_filename": "neo2.MOV",
+          "time_sec": 54.02493452791179,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.5824074074074074,
+            "y_center": 0.475,
+            "width": 0.32407407407407407,
+            "height": 0.05416666666666667
+          }
+        },
+        {
+          "id": "clip_bcf413cb_006540",
+          "filename": "clip_bcf413cb_006540.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_bcf413cb_006540.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_bcf413cb_006540.txt",
+          "source_video_id": "clip_bcf413cb",
+          "source_filename": "neo2.MOV",
+          "time_sec": 54.52516540317023,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.6204640808547285,
+            "y_center": 0.4748978258451957,
+            "width": 0.23653012942720064,
+            "height": 0.043448342971530274
+          }
+        },
+        {
+          "id": "clip_bcf413cb_006600",
+          "filename": "clip_bcf413cb_006600.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_bcf413cb_006600.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_bcf413cb_006600.txt",
+          "source_video_id": "clip_bcf413cb",
+          "source_filename": "neo2.MOV",
+          "time_sec": 55.02539627842867,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.6314814814814815,
+            "y_center": 0.465625,
+            "width": 0.23703703703703705,
+            "height": 0.04375
+          }
+        },
+        {
+          "id": "clip_bcf413cb_006660",
+          "filename": "clip_bcf413cb_006660.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_bcf413cb_006660.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_bcf413cb_006660.txt",
+          "source_video_id": "clip_bcf413cb",
+          "source_filename": "neo2.MOV",
+          "time_sec": 55.52562715368712,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.657458203521069,
+            "y_center": 0.4522631227758007,
+            "width": 0.1733887165209841,
+            "height": 0.02584241548042704
+          }
+        },
+        {
+          "id": "clip_bcf413cb_006720",
+          "filename": "clip_bcf413cb_006720.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_bcf413cb_006720.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_bcf413cb_006720.txt",
+          "source_video_id": "clip_bcf413cb",
+          "source_filename": "neo2.MOV",
+          "time_sec": 56.02585802894556,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.6555555555555556,
+            "y_center": 0.4473958333333333,
+            "width": 0.17407407407407408,
+            "height": 0.026041666666666668
+          }
+        },
+        {
+          "id": "clip_bcf413cb_006780",
+          "filename": "clip_bcf413cb_006780.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_bcf413cb_006780.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_bcf413cb_006780.txt",
+          "source_video_id": "clip_bcf413cb",
+          "source_filename": "neo2.MOV",
+          "time_sec": 56.526088904204,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.6425925925925926,
+            "y_center": 0.45677083333333335,
+            "width": 0.17407407407407408,
+            "height": 0.026041666666666668
+          }
+        },
+        {
+          "id": "clip_bcf413cb_006840",
+          "filename": "clip_bcf413cb_006840.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_bcf413cb_006840.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_bcf413cb_006840.txt",
+          "source_video_id": "clip_bcf413cb",
+          "source_filename": "neo2.MOV",
+          "time_sec": 57.02631977946244,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.6092592592592593,
+            "y_center": 0.45677083333333335,
+            "width": 0.17407407407407408,
+            "height": 0.026041666666666668
+          }
+        },
+        {
+          "id": "clip_bcf413cb_006900",
+          "filename": "clip_bcf413cb_006900.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_bcf413cb_006900.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_bcf413cb_006900.txt",
+          "source_video_id": "clip_bcf413cb",
+          "source_filename": "neo2.MOV",
+          "time_sec": 57.526550654720886,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.5703703703703704,
+            "y_center": 0.4453125,
+            "width": 0.17407407407407408,
+            "height": 0.026041666666666668
+          }
+        },
+        {
+          "id": "clip_bcf413cb_006960",
+          "filename": "clip_bcf413cb_006960.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_bcf413cb_006960.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_bcf413cb_006960.txt",
+          "source_video_id": "clip_bcf413cb",
+          "source_filename": "neo2.MOV",
+          "time_sec": 58.02678152997933,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.55,
+            "y_center": 0.44114583333333335,
+            "width": 0.17407407407407408,
+            "height": 0.026041666666666668
+          }
+        },
+        {
+          "id": "clip_bcf413cb_007020",
+          "filename": "clip_bcf413cb_007020.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_bcf413cb_007020.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_bcf413cb_007020.txt",
+          "source_video_id": "clip_bcf413cb",
+          "source_filename": "neo2.MOV",
+          "time_sec": 58.52701240523777,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.5388888888888889,
+            "y_center": 0.4390625,
+            "width": 0.17407407407407408,
+            "height": 0.026041666666666668
+          }
+        },
+        {
+          "id": "clip_bcf413cb_007080",
+          "filename": "clip_bcf413cb_007080.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_bcf413cb_007080.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_bcf413cb_007080.txt",
+          "source_video_id": "clip_bcf413cb",
+          "source_filename": "neo2.MOV",
+          "time_sec": 59.027243280496215,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.5277777777777778,
+            "y_center": 0.4359375,
+            "width": 0.17407407407407408,
+            "height": 0.026041666666666668
+          }
+        },
+        {
+          "id": "clip_bcf413cb_007140",
+          "filename": "clip_bcf413cb_007140.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_bcf413cb_007140.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_bcf413cb_007140.txt",
+          "source_video_id": "clip_bcf413cb",
+          "source_filename": "neo2.MOV",
+          "time_sec": 59.52747415575465,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.5333333333333333,
+            "y_center": 0.4348958333333333,
+            "width": 0.17407407407407408,
+            "height": 0.026041666666666668
+          }
+        },
+        {
+          "id": "clip_bcf413cb_007200",
+          "filename": "clip_bcf413cb_007200.jpg",
+          "url": "public/enemy_drones/enemy_20260802_104805_b94cef/frames/clip_bcf413cb_007200.jpg",
+          "label_url": "public/enemy_drones/enemy_20260802_104805_b94cef/labels/clip_bcf413cb_007200.txt",
+          "source_video_id": "clip_bcf413cb",
+          "source_filename": "neo2.MOV",
+          "time_sec": 60.0277050310131,
+          "width": 540,
+          "height": 960,
+          "status": "labeled",
+          "box": {
+            "x_center": 0.5370370370370371,
+            "y_center": 0.4328125,
+            "width": 0.17407407407407408,
+            "height": 0.026041666666666668
+          }
+        }
+      ],
+      "video_count": 2,
+      "frame_count": 179,
+      "labeled_frame_count": 179,
+      "review_frame_count": 0,
+      "skipped_frame_count": 0,
+      "negative_frame_count": 0,
+      "training_status": "dataset_ready",
+      "model_status": "not_trained",
+      "dataset_manifest": "public/enemy_drones/datasets/dataset_20260802_112232_74ce5b/dataset_manifest.json",
+      "notes": ""
+    }
+  ],
+  "training_message": "Enemy-drone detector trained and enabled for live patrol.",
+  "training_run_id": "enemy_yolo_20260802_112232_a73069",
+  "training": {
+    "version": 1,
+    "status": "trained",
+    "dataset_yaml": "/Users/yamromano/Documents/PythonF4/PythonF4/drone_phase1_replay_demo_20260706/viewer/public/enemy_drones/datasets/dataset_20260802_112232_74ce5b/data.yaml",
+    "base_model": "yolov8n.pt",
+    "best_model": "public/enemy_drones/training_runs/enemy_yolo_20260802_112232_a73069/best.pt",
+    "save_dir": "/Users/yamromano/Documents/PythonF4/PythonF4/drone_phase1_replay_demo_20260706/viewer/public/enemy_drones/training_runs/enemy_yolo_20260802_112232_a73069/ultralytics_runs/enemy_drone_detector",
+    "duration_seconds": 590.0446617603302,
+    "metrics": {
+      "precision": 0.9738517524397124,
+      "recall": 0.923406265797878,
+      "map50": 0.9664275908011435,
+      "map50_95": 0.513660933088486
+    },
+    "run_id": "enemy_yolo_20260802_112232_a73069",
+    "epochs": 50,
+    "imgsz": 640,
+    "batch": 8,
+    "device": "auto",
+    "log": "public/enemy_drones/training_runs/enemy_yolo_20260802_112232_a73069/train.log",
+    "finished_at": "2026-08-02 11:32:25"
+  },
+  "total_videos": 2,
+  "total_frames": 179,
+  "total_labeled_frames": 179,
+  "class_count": 1,
+  "training_log": "public/enemy_drones/training_runs/enemy_yolo_20260802_112232_a73069/train.log",
+  "training_summary": "public/enemy_drones/training_runs/enemy_yolo_20260802_112232_a73069/training_summary.json"
+}
